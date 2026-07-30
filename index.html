@@ -18542,12 +18542,47 @@ function showOrdersTab(tab, el){
   document.querySelectorAll('.orders-tab').forEach(t=>t.style.display='none');
   const tabEl = document.getElementById('orders-'+tab);
   if(tabEl) tabEl.style.display='block';
-  if(tab==='funnel')        renderCrmKanban();
+  if(tab==='funnel'){
+    // Мержим leadsData в crmLeads для воронки
+    loadLeadsFromDB().then(()=>{
+      leadsData.forEach(l=>{
+        if(!crmLeads.find(c=>c.name===l.name)){
+          crmLeads.push({
+            id: crmLeads.length+10000+Math.random(),
+            name: l.name,
+            phone: l.phone||'',
+            stage: l.status==='new'?'new':
+                   l.status==='contact'?'contacted':
+                   l.status==='meeting'?'meeting':
+                   l.status==='proposal'?'proposal':
+                   l.status==='won'?'won':'lost',
+            manager: l.manager||'',
+            interest: l.interest||'',
+            budget: l.budget||0,
+            source: l.source||'',
+          });
+        }
+      });
+      renderCrmKanban();
+    });
+  }
   if(tab==='orders-kanban') renderOrdersKanban();
   if(tab==='tasks')         renderTasks();
   if(tab==='report')        renderOrderReport();
-  if(tab==='clients')       loadCustomersFromDB().then(()=>renderClientsTab());
-  if(tab==='leads')         loadLeadsFromDB().then(()=>renderLeadsTab());
+  if(tab==='clients'){
+    loadCustomersFromDB().then(()=>{
+      renderClientsTab();
+      const e=document.getElementById('tab-count-clients');
+      if(e) e.textContent=personsData.length;
+    });
+  }
+  if(tab==='leads'){
+    loadLeadsFromDB().then(()=>{
+      renderLeadsTab();
+      const e=document.getElementById('tab-count-leads');
+      if(e) e.textContent=leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
+    });
+  }
 }
 
 function renderOrdersKanban(){
