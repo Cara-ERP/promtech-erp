@@ -9004,7 +9004,12 @@ function importSuppliersCSV(event){
 let supSeq = 1;
 let suppliersData = [];
 
-function supStatusLabel(s){ return s==='active'?'Активен':s==='pause'?'На паузе':'Заблокирован'; }
+function supStatusLabel(s){ 
+  if(s==='active'||s==='Активен') return 'Активен';
+  if(s==='pause'||s==='На паузе') return 'На паузе';
+  if(!s||s==='') return 'Активен';
+  return 'Заблокирован';
+}
 function supStatusCls(s)  { return s==='active'?'badge-green':s==='pause'?'badge-amber':'badge-red'; }
 
 function calcSupRating(sup){
