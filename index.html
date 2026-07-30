@@ -1191,7 +1191,7 @@ async function updateOrderInDB(num, fields){
 // Этот скрипт выполняется ДО рендера страницы.
 // Содержит всё необходимое для входа — доступен сразу при клике.
  var _USERS={
-  director:   {name:'Ержан Сейтқали', initials:'ЕС', color:'#4f8ef7', label:'Директор',
+  director:   {name:'Тургамбаев Булат Сагинтаевич', initials:'ТБ', color:'#4f8ef7', label:'Директор',
     pages:['dashboard','mrp','warehouse','purchases','suppliers','catalog','customers','crm','finance','money','channels','reconcile','hr','wages','techcards','mycabinet','ai']},
   manager:    {name:'Иванов И.И.',    initials:'ИИ', color:'#3dd68c', label:'Менеджер продаж',
     pages:['dashboard','catalog','customers','crm','mycabinet']},
@@ -11700,23 +11700,25 @@ function renderTimesheet(){
 
 
 let payrollStaff = [
-  // Производственные (сдельщики)
-  {id:1,  name:'Иванов Игорь Иванович',       pos:'Сборщик 5р',       salary:0,      pin:1101, color:'rgba(61,214,140,.15)',  tc:'var(--green)'},
-  {id:2,  name:'Петров Сергей Александрович',  pos:'Столяр 4р',        salary:0,      pin:1102, color:'rgba(79,142,247,.15)',  tc:'var(--accent)'},
-  {id:3,  name:'Нурланов Асет Маратович',      pos:'Столяр 5р',        salary:0,      pin:1103, color:'rgba(167,139,250,.15)', tc:'var(--purple)'},
-  {id:4,  name:'Козлов Дмитрий Олегович',      pos:'Сборщик 4р',       salary:0,      pin:1104, color:'rgba(245,166,35,.15)',  tc:'var(--amber)'},
-  {id:5,  name:'Сидоров Михаил Викторович',    pos:'Обивщик 5р',       salary:0,      pin:1105, color:'rgba(244,63,94,.15)',   tc:'var(--red)'},
-  {id:6,  name:'Жумабаев Руслан Ерланович',    pos:'Обивщик 4р',       salary:0,      pin:1106, color:'rgba(56,189,248,.15)',  tc:'var(--accent)'},
-  {id:7,  name:'Алиев Бауржан Серикович',      pos:'Маляр 4р',         salary:0,      pin:1107, color:'rgba(16,185,129,.15)',  tc:'var(--green)'},
-  {id:8,  name:'Ермеков Даулет Нурланович',    pos:'Сборщик 4р',       salary:0,      pin:1108, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
+  // Производственные (сдельщики) — из файла Должности_и_ФИО.xlsx
+  {id:1,  name:'Адамбаев Еркин Кудайбергенович',    pos:'Сборщик стульев',         salary:0, pin:1101, color:'rgba(61,214,140,.15)',  tc:'var(--green)'},
+  {id:2,  name:'Айтбаев Нурлан Болатович',           pos:'Сборщик столов',          salary:0, pin:1102, color:'rgba(79,142,247,.15)',  tc:'var(--accent)'},
+  {id:3,  name:'Алибаев Бауржан Манапович',          pos:'Сборщик корпусной мебели',salary:0, pin:1103, color:'rgba(167,139,250,.15)', tc:'var(--purple)'},
+  {id:4,  name:'Аралбаев Габит Кыдыралиевич',        pos:'Маляр',                   salary:0, pin:1104, color:'rgba(245,166,35,.15)',  tc:'var(--amber)'},
+  {id:5,  name:'Бактыбаев Айболат Сыпабекович',      pos:'Столяр',                  salary:0, pin:1105, color:'rgba(244,63,94,.15)',   tc:'var(--red)'},
+  {id:6,  name:'Валиханов Талгат Сапарбаевич',       pos:'Маляр',                   salary:0, pin:1106, color:'rgba(56,189,248,.15)',  tc:'var(--accent)'},
+  {id:7,  name:'Габитов Нуржан Габитулы',            pos:'Обтяжник',                salary:0, pin:1107, color:'rgba(16,185,129,.15)',  tc:'var(--green)'},
+  {id:8,  name:'Демесинов Нуржан Еркелдиевич',       pos:'Столяр',                  salary:0, pin:1108, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
+  {id:16, name:'Медеубаев Есжан Бахытулы',           pos:'Мастер шпонирования',     salary:0, pin:1109, color:'rgba(79,142,247,.15)',  tc:'var(--accent)'},
+  {id:17, name:'Пак Роберт Анатольевич',             pos:'Мастер шпонирования',     salary:0, pin:1110, color:'rgba(167,139,250,.15)', tc:'var(--purple)'},
   // АУП — оклад
-  {id:9,  name:'Тургамбаев Булат Сагинтаевич', pos:'Директор',           salary:350000, pin:9001, color:'rgba(79,142,247,.2)',   tc:'var(--accent)'},
-  {id:10, name:'Болысбеков Ерлан Кенесбекович', pos:'Главный бухгалтер',  salary:180000, pin:9002, color:'rgba(244,63,94,.15)',   tc:'var(--red)'},
-  {id:11, name:'Алтыбасова Акерке Мажитбеккызы',pos:'Бухгалтер',         salary:150000, pin:9003, color:'rgba(61,214,140,.15)',  tc:'var(--green)'},
-  {id:12, name:'Молдахова Сания Мактабековна',   pos:'Бухгалтер / HR',    salary:150000, pin:9007, color:'rgba(236,72,153,.15)',  tc:'var(--red)'},
-  {id:13, name:'Нысанов Равиль Мартаович',       pos:'Финансовый директор',salary:300000, pin:9004, color:'rgba(167,139,250,.15)', tc:'var(--purple)'},
-  {id:14, name:'Алимов Шынгыс Айтжанулы',        pos:'Начальник цеха',    salary:220000, pin:9005, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
-  {id:15, name:'Угламова Халидам Абдувалиевна',  pos:'Кладовщик',         salary:110000, pin:9006, color:'rgba(56,189,248,.15)',  tc:'var(--accent)'},
+  {id:9,  name:'Тургамбаев Булат Сагинтаевич',       pos:'Директор',                salary:350000, pin:9001, color:'rgba(79,142,247,.2)',   tc:'var(--accent)'},
+  {id:10, name:'Болысбеков Ерлан Кенесбекович',      pos:'Главный бухгалтер',       salary:180000, pin:9002, color:'rgba(244,63,94,.15)',   tc:'var(--red)'},
+  {id:11, name:'Алтыбасова Акерке Мажитбеккызы',    pos:'Бухгалтер',               salary:150000, pin:9003, color:'rgba(61,214,140,.15)',  tc:'var(--green)'},
+  {id:12, name:'Молдахова Сания Мактабековна',        pos:'Бухгалтер / HR',          salary:150000, pin:9007, color:'rgba(236,72,153,.15)',  tc:'var(--red)'},
+  {id:13, name:'Нысанов Равиль Мартаович',           pos:'Финансовый директор',     salary:300000, pin:9004, color:'rgba(167,139,250,.15)', tc:'var(--purple)'},
+  {id:14, name:'Алимов Шынгыс Айтжанулы',           pos:'Начальник цеха',          salary:220000, pin:9005, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
+  {id:15, name:'Угламова Халидам Абдувалиевна',      pos:'Кладовщик',               salary:110000, pin:9006, color:'rgba(56,189,248,.15)',  tc:'var(--accent)'},
 ];
 
 // Wage payment history per employee {empId, date, amount, method, comment}
