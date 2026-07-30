@@ -1360,6 +1360,12 @@ function doLogin(){
   // Скрываем кнопку производственного заказа для дилеров и салонов
   const prodBtn=document.getElementById('topbar-prod-order-btn');
   if(prodBtn) prodBtn.style.display=role.channel?'none':'';
+  // Скрываем вкладки Клиенты и Лиды для дилеров
+  const isDealer = role.channel?.startsWith('dealer_');
+  const cliTab=document.getElementById('crm-tab-clients');
+  const ledTab=document.getElementById('crm-tab-leads');
+  if(cliTab) cliTab.style.display=isDealer?'none':'';
+  if(ledTab) ledTab.style.display=isDealer?'none':'';
   if(role.channel){
     setTimeout(function(){
       const isDlr=role.channel.startsWith('dealer_');
@@ -2919,14 +2925,15 @@ window.onerror = function(msg, src, line, col){
         </div>
       </div>
       <div class="tabs">
-        <div class="tab active" onclick="showOrdersTab('all-orders',this)">Все заказы (<span id="tab-count-all">6</span>)</div>
-        <div class="tab" onclick="showOrdersTab('all-items',this)">Все товары (<span id="tab-count-items">9</span>)</div>
-        <div class="tab" onclick="showOrdersTab('queue',this)">В очереди (<span id="tab-count-queue">1</span>)</div>
-        <div class="tab" onclick="showOrdersTab('progress',this)">В работе (<span id="tab-count-progress">3</span>)</div>
-        <div class="tab" onclick="showOrdersTab('done',this)">Завершено (<span id="tab-count-done">2</span>)</div>
-        <div class="tab" data-tab="funnel" onclick="showOrdersTab('funnel',this)">🎯 Воронка</div>
+        <div class="tab active" onclick="showOrdersTab('all-orders',this)">📋 Заказы (<span id="tab-count-all">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('queue',this)">⏳ Очередь (<span id="tab-count-queue">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('progress',this)">🔧 В работе (<span id="tab-count-progress">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('done',this)">✅ Завершено (<span id="tab-count-done">0</span>)</div>
+        <div class="tab" id="crm-tab-clients" onclick="showOrdersTab('clients',this)">👥 Клиенты (<span id="tab-count-clients">0</span>)</div>
+        <div class="tab" id="crm-tab-leads" onclick="showOrdersTab('leads',this)">🎯 Лиды (<span id="tab-count-leads">0</span>)</div>
+        <div class="tab" data-tab="funnel" onclick="showOrdersTab('funnel',this)">📊 Воронка</div>
         <div class="tab" data-tab="tasks" onclick="showOrdersTab('tasks',this)">✅ Задачи <span class="kanban-count" id="tasks-open-count">0</span></div>
-        <div class="tab" data-tab="report" onclick="showOrdersTab('report',this)">📋 Отчёт по заказам</div>
+        <div class="tab" data-tab="report" onclick="showOrdersTab('report',this)">📈 Отчёт</div>
       </div>
 
       <!-- TAB: Margin report -->
@@ -3105,6 +3112,120 @@ window.onerror = function(msg, src, line, col){
           </table>
         </div>
       </div>
+
+      <!-- TAB: Клиенты -->
+      <div class="orders-tab" id="orders-clients" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input type="search" id="clients-search" placeholder="🔍 Поиск по имени, телефону..."
+            style="font-size:13px;flex:1;max-width:280px" oninput="renderClientsTab()">
+          <select id="clients-type-filter" onchange="renderClientsTab()" style="font-size:13px">
+            <option value="all">Все клиенты</option>
+            <option value="permanent">⭐ Постоянные</option>
+            <option value="new">Новые</option>
+          </select>
+          <span id="clients-count" style="font-size:12px;color:var(--text3)"></span>
+          <button class="btn btn-primary btn-sm" onclick="openPersonModal(null,'office')">+ Новый клиент</button>
+        </div>
+        <!-- KPI -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px" id="clients-kpi"></div>
+        <div class="card" style="padding:0">
+          <table class="data-table">
+            <thead><tr>
+              <th>Клиент</th>
+              <th>Телефон</th>
+              <th>Адрес</th>
+              <th style="text-align:right">Заказов</th>
+              <th style="text-align:right">Сумма покупок</th>
+              <th>Статус</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="clients-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB: Лиды -->
+      <div class="orders-tab" id="orders-leads" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input type="search" id="leads-search" placeholder="🔍 Поиск..."
+            style="font-size:13px;flex:1;max-width:280px" oninput="renderLeadsTab()">
+          <select id="leads-status-filter" onchange="renderLeadsTab()" style="font-size:13px">
+            <option value="all">Все статусы</option>
+            <option value="new">🆕 Новый</option>
+            <option value="contact">📞 Контакт</option>
+            <option value="meeting">🤝 Встреча</option>
+            <option value="proposal">📄 КП отправлено</option>
+            <option value="won">✅ Выиграли</option>
+            <option value="lost">❌ Проиграли</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="openLeadModal(null)">+ Новый лид</button>
+        </div>
+        <div id="leads-body"></div>
+      </div>
+
+      <!-- MODAL: Лид -->
+      <div class="modal-overlay" id="leadModal">
+        <div class="modal" style="max-width:500px">
+          <div class="modal-header">
+            <span class="modal-title" id="lead-modal-title">Новый лид</span>
+            <button class="modal-close" onclick="closeModal('leadModal')">✕</button>
+          </div>
+          <div style="display:grid;gap:12px">
+            <div class="form-row">
+              <label class="label">Имя / Компания *</label>
+              <input id="lead-name" type="text" placeholder="Иванов Иван">
+            </div>
+            <div class="form-row cols-2">
+              <div>
+                <label class="label">Телефон</label>
+                <input id="lead-phone" type="text" placeholder="+7 700 000 0000">
+              </div>
+              <div>
+                <label class="label">Статус</label>
+                <select id="lead-status">
+                  <option value="new">🆕 Новый</option>
+                  <option value="contact">📞 Контакт установлен</option>
+                  <option value="meeting">🤝 Встреча</option>
+                  <option value="proposal">📄 КП отправлено</option>
+                  <option value="won">✅ Выиграли</option>
+                  <option value="lost">❌ Проиграли</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row cols-2">
+              <div>
+                <label class="label">Интересует</label>
+                <input id="lead-interest" type="text" placeholder="Стулья, диван...">
+              </div>
+              <div>
+                <label class="label">Бюджет (₸)</label>
+                <input id="lead-budget" type="number" placeholder="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <label class="label">Источник</label>
+              <select id="lead-source">
+                <option value="instagram">Instagram</option>
+                <option value="referral">Рекомендация</option>
+                <option value="walk-in">Зашёл сам</option>
+                <option value="call">Звонок</option>
+                <option value="site">Сайт</option>
+                <option value="other">Другое</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label class="label">Комментарий</label>
+              <input id="lead-comment" type="text" placeholder="Заметки...">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-ghost" onclick="closeModal('leadModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveLead()">💾 Сохранить</button>
+          </div>
+          <input type="hidden" id="lead-edit-id">
+        </div>
+      </div>
+
     </div>
 
     <!-- MODAL: Fixed cost item (add/edit) -->
@@ -18385,21 +18506,266 @@ function renderOrders(){
     });
   });
 
-  document.getElementById('tab-count-all').textContent=visibleOrders.length;
-  document.getElementById('tab-count-items').textContent=itemsCount;
-  document.getElementById('tab-count-queue').textContent=statusCounts.queue||0;
-  document.getElementById('tab-count-progress').textContent=statusCounts.progress||0;
-  document.getElementById('tab-count-done').textContent=statusCounts.done||0;
+  const setCount=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  setCount('tab-count-all',      visibleOrders.length);
+  setCount('tab-count-items',    itemsCount);
+  setCount('tab-count-queue',    statusCounts.queue||0);
+  setCount('tab-count-progress', statusCounts.progress||0);
+  setCount('tab-count-done',     statusCounts.done||0);
+  setCount('tab-count-clients',  personsData.length);
+  setCount('tab-count-leads',    leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length);
 }
 
 function showOrdersTab(tab, el){
   document.querySelectorAll('#page-crm .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
   document.querySelectorAll('.orders-tab').forEach(t=>t.style.display='none');
-  document.getElementById('orders-'+tab).style.display='block';
-  if(tab==='funnel') renderCrmKanban();
-  if(tab==='tasks')  renderTasks();
-  if(tab==='report') renderOrderReport();
+  const tabEl = document.getElementById('orders-'+tab);
+  if(tabEl) tabEl.style.display='block';
+  if(tab==='funnel')  renderCrmKanban();
+  if(tab==='tasks')   renderTasks();
+  if(tab==='report')  renderOrderReport();
+  if(tab==='clients') renderClientsTab();
+  if(tab==='leads')   renderLeadsTab();
+}
+
+// ════════════════════════════════════════════════════════════════
+// КЛИЕНТЫ
+// ════════════════════════════════════════════════════════════════
+
+function renderClientsTab(){
+  const search = (document.getElementById('clients-search')?.value||'').toLowerCase();
+  const typeF  = document.getElementById('clients-type-filter')?.value||'all';
+
+  // Берём клиентов из personsData (загружены из Supabase)
+  const ch = getChannelFilter();
+  let clients = personsData.filter(p=>!ch || p.source===ch || !p.source);
+
+  if(search) clients = clients.filter(p=>
+    p.name.toLowerCase().includes(search) ||
+    (p.phone||'').includes(search));
+
+  if(typeF==='permanent') clients = clients.filter(p=>(p.comment||'').includes('Постоянный'));
+  if(typeF==='new')       clients = clients.filter(p=>!(p.comment||'').includes('Постоянный'));
+
+  // KPI
+  const kpiEl = document.getElementById('clients-kpi');
+  if(kpiEl){
+    const permanent = personsData.filter(p=>(p.comment||'').includes('Постоянный')).length;
+    // Считаем обороты по заказам
+    const clientOrders = {};
+    ordersData.forEach(o=>{
+      if(!clientOrders[o.customer]) clientOrders[o.customer]={count:0,sum:0};
+      clientOrders[o.customer].count++;
+      clientOrders[o.customer].sum += orderTotal(o)||0;
+    });
+    const totalSum = Object.values(clientOrders).reduce((s,c)=>s+c.sum,0);
+
+    kpiEl.innerHTML=[
+      {label:'Всего клиентов', value:personsData.length, color:'var(--accent)'},
+      {label:'Постоянных',     value:permanent,           color:'var(--green)'},
+      {label:'С заказами',     value:Object.keys(clientOrders).length, color:'var(--amber)'},
+      {label:'Общий оборот',   value:'₸'+Math.round(totalSum/1000)+'К', color:'var(--purple)'},
+    ].map(k=>`<div class="card" style="padding:14px 16px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
+      <div style="font-size:20px;font-weight:700;color:${k.color}">${k.value}</div>
+    </div>`).join('');
+  }
+
+  const countEl = document.getElementById('clients-count');
+  if(countEl) countEl.textContent = clients.length + ' клиентов';
+
+  const tbody = document.getElementById('clients-tbody');
+  if(!tbody) return;
+
+  // Считаем заказы по клиентам
+  const clientOrders = {};
+  ordersData.forEach(o=>{
+    if(!clientOrders[o.customer]) clientOrders[o.customer]={count:0,sum:0};
+    clientOrders[o.customer].count++;
+    clientOrders[o.customer].sum += orderTotal(o)||0;
+  });
+
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+
+  tbody.innerHTML = clients.map(p=>{
+    const stat = clientOrders[p.name]||{count:0,sum:0};
+    const isPermanent = (p.comment||'').includes('Постоянный');
+    return `<tr onclick="openPersonModal(${p.id})" style="cursor:pointer">
+      <td>
+        <div style="font-weight:600">${p.name}</div>
+        ${isPermanent?'<span class="badge badge-green" style="font-size:10px">⭐ Постоянный</span>':''}
+      </td>
+      <td style="font-size:13px">${p.phone||'—'}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.idNum||'—'}</td>
+      <td style="text-align:right;font-family:monospace">${stat.count||'—'}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">
+        ${stat.sum>0?fmt(stat.sum):'—'}</td>
+      <td>
+        ${stat.count>0
+          ?'<span class="badge badge-green" style="font-size:10px">Клиент</span>'
+          :'<span class="badge" style="font-size:10px;background:var(--bg3)">Без заказов</span>'}
+      </td>
+      <td>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px"
+          onclick="event.stopPropagation();openPersonModal(${p.id})">✏️</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Нет клиентов</td></tr>';
+}
+
+// ════════════════════════════════════════════════════════════════
+// ЛИДЫ
+// ════════════════════════════════════════════════════════════════
+
+let leadsData = [];
+
+const LEAD_STATUSES = {
+  new:      {label:'🆕 Новый',              color:'var(--accent)'},
+  contact:  {label:'📞 Контакт',            color:'var(--amber)'},
+  meeting:  {label:'🤝 Встреча',            color:'#8b5cf6'},
+  proposal: {label:'📄 КП отправлено',      color:'#0ea5e9'},
+  won:      {label:'✅ Выиграли',           color:'var(--green)'},
+  lost:     {label:'❌ Проиграли',          color:'var(--red)'},
+};
+
+const LEAD_SOURCES = {
+  instagram:'Instagram', referral:'Рекомендация',
+  'walk-in':'Зашёл сам', call:'Звонок',
+  site:'Сайт', other:'Другое',
+};
+
+function renderLeadsTab(){
+  const search = (document.getElementById('leads-search')?.value||'').toLowerCase();
+  const statusF = document.getElementById('leads-status-filter')?.value||'all';
+
+  let leads = leadsData;
+  if(search) leads = leads.filter(l=>
+    l.name.toLowerCase().includes(search)||
+    (l.phone||'').includes(search)||
+    (l.interest||'').toLowerCase().includes(search));
+  if(statusF!=='all') leads = leads.filter(l=>l.status===statusF);
+
+  const body = document.getElementById('leads-body');
+  if(!body) return;
+
+  const countEl = document.getElementById('tab-count-leads');
+  if(countEl) countEl.textContent = leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
+
+  if(!leads.length){
+    body.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text3)">
+      ${leadsData.length===0
+        ?'Лидов пока нет. Нажмите «+ Новый лид» чтобы добавить.'
+        :'Ничего не найдено'}
+    </div>`;
+    return;
+  }
+
+  const fmt = n=>n?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
+
+  body.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">
+    ${leads.map(l=>{
+      const st = LEAD_STATUSES[l.status]||LEAD_STATUSES.new;
+      return `<div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);
+          display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:600">${l.name}</div>
+          <span style="font-size:11px;padding:2px 8px;border-radius:10px;
+            background:${st.color}22;color:${st.color}">${st.label}</span>
+        </div>
+        <div style="padding:12px 14px;font-size:13px">
+          ${l.phone?`<div style="margin-bottom:4px">📞 ${l.phone}</div>`:''}
+          ${l.interest?`<div style="margin-bottom:4px;color:var(--text2)">💡 ${l.interest}</div>`:''}
+          ${l.budget?`<div style="margin-bottom:4px;color:var(--green)">💰 ${fmt(l.budget)}</div>`:''}
+          ${l.source?`<div style="font-size:11px;color:var(--text3)">Источник: ${LEAD_SOURCES[l.source]||l.source}</div>`:''}
+          ${l.comment?`<div style="font-size:12px;color:var(--text3);margin-top:4px">${l.comment}</div>`:''}
+        </div>
+        <div style="padding:8px 14px;border-top:1px solid var(--border);
+          display:flex;gap:6px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="openLeadModal('${l.id}')">✏️ Изменить</button>
+          ${l.status!=='won'&&l.status!=='lost'
+            ?`<button class="btn btn-primary btn-sm" onclick="convertLeadToClient('${l.id}')">→ Клиент</button>`
+            :''}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function openLeadModal(id){
+  const lead = id ? leadsData.find(l=>l.id===id) : null;
+  document.getElementById('lead-modal-title').textContent = lead?'Редактировать лид':'Новый лид';
+  document.getElementById('lead-name').value    = lead?.name||'';
+  document.getElementById('lead-phone').value   = lead?.phone||'';
+  document.getElementById('lead-status').value  = lead?.status||'new';
+  document.getElementById('lead-interest').value= lead?.interest||'';
+  document.getElementById('lead-budget').value  = lead?.budget||'';
+  document.getElementById('lead-source').value  = lead?.source||'other';
+  document.getElementById('lead-comment').value = lead?.comment||'';
+  document.getElementById('lead-edit-id').value = lead?.id||'';
+  showModal('leadModal');
+}
+
+function saveLead(){
+  const id   = document.getElementById('lead-edit-id').value;
+  const name = document.getElementById('lead-name').value.trim();
+  if(!name){ alert('Введите имя'); return; }
+
+  const lead = {
+    id:       id||Date.now().toString(),
+    name,
+    phone:    document.getElementById('lead-phone').value.trim(),
+    status:   document.getElementById('lead-status').value,
+    interest: document.getElementById('lead-interest').value.trim(),
+    budget:   parseFloat(document.getElementById('lead-budget').value)||0,
+    source:   document.getElementById('lead-source').value,
+    comment:  document.getElementById('lead-comment').value.trim(),
+    created:  new Date().toLocaleDateString('ru-RU'),
+  };
+
+  if(id){
+    const idx = leadsData.findIndex(l=>l.id===id);
+    if(idx>=0) leadsData[idx]=lead;
+  } else {
+    leadsData.push(lead);
+  }
+  closeModal('leadModal');
+  renderLeadsTab();
+
+  // Обновляем счётчик
+  const countEl = document.getElementById('tab-count-leads');
+  if(countEl) countEl.textContent = leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
+}
+
+function convertLeadToClient(id){
+  const lead = leadsData.find(l=>l.id===id);
+  if(!lead) return;
+  if(!confirm(`Перевести "${lead.name}" в клиенты?`)) return;
+
+  // Добавляем в personsData
+  personsData.push({
+    id: personSeq++,
+    name: lead.name,
+    phone: lead.phone||'',
+    type: 'client',
+    source: getChannelFilter()||'office',
+    comment: 'Был лид → стал клиентом',
+  });
+
+  // Сохраняем в Supabase
+  sbInsert('customers',{
+    name: lead.name, phone: lead.phone||'',
+    channel: getChannelFilter()||'office',
+    comment: 'Конвертирован из лида',
+    type: 'client',
+  }).catch(e=>console.warn(e));
+
+  // Обновляем статус лида
+  lead.status = 'won';
+  renderLeadsTab();
+  renderClientsTab();
+
+  alert(`✅ ${lead.name} добавлен в клиенты!`);
 }
 
 // ── Отчёт по заказам: сортировка ────────────────────────────────────────────
