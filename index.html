@@ -3935,7 +3935,7 @@ window.onerror = function(msg, src, line, col){
           <div><label class="label">% оплаты заказа</label><input id="eo-payment" type="number" min="0" max="100"></div>
         </div>
         <div class="form-row cols-2">
-          <div><label class="label">Ответственный</label><select id="eo-resp"><option>Иванов И.И.</option><option>Петров С.А.</option><option>Сидоров М.В.</option><option>Козлов Д.О.</option></select></div>
+          <div><label class="label">Ответственный</label><select id="eo-resp"></select></div>
           <div><label class="label">Статус заказа</label><select id="eo-status" onchange="onEoStatusChange()">
             <option value="queue">В очереди</option>
             <option value="progress">В работе</option>
@@ -22674,7 +22674,11 @@ function openNewCustOrderModal(){
     if(typeRow) typeRow.style.display='';
     if(respRow) respRow.style.display='';
     if(designerRow) designerRow.style.display='none';
-    ['Иванов И.И.','Петров С.А.','Сидоров М.В.','Козлов Д.О.'].forEach(name=>{
+    // Берём реальных менеджеров продаж из payrollStaff
+    const mgrs = payrollStaff.filter(s=>s.salary>0&&(
+      s.pos.toLowerCase().includes('менедж')||s.pos.toLowerCase().includes('продаж')
+    ));
+    (mgrs.length ? mgrs.map(s=>s.name) : ['Иванов И.И.','Петров С.А.']).forEach(name=>{
       const o=document.createElement('option');
       o.value=name; o.textContent=name;
       respSel.appendChild(o);
@@ -22857,6 +22861,33 @@ function openEditOrderModal(orderNum, targetItemIdx){
   document.getElementById('eo-date').value=isoFromDisplayDate(order.date);
   document.getElementById('eo-delivery-date').value=isoFromDisplayDate(order.deliveryDate||'');
   document.getElementById('eo-comment').value=order.comment||'';
+  // Заполняем список менеджеров динамически
+  const eoResp = document.getElementById('eo-resp');
+  if(eoResp){
+    const ch = order.channel||'office';
+    const isSalon = ch.startsWith('salon_');
+    const isDealer = ch.startsWith('dealer_');
+    eoResp.innerHTML = '';
+    if(isSalon){
+      const sName = ch==='salon_armada'?'Армада':'Назарбаева';
+      (salonsData[sName]?.sellers||[]).forEach(s=>{
+        const o=document.createElement('option'); o.value=s.name; o.textContent=s.name; eoResp.appendChild(o);
+      });
+    } else if(isDealer){
+      const o=document.createElement('option'); o.value=order.resp||''; o.textContent=order.resp||'—'; eoResp.appendChild(o);
+    } else {
+      // Офисные менеджеры из payrollStaff (АУП)
+      payrollStaff.filter(s=>s.salary>0&&s.pos.toLowerCase().includes('менедж')).forEach(s=>{
+        const o=document.createElement('option'); o.value=s.name; o.textContent=s.name; eoResp.appendChild(o);
+      });
+      // Если список пустой — показываем всех АУП
+      if(!eoResp.options.length){
+        ['Иванов И.И.','Петров С.А.','Сидоров М.В.','Козлов Д.О.'].forEach(name=>{
+          const o=document.createElement('option'); o.value=name; o.textContent=name; eoResp.appendChild(o);
+        });
+      }
+    }
+  }
   document.getElementById('eo-resp').value=order.resp;
   document.getElementById('eo-payment').value=order.payment;
   document.getElementById('eo-status').value=order.status;
