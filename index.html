@@ -18801,16 +18801,22 @@ function renderSalesJournal(){
   };
 
   // Собираем строки — каждая позиция заказа отдельной строкой
+  let skipped = 0;
   const rows = [];
   ordersData.forEach(order=>{
     // Фильтр канала
     if(chFilter && order.channel !== chFilter) return;
     if(channel && order.channel !== channel) return;
 
+    // Пропускаем заказы без даты
+    const rawDate = order.date||order.createdDate||'';
+    if(!rawDate || rawDate === '—') { skipped++; return; }
+
     // Фильтр дат
-    const d = parseDMY(order.date||order.createdDate||'');
-    if(dateFrom && d && d < dateFrom) return;
-    if(dateTo   && d && d > dateTo)   return;
+    const d = parseDMY(rawDate);
+    if(!d) { skipped++; return; }
+    if(dateFrom && d < dateFrom) return;
+    if(dateTo   && d > dateTo)   return;
 
     const items = order.items?.length ? order.items : [{name:'—', qty:1, price:orderTotal(order)}];
     items.forEach(item=>{
@@ -18843,8 +18849,9 @@ function renderSalesJournal(){
   const totalSum  = rows.reduce((s,r)=>s+r.total, 0);
   const totalPaid = rows.reduce((s,r)=>s+r.paid, 0);
   const totalsEl  = document.getElementById('sj-totals');
-  if(totalsEl) totalsEl.textContent =
-    `${rows.length} позиций · Сумма: ${fmt(totalSum)} · Оплачено: ${fmt(totalPaid)}`;
+  if(totalsEl) totalsEl.innerHTML =
+    `${rows.length} позиций · Сумма: ${fmt(totalSum)} · Оплачено: ${fmt(totalPaid)}` +
+    (skipped>0 ? ` <span style="color:var(--amber)">· ⚠️ ${skipped} заказов без даты (не включены)</span>` : '');
 
   tbody.innerHTML = rows.map((r,i)=>`<tr>
     <td style="color:var(--text3);font-size:12px">${i+1}</td>
