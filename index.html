@@ -15829,112 +15829,131 @@ function resolveAlias(name){
 }
 
 // ── Рендер справочника алиасов ────────────────────────────────────────────────
+async function loadAliasesFromDB(){
+  try {
+    const data = await sbFetch('material_aliases','select=*&order=material_name,alias_name');
+    if(data && data.length > 0){
+      materialAliases = data.map(a=>({
+        id:           a.id,
+        materialId:   null, // не используем числовой id
+        name:         a.alias_name,
+        materialName: a.material_name,
+        category:     a.category||'',
+      }));
+      console.log('✅ Алиасы загружены: '+data.length);
+    }
+    return true;
+  } catch(e){
+    console.warn('⚠️ Ошибка загрузки алиасов:', e.message);
+    return false;
+  }
+}
+
 function renderAliases(){
   const body = document.getElementById('wh-aliases-body');
   if(!body) return;
   const q = (document.getElementById('alias-search')?.value||'').toLowerCase();
 
-  // Группируем по materialId
-  const byMat = {};
+  // Группируем по основному наименованию
+  const byMain = {};
   materialAliases.forEach(a=>{
     if(q && !a.name.toLowerCase().includes(q) &&
-       !warehouseData.find(w=>w.id===a.materialId)?.name.toLowerCase().includes(q)) return;
-    if(!byMat[a.materialId]) byMat[a.materialId]=[];
-    byMat[a.materialId].push(a);
+       !a.materialName.toLowerCase().includes(q)) return;
+    if(!byMain[a.materialName]) byMain[a.materialName] = {cat: a.category, aliases: []};
+    byMain[a.materialName].aliases.push(a);
   });
 
-  // Также показываем материалы без алиасов
-  warehouseData.forEach(w=>{
-    if(!byMat[w.id] && (!q||w.name.toLowerCase().includes(q))){
-      byMat[w.id]=[];
-    }
-  });
-
-  if(!Object.keys(byMat).length){
-    body.innerHTML='<div style="color:var(--text3);padding:20px;text-align:center">Ничего не найдено</div>';
+  if(!Object.keys(byMain).length){
+    body.innerHTML = materialAliases.length === 0
+      ? '<div style="text-align:center;padding:40px;color:var(--text3)">'+
+          'Загрузка алиасов...<br><br>'+
+          '<button class="btn btn-primary btn-sm" onclick="loadAliasesFromDB().then(renderAliases)">'+
+          '🔄 Загрузить из Supabase</button></div>'
+      : '<div style="text-align:center;padding:20px;color:var(--text3)">Ничего не найдено</div>';
     return;
   }
 
-  body.innerHTML = Object.entries(byMat).map(([matId, aliases])=>{
-    const mat = warehouseData.find(w=>w.id===parseInt(matId));
-    if(!mat) return '';
-    const wh = WAREHOUSES.find(w=>w.id===getWhIdByCategory(mat.category));
+  const entries = Object.entries(byMain).sort((a,b)=>a[0].localeCompare(b[0],'ru'));
 
-    return `<div class="card" style="margin-bottom:12px;padding:0;overflow:hidden">
-      <!-- Основной материал -->
-      <div style="padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);
-        display:flex;align-items:center;gap:12px">
-        <div style="flex:1">
-          <div style="font-weight:700;font-size:13px">${mat.name}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">
-            ${wh?wh.icon+' '+wh.name:''} · ${mat.unit} · остаток: ${mat.qty}
-          </div>
+  body.innerHTML = entries.map(([mainName, data])=>{
+    const aliasRows = data.aliases.map(a=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;
+        background:var(--bg3);border-radius:6px;margin-bottom:4px">
+        <span style="font-size:12px;color:var(--amber)">↳</span>
+        <span style="flex:1;font-size:13px">${a.name}</span>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)"
+          onclick="deleteAlias('${a.id}')">✕</button>
+      </div>`).join('');
+
+    return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:10px">
+      <div style="padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border);
+        display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <span style="font-weight:600;font-size:13px">${mainName}</span>
+          <span class="badge badge-blue" style="font-size:10px;margin-left:8px">${data.cat}</span>
         </div>
-        <span class="badge badge-blue" style="font-size:11px">${aliases.length} алиас${aliases.length===1?'':'ов'}</span>
         <button class="btn btn-ghost btn-sm" style="font-size:11px"
-          onclick="openAliasModal(null,${mat.id})">+ Алиас</button>
+          onclick="openAliasModalFor('${mainName.replace(/'/g,"\\'")}','${data.cat.replace(/'/g,"\\'")}')">
+          + Алиас
+        </button>
       </div>
-
-      ${aliases.length?`
-      <!-- Алиасы -->
-      <table class="data-table" style="margin:0">
-        <thead><tr style="font-size:11px">
-          <th>Название из накладной поставщика</th>
-          <th>Поставщик</th>
-          <th style="text-align:center">Коэф.</th>
-          <th style="text-align:center">Пересчёт</th>
-          <th>Комментарий</th>
-          <th></th>
-        </tr></thead>
-        <tbody>${aliases.map(a=>`<tr>
-          <td>
-            <div style="font-weight:500">${a.name}</div>
-          </td>
-          <td style="font-size:12px;color:var(--text2)">${a.supplier||'<span style="color:var(--text3)">Любой</span>'}</td>
-          <td style="text-align:center;font-family:'IBM Plex Mono',monospace">${a.coeff}</td>
-          <td style="text-align:center;font-size:11px;color:var(--text3)">
-            1 ед. накл. = ${a.coeff} ${mat.unit}
-          </td>
-          <td style="font-size:12px;color:var(--text3)">${a.comment||'—'}</td>
-          <td style="white-space:nowrap">
-            <button class="btn btn-ghost btn-sm" style="font-size:11px"
-              onclick="openAliasModal(${a.id})">✏️</button>
-            <button class="btn btn-ghost btn-sm" style="font-size:11px"
-              onclick="deleteAlias(${a.id})">✕</button>
-          </td>
-        </tr>`).join('')}</tbody>
-      </table>`
-      :`<div style="padding:12px 16px;color:var(--text3);font-size:12px">
-        Алиасов нет — материал всегда поступает под одним названием
-       </div>`}
+      <div style="padding:8px 12px">${aliasRows}</div>
     </div>`;
   }).join('');
 }
 
-// ── CRUD алиасов ──────────────────────────────────────────────────────────────
-function openAliasModal(id, defaultMatId){
-  const a = id ? materialAliases.find(x=>x.id===id) : null;
-  document.getElementById('alias-modal-title').textContent = a?'Редактировать алиас':'Добавить алиас';
-  document.getElementById('alias-edit-id').value = id||'';
-  document.getElementById('alias-delete-btn').style.display = a?'':'none';
-  document.getElementById('alias-name').value = a?.name||'';
-  document.getElementById('alias-coeff').value = a?.coeff||1;
-  document.getElementById('alias-comment').value = a?.comment||'';
+async function deleteAlias(id){
+  if(!confirm('Удалить этот алиас?')) return;
+  try {
+    await sbDelete('material_aliases', `id=eq.${id}`);
+    materialAliases = materialAliases.filter(a=>a.id!==id);
+    renderAliases();
+  } catch(e){
+    alert('Ошибка: '+e.message);
+  }
+}
 
-  // Fill material select
-  const matSel = document.getElementById('alias-material-id');
-  matSel.innerHTML = warehouseData.map(w=>
-    `<option value="${w.id}" ${(a?.materialId||defaultMatId)===w.id?'selected':''}>${w.name} (${w.unit})</option>`
-  ).join('');
-
-  // Fill supplier select
-  const supSel = document.getElementById('alias-supplier');
-  supSel.innerHTML = '<option value="">— любой поставщик —</option>'+
-    suppliersData.map(s=>`<option value="${s.name}" ${a?.supplier===s.name?'selected':''}>${s.name}</option>`).join('');
-
-  updateAliasPreview();
+function openAliasModalFor(mainName, category){
+  document.getElementById('alias-modal-title').textContent = 'Добавить алиас';
+  document.getElementById('alias-name').value = '';
+  // Заполняем select основного материала
+  const sel = document.getElementById('alias-material-id');
+  if(sel){
+    sel.innerHTML = `<option value="${mainName}" data-cat="${category}">${mainName}</option>`;
+  }
+  document.getElementById('alias-error').textContent = '';
   showModal('aliasModal');
 }
+
+async function saveAlias(){
+  const sel = document.getElementById('alias-material-id');
+  const mainName = sel?.value||'';
+  const aliasName = document.getElementById('alias-name')?.value?.trim()||'';
+  const category = sel?.options[sel.selectedIndex]?.dataset?.cat||'';
+  const errEl = document.getElementById('alias-error');
+
+  if(!mainName){ errEl.textContent='Выберите основной материал'; return; }
+  if(!aliasName){ errEl.textContent='Введите алиас'; return; }
+
+  try {
+    const res = await sbInsert('material_aliases',{
+      material_name: mainName,
+      alias_name: aliasName,
+      category: category,
+    });
+    materialAliases.push({
+      id: Date.now().toString(),
+      materialName: mainName,
+      name: aliasName,
+      category: category,
+    });
+    closeModal('aliasModal');
+    renderAliases();
+  } catch(e){
+    errEl.textContent = 'Ошибка: '+e.message;
+  }
+}
+
 
 function updateAliasPreview(){
   const matId = parseInt(document.getElementById('alias-material-id')?.value||0);
@@ -15962,42 +15981,6 @@ function updateAliasPreview(){
     </div>`;
 }
 
-function saveAlias(){
-  const editId = parseInt(document.getElementById('alias-edit-id').value)||0;
-  const matId  = parseInt(document.getElementById('alias-material-id').value);
-  const name   = document.getElementById('alias-name').value.trim();
-  const supplier=document.getElementById('alias-supplier').value;
-  const coeff  = parseFloat(document.getElementById('alias-coeff').value)||1;
-  const comment= document.getElementById('alias-comment').value.trim();
-  if(!name){alert('Укажите название из накладной');return;}
-  if(!matId){alert('Выберите материал');return;}
-
-  // Проверка дубликата
-  const dup = materialAliases.find(a=>
-    a.name.toLowerCase()===name.toLowerCase() && a.id!==editId
-  );
-  if(dup){
-    const mat=warehouseData.find(w=>w.id===dup.materialId);
-    if(!confirm(`Такой алиас уже есть → "${mat?.name}". Всё равно добавить?`)) return;
-  }
-
-  if(editId){
-    const idx=materialAliases.findIndex(a=>a.id===editId);
-    if(idx>=0) materialAliases[idx]={...materialAliases[idx],materialId:matId,name,supplier,coeff,comment};
-  } else {
-    materialAliases.push({id:aliasSeq++,materialId:matId,name,supplier,coeff,comment});
-  }
-  closeModal('aliasModal');
-  renderAliases();
-}
-
-function deleteAlias(id){
-  const delId = id || parseInt(document.getElementById('alias-edit-id').value)||0;
-  if(!delId||!confirm('Удалить алиас?')) return;
-  materialAliases = materialAliases.filter(a=>a.id!==delId);
-  closeModal('aliasModal');
-  renderAliases();
-}
 
 // ── Диалог сопоставления при приходе (вызывается из формы документа) ─────────
 let _aliasCallback = null;
@@ -16131,7 +16114,7 @@ function showWhTab(tab, el){
   if(tab==='remains')    renderWarehouse();
   if(tab==='inventory')  renderWhInventory();
   if(tab==='cost')       renderWhCost();
-  if(tab==='aliases')    renderAliases();
+  if(tab==='aliases')    loadAliasesFromDB().then(renderAliases);
 }
 
 function renderWhWarehouses(){
