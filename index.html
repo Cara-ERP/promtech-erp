@@ -1008,6 +1008,31 @@ document.addEventListener('click', function(e){
   }
 });
 
+// Определяем тип позиции по категории
+function getWhItemType(category){
+  for(const wh of PHYSICAL_WAREHOUSES){
+    if(wh.cats.includes(category)) return wh.type;
+  }
+  return 'material'; // по умолчанию
+}
+
+// При смене типа — обновляем список категорий
+function onWhTypeFilterChange(){
+  const typeVal = document.getElementById('wh-type-filter')?.value||'all';
+  const catSel  = document.getElementById('wh-cat-filter');
+  if(catSel){
+    // Фильтруем категории по выбранному типу
+    const cats = [...new Set(warehouseData
+      .filter(w=>typeVal==='all'||getWhItemType(w.category||'Прочее')===typeVal)
+      .map(w=>w.category||'')
+      .filter(Boolean)
+    )].sort();
+    catSel.innerHTML = '<option value="">Все категории</option>' +
+      cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  }
+  renderWarehouse();
+}
+
 // Псевдоним — вкладка "Все остатки" использует тот же рендер
 function renderWhRemains(){ renderWarehouse(); }
 
@@ -1999,6 +2024,12 @@ window.onerror = function(msg, src, line, col){
       <!-- ВСЕ ОСТАТКИ -->
       <div id="wh-tab-remains" style="display:none">
         <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <select id="wh-type-filter" onchange="onWhTypeFilterChange()" style="font-size:13px;width:auto">
+            <option value="all">Все типы</option>
+            <option value="material">🏭 Материалы</option>
+            <option value="product">🪑 Продукция</option>
+            <option value="semi">🔨 Полуфабрикаты</option>
+          </select>
           <select id="wh-cat-filter" onchange="renderWarehouse()" style="font-size:13px;width:auto">
             <option value="">Все категории</option>
           </select>
@@ -16012,7 +16043,8 @@ const PHYSICAL_WAREHOUSES = [
     name:'Склад плитных материалов',
     icon:'🪵',
     color:'#d97706',
-    cats:['ЛДСП/МДФ','Шпон','Стекло','Пиломатериалы'],
+    cats:['ЛДСП/МДФ','Шпон','Стекло'],
+    type:'material',
   },
   {
     id:'wh_fabric',
@@ -16020,6 +16052,7 @@ const PHYSICAL_WAREHOUSES = [
     icon:'🧵',
     color:'#7c3aed',
     cats:['Ткань/Обивочные','Поролон/Набивка','Мягкая фурнитура'],
+    type:'material',
   },
   {
     id:'wh_wood',
@@ -16027,6 +16060,7 @@ const PHYSICAL_WAREHOUSES = [
     icon:'🌲',
     color:'#16a34a',
     cats:['Пиломатериалы'],
+    type:'material',
   },
   {
     id:'wh_paint',
@@ -16034,13 +16068,7 @@ const PHYSICAL_WAREHOUSES = [
     icon:'🎨',
     color:'#dc2626',
     cats:['ЛКМ/Химия','Расходники'],
-  },
-  {
-    id:'wh_finished',
-    name:'Склад готовой продукции',
-    icon:'🪑',
-    color:'#0ea5e9',
-    cats:['Столы','Стулья','Диваны','Кресла','Кровати','Комоды','Шкафы','Тумбы','Витрины','Зеркала','Консоли'],
+    type:'material',
   },
   {
     id:'wh_main',
@@ -16048,6 +16076,44 @@ const PHYSICAL_WAREHOUSES = [
     icon:'🏭',
     color:'#4f8ef7',
     cats:['Фурнитура/Крепёж','Крепёж Novus','Инструмент/Абразивы','Металл/Профиль','Прочее'],
+    type:'material',
+  },
+  {
+    id:'wh_semi',
+    name:'Склад полуфабрикатов',
+    icon:'🔨',
+    color:'#f59e0b',
+    cats:['Полуфабрикаты','Заготовки','НЗП'],
+    type:'semi',
+  },
+  {
+    id:'wh_finished',
+    name:'Склад готовой продукции',
+    icon:'🪑',
+    color:'#0ea5e9',
+    cats:['Столы','Стулья','Диваны','Кресла','Кровати','Комоды','Шкафы','Тумбы',
+          'Витрины','Зеркала','Консоли','Пуфики','Мягкая мебель','Кабинет',
+          'Коллекция ГРЕЙС','Коллекция ANY','Коллекция SKY','Коллекция НЕО БЕНТ',
+          'Коллекция NEO','Коллекция Вельвет','Коллекция AIR','Реставрация',
+          'Шкаф AIR','Шкаф NEO','Шкаф ANY','Шкаф SKY','Шкаф АЖУР',
+          'Комоды','Кухни','Эксклюзив','Гостиные DECO','Гостиные эконом','Шкафы и ящики'],
+    type:'product',
+  },
+  {
+    id:'wh_salon_armada',
+    name:'Склад салона Армада',
+    icon:'🏬',
+    color:'#8b5cf6',
+    cats:['Салон Армада'],
+    type:'product',
+  },
+  {
+    id:'wh_salon_naz',
+    name:'Склад салона Назарбаева',
+    icon:'🏪',
+    color:'#ec4899',
+    cats:['Салон Назарбаева'],
+    type:'product',
   },
 ];
 
@@ -16069,55 +16135,51 @@ function showWhTab(tab, el){
 }
 
 function renderWhWarehouses(){
-  const grid=document.getElementById('wh-warehouses-grid');
+  var grid=document.getElementById('wh-warehouses-grid');
   if(!grid) return;
   renderWhKPIs();
-
-  grid.innerHTML=PHYSICAL_WAREHOUSES.map(wh=>{
-    const items=warehouseData.filter(m=>wh.cats.includes(m.category||'Прочее'));
-    const value=items.reduce((s,m)=>s+(m.qty||0)*(m.price||0),0);
-    const crit=items.filter(m=>whStatus(m)==='critical').length;
-    const low=items.filter(m=>whStatus(m)==='low').length;
-    const fmtVal=value>=1000000?(value/1000000).toFixed(1)+'М':value>0?Math.round(value/1000)+'К':'—';
-
-    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer"
-      onclick="filterWhByPhysical('${wh.id}')">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);
-        background:var(--bg3);display:flex;justify-content:space-between;align-items:center">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:36px;height:36px;border-radius:8px;background:${wh.color}22;
-            display:flex;align-items:center;justify-content:center;font-size:20px">${wh.icon}</div>
-          <div>
-            <div style="font-weight:600;font-size:13px">${wh.name}</div>
-            <div style="font-size:11px;color:var(--text3)">${items.length} позиций · ${wh.cats.join(', ')}</div>
-          </div>
-        </div>
-      </div>
-      <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-size:20px;font-weight:700;color:${wh.color}">₸${fmtVal}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">стоимость остатков</div>
-        </div>
-        <div style="text-align:right">
-          ${crit?`<div style="font-size:12px;color:var(--red)">⚠️ ${crit} крит.</div>`:
-            low?`<div style="font-size:12px;color:var(--amber)">↓ ${low} мало</div>`:
-            `<div style="font-size:12px;color:var(--green)">✓ норма</div>`}
-          <div style="font-size:11px;color:var(--accent);margin-top:4px">Открыть →</div>
-        </div>
-      </div>
-      <div style="padding:0 16px 12px">
-        ${items.slice(0,3).map(m=>`
-          <div style="display:flex;justify-content:space-between;padding:3px 0;
-            border-top:1px solid var(--border);font-size:11px">
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;
-              color:${whStatus(m)==='critical'?'var(--red)':whStatus(m)==='low'?'var(--amber)':'var(--text2)'}">${m.name}</span>
-            <span style="font-family:monospace;color:var(--text3);margin-left:8px;white-space:nowrap">${m.qty||0} ${m.unit||'шт'}</span>
-          </div>`).join('')}
-        ${items.length>3?`<div style="text-align:center;font-size:11px;color:var(--accent);padding-top:6px">
-          + ещё ${items.length-3} позиций</div>`:''}
-      </div>
-    </div>`;
-  }).join('');
+  var groups=[
+    {type:'material', label:'🏭 Склады материалов и сырья'},
+    {type:'semi',     label:'🔨 Незавершённое производство'},
+    {type:'product',  label:'🪑 Склады готовой продукции'},
+  ];
+  var html='';
+  groups.forEach(function(group){
+    var whs=PHYSICAL_WAREHOUSES.filter(function(w){return w.type===group.type;});
+    html+='<div style="grid-column:1/-1;font-size:13px;font-weight:700;color:var(--text2);margin:8px 0 4px">'+group.label+'</div>';
+    whs.forEach(function(wh){
+      var items=warehouseData.filter(function(m){return wh.cats.includes(m.category||'Прочее');});
+      var value=items.reduce(function(s,m){return s+(m.qty||0)*(m.price||0);},0);
+      var crit=items.filter(function(m){return whStatus(m)==='critical';}).length;
+      var low=items.filter(function(m){return whStatus(m)==='low';}).length;
+      var fmtVal=value>=1000000?(value/1000000).toFixed(1)+'М':value>0?Math.round(value/1000)+'К':'—';
+      var statusHtml=crit?'<div style="font-size:11px;color:var(--red)">⚠️ '+crit+'</div>':
+                     low ?'<div style="font-size:11px;color:var(--amber)">↓ '+low+'</div>':
+                     items.length?'<div style="font-size:11px;color:var(--green)">✓</div>':'';
+      var previewHtml=items.slice(0,3).map(function(m){
+        var st=whStatus(m);
+        var col=st==='critical'?'var(--red)':st==='low'?'var(--amber)':'var(--text2)';
+        return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px solid var(--border);font-size:11px">'+
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px;color:'+col+'">'+m.name+'</span>'+
+          '<span style="font-family:monospace;color:var(--text3);margin-left:8px;white-space:nowrap">'+(m.qty||0)+' '+(m.unit||'шт')+'</span>'+
+        '</div>';
+      }).join('');
+      if(items.length>3) previewHtml+='<div style="text-align:center;font-size:11px;color:var(--accent);padding-top:4px">+ ещё '+(items.length-3)+' →</div>';
+      if(!items.length) previewHtml='<div style="text-align:center;font-size:12px;color:var(--text3);padding:8px">Нет позиций</div>';
+      html+='<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="filterWhByPhysical('+JSON.stringify(wh.id)+')">'+
+        '<div style="padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg3);display:flex;align-items:center;gap:10px">'+
+          '<div style="width:36px;height:36px;border-radius:8px;background:'+wh.color+'22;display:flex;align-items:center;justify-content:center;font-size:20px">'+wh.icon+'</div>'+
+          '<div style="flex:1">'+
+            '<div style="font-weight:600;font-size:13px">'+wh.name+'</div>'+
+            '<div style="font-size:11px;color:var(--text3)">'+items.length+' позиций</div>'+
+          '</div>'+
+          '<div style="text-align:right"><div style="font-weight:600;color:'+wh.color+'">₸'+fmtVal+'</div>'+statusHtml+'</div>'+
+        '</div>'+
+        '<div style="padding:8px 14px">'+previewHtml+'</div>'+
+      '</div>';
+    });
+  });
+  grid.innerHTML=html;
 }
 
 function filterWhByPhysical(whId){
@@ -16679,6 +16741,7 @@ function renderWarehouse(filterCats){
     if(current) catFilter.value = current;
   }
 
+  const typeF     = document.getElementById('wh-type-filter')?.value||'all';
   const activeCat = catFilter?.value||'';
   const search    = (document.getElementById('wh-search')?.value||'').toLowerCase();
   const statusF   = document.getElementById('wh-status-filter')?.value||'all';
@@ -16691,6 +16754,8 @@ function renderWarehouse(filterCats){
   warehouseData.forEach(item=>{
     // Если передан фильтр физического склада
     if(filterCats && !filterCats.includes(item.category||'Прочее')) return;
+    // Фильтр по типу (материал/продукция/полуфабрикат)
+    if(typeF !== 'all' && getWhItemType(item.category||'Прочее') !== typeF) return;
     if(activeCat && item.category !== activeCat) return;
     if(search && !item.name.toLowerCase().includes(search) &&
        !(item.sku||'').toLowerCase().includes(search)) return;
