@@ -1210,11 +1210,11 @@ async function updateOrderInDB(num, fields){
     isManager: false,
     pages:['catalog','crm','money_salon','reconcile'],
     canCreateOrders: true, canCashIn: true, canViewRS: true, canTransferToOffice: true},
-  salon_armada_mgr:     {name:'Сейткалиева А.Б.', initials:'СА', color:'#8b5cf6', label:'Нач. салона Армада',
+  salon_armada_mgr:     {name:'Сукачева Ольга', initials:'СО', color:'#8b5cf6', label:'Нач. салона Армада',
     channel:'salon_armada', cashAccountId:2, isManager:true,
     pages:['catalog','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
-  salon_nazarbayeva_mgr:{name:'Джаксыбеков Т.О.', initials:'ДТ', color:'#ec4899', label:'Нач. салона Назарбаева',
+  salon_nazarbayeva_mgr:{name:'Сукачева Ольга', initials:'СО', color:'#ec4899', label:'Нач. салона Назарбаева',
     channel:'salon_nazarbayeva', cashAccountId:3, isManager:true,
     pages:['catalog','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
@@ -1566,7 +1566,7 @@ window.onerror = function(msg, src, line, col){
         <span class="login-hint-cred">salon_armada / arm2026</span>
       </div>
       <div class="login-hint-row" onclick="fillLogin('salon_armada_mgr','arm_mgr2026')">
-        <span class="login-hint-role">🏬 Нач. салона Армада</span>
+        <span class="login-hint-role">🏬 Нач. салонов Армада/Назарбаева</span>
         <span class="login-hint-cred">salon_armada_mgr / arm_mgr2026</span>
       </div>
       <div class="login-hint-row" onclick="fillLogin('salon_nazarbayeva','naz2026')">
@@ -9401,30 +9401,23 @@ let dealersData=[
 
 let salonsData={
   'Армада':{
-    manager:   {name:'Сейткалиева А.Б.', salary:180000, commissionPct:1.0}, // начальник салона
-    designers: [{name:'Ким Д.В.', commissionPct:2.0}], // штатный дизайнер
+    manager:   {name:'Сукачева Ольга', salary:180000, commissionPct:1.0},
+    designers: [{name:'Ким Д.В.', commissionPct:2.0}],
     sellers:[
-      {id:selSeq++, name:'Алиева Р.С.',  salary:120000, commissionPct:3.0, clients:[
+      {id:selSeq++, name:'Естемесова Алтынай', salary:120000, commissionPct:3.0, clients:[
         {id:sCliSeq++, name:'Нурланов Е.С.',  phone:'+7 701 555 1010', turnover:520000},
         {id:sCliSeq++, name:'Касымова А.Б.',  phone:'+7 701 555 2020', turnover:340000},
         {id:sCliSeq++, name:'Сериков Д.М.',   phone:'+7 701 555 3030', turnover:240000},
       ]},
-      {id:selSeq++, name:'Тулеген М.К.', salary:110000, commissionPct:2.5, clients:[
-        {id:sCliSeq++, name:'Жанибеков О.А.', phone:'+7 701 555 4040', turnover:900000},
-        {id:sCliSeq++, name:'Ахметова Л.С.',  phone:'+7 701 555 5050', turnover:400000},
-      ]},
     ]
   },
   'Назарбаева':{
-    manager:   {name:'Джаксыбеков Т.О.', salary:160000, commissionPct:1.0},
+    manager:   {name:'Сукачева Ольга', salary:160000, commissionPct:1.0},
     designers: [],
     sellers:[
-      {id:selSeq++, name:'Омарова Г.Т.', salary:130000, commissionPct:3.5, clients:[
+      {id:selSeq++, name:'Черепухина Олеся', salary:130000, commissionPct:3.5, clients:[
         {id:sCliSeq++, name:'Бектасов Н.А.', phone:'+7 701 666 1010', turnover:650000},
         {id:sCliSeq++, name:'Дюсенова К.М.',phone:'+7 701 666 2020', turnover:350000},
-      ]},
-      {id:selSeq++, name:'Сабитов Е.Ж.', salary:110000, commissionPct:2.5, clients:[
-        {id:sCliSeq++, name:'Рахимова С.Б.', phone:'+7 701 666 3030', turnover:900000},
       ]},
     ]
   }
