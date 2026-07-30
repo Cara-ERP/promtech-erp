@@ -822,21 +822,22 @@ async function loadMoneyFromDB(){
 // Загрузить клиентов из Supabase
 async function loadCustomersFromDB(){
   try {
-    const data = await sbFetch('customers', 'select=*&order=created_at.desc');
+    const data = await sbFetch('customers', 'select=*&order=name');
     if(data && data.length > 0){
-      // Мержим с локальными — добавляем только новых
+      personsData = []; // сбрасываем перед загрузкой
       data.forEach(c=>{
-        const exists = personsData.find(p=>p.name===c.name);
-        if(!exists){
-          personsData.push({
-            id:       personSeq++,
-            name:     c.name,
-            type:     c.type||'Физ. лицо',
-            idNum:    c.inn||'',
-            phone:    c.phone||'',
-            source:   c.channel||'Офис',
-          });
-        }
+        personsData.push({
+          id:      personSeq++,
+          sbId:    c.id,
+          name:    c.name,
+          type:    c.type||'client',
+          idNum:   c.inn||'',
+          phone:   c.phone||'',
+          email:   c.email||'',
+          address: c.address||'',
+          source:  c.channel||'office',
+          comment: c.comment||'',
+        });
       });
       console.log('✅ Клиенты загружены из Supabase: '+data.length);
     }
@@ -18525,8 +18526,8 @@ function showOrdersTab(tab, el){
   if(tab==='funnel')  renderCrmKanban();
   if(tab==='tasks')   renderTasks();
   if(tab==='report')  renderOrderReport();
-  if(tab==='clients') renderClientsTab();
-  if(tab==='leads')   renderLeadsTab();
+  if(tab==='clients') loadCustomersFromDB().then(()=>renderClientsTab());
+  if(tab==='leads')   loadLeadsFromDB().then(()=>renderLeadsTab());
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -18706,13 +18707,44 @@ function openLeadModal(id){
   showModal('leadModal');
 }
 
+async function loadLeadsFromDB(){
+  try {
+    const ch = getChannelFilter();
+    const params = ch
+      ? `select=*&channel=eq.${ch}&order=created_at.desc`
+      : 'select=*&order=created_at.desc';
+    const data = await sbFetch('leads', params);
+    if(data && data.length > 0){
+      leadsData = data.map(l=>({
+        id:       l.id,
+        name:     l.name,
+        phone:    l.phone||'',
+        status:   l.status||'new',
+        interest: l.interest||'',
+        budget:   l.budget||0,
+        source:   l.source||'',
+        comment:  l.comment||'',
+        channel:  l.channel||'office',
+        manager:  l.manager||'',
+        created:  l.created_at?new Date(l.created_at).toLocaleDateString('ru-RU'):'',
+      }));
+      console.log('✅ Лиды загружены: '+data.length);
+    } else {
+      leadsData = [];
+    }
+    return true;
+  } catch(e){
+    console.warn('⚠️ Ошибка загрузки лидов:', e.message);
+    return false;
+  }
+}
+
 function saveLead(){
   const id   = document.getElementById('lead-edit-id').value;
   const name = document.getElementById('lead-name').value.trim();
   if(!name){ alert('Введите имя'); return; }
 
-  const lead = {
-    id:       id||Date.now().toString(),
+  const obj = {
     name,
     phone:    document.getElementById('lead-phone').value.trim(),
     status:   document.getElementById('lead-status').value,
@@ -18720,21 +18752,35 @@ function saveLead(){
     budget:   parseFloat(document.getElementById('lead-budget').value)||0,
     source:   document.getElementById('lead-source').value,
     comment:  document.getElementById('lead-comment').value.trim(),
-    created:  new Date().toLocaleDateString('ru-RU'),
+    channel:  getChannelFilter()||'office',
+    manager:  getCurrentRole()?.name||'',
   };
 
   if(id){
+    // Обновляем существующий
     const idx = leadsData.findIndex(l=>l.id===id);
-    if(idx>=0) leadsData[idx]=lead;
+    if(idx>=0) leadsData[idx]={...leadsData[idx],...obj};
+    sbPatch('leads',`id=eq.${id}`,obj)
+      .then(()=>console.log('✅ Лид обновлён'))
+      .catch(e=>console.warn('⚠️',e.message));
   } else {
-    leadsData.push(lead);
+    // Создаём новый
+    sbInsert('leads', obj)
+      .then(res=>{
+        // Получаем id из Supabase
+        const newId = Array.isArray(res)&&res[0]?.id ? res[0].id : Date.now().toString();
+        leadsData.unshift({...obj, id:newId, created:new Date().toLocaleDateString('ru-RU')});
+        renderLeadsTab();
+        const countEl=document.getElementById('tab-count-leads');
+        if(countEl) countEl.textContent=leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
+      })
+      .catch(e=>console.warn('⚠️',e.message));
   }
+
   closeModal('leadModal');
   renderLeadsTab();
-
-  // Обновляем счётчик
-  const countEl = document.getElementById('tab-count-leads');
-  if(countEl) countEl.textContent = leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
+  const countEl=document.getElementById('tab-count-leads');
+  if(countEl) countEl.textContent=leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
 }
 
 function convertLeadToClient(id){
@@ -18748,23 +18794,27 @@ function convertLeadToClient(id){
     name: lead.name,
     phone: lead.phone||'',
     type: 'client',
-    source: getChannelFilter()||'office',
-    comment: 'Был лид → стал клиентом',
+    source: lead.channel||'office',
+    comment: 'Конвертирован из лида',
   });
 
-  // Сохраняем в Supabase
+  // Сохраняем в Supabase customers
   sbInsert('customers',{
-    name: lead.name, phone: lead.phone||'',
-    channel: getChannelFilter()||'office',
+    name: lead.name,
+    phone: lead.phone||'',
+    channel: lead.channel||'office',
     comment: 'Конвертирован из лида',
     type: 'client',
-  }).catch(e=>console.warn(e));
+  }).then(()=>console.log('✅ Клиент создан'))
+    .catch(e=>console.warn('⚠️',e.message));
 
-  // Обновляем статус лида
+  // Обновляем статус лида на «Выиграли»
   lead.status = 'won';
+  sbPatch('leads',`id=eq.${id}`,{status:'won'})
+    .catch(e=>console.warn('⚠️',e.message));
+
   renderLeadsTab();
   renderClientsTab();
-
   alert(`✅ ${lead.name} добавлен в клиенты!`);
 }
 
