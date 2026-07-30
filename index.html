@@ -3986,6 +3986,24 @@ window.onerror = function(msg, src, line, col){
         </div>
       </div>
 
+      <!-- Фильтр периода — для всех финансовых отчётов -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;
+        padding:10px 14px;background:var(--bg3);border-radius:8px;flex-wrap:wrap">
+        <span style="font-size:13px;color:var(--text2);font-weight:600">📅 Период:</span>
+        <button class="btn btn-ghost btn-sm" onclick="setFinancePeriod('month')" id="fp-btn-month">Месяц</button>
+        <button class="btn btn-ghost btn-sm" onclick="setFinancePeriod('quarter')" id="fp-btn-quarter">Квартал</button>
+        <button class="btn btn-ghost btn-sm" onclick="setFinancePeriod('year')" id="fp-btn-year">Год</button>
+        <button class="btn btn-ghost btn-sm" onclick="setFinancePeriod('all')" id="fp-btn-all">Всё время</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="date" id="fp-date-from" onchange="setFinancePeriod('custom')"
+            style="font-size:12px;padding:4px 8px">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="fp-date-to" onchange="setFinancePeriod('custom')"
+            style="font-size:12px;padding:4px 8px">
+        </div>
+        <span id="fp-label" style="font-size:12px;color:var(--accent);font-weight:600"></span>
+      </div>
+
       <div class="tabs" id="finance-tabs">
         <div class="tab active" onclick="showFinanceTab('pl',this)">📊 P&L</div>
         <div class="tab" onclick="showFinanceTab('ar',this)">💳 Дебиторка <span class="kanban-count" id="ar-tab-count">0</span></div>
@@ -7805,6 +7823,7 @@ function showPage(id, el){
   const titles={dashboard:'Дашборд',mrp:'Производство (MRP)',warehouse:'Склад',purchases:'Закупки',suppliers:'Поставщики',catalog:'Каталог продукции',customers:'Покупатели',crm:'CRM / Продажи',finance:'Финансы — P&L',money:'Деньги',channels:'Центры прибыли',money_salon:'Касса салона',reconcile:'Сверка с офисом',hr:'Сотрудники',wages:'Сдельная оплата',techcards:'Тех. карты',mycabinet:'Личный кабинет',ai:'AI Ассистент'};
   document.getElementById('topbar-title').textContent=titles[id]||id;
   if(id==='finance'){
+    initFinancePeriod();
     renderPL();
     const allAR=collectAR();
     const tc=document.getElementById('ar-tab-count');
@@ -15274,9 +15293,41 @@ function exportARtoExcel(){
 
 function plFilteredOrders(){
   const period = document.getElementById('pl-period')?.value || 'all';
-  if(period === 'done')     return ordersData.filter(o=>o.status==='done');
-  if(period === 'progress') return ordersData.filter(o=>o.status!=='queue');
-  return ordersData;
+  let orders = ordersData;
+  
+  // Фильтр по статусу
+  if(period === 'done')     orders = orders.filter(o=>o.status==='done');
+  if(period === 'progress') orders = orders.filter(o=>o.status!=='queue');
+  
+  // Фильтр по периоду (глобальный)
+  if(financePeriod.from || financePeriod.to){
+    orders = orders.filter(o=>{
+      const d = parseDMY(o.date||o.createdDate||'');
+      if(!d) return true;
+      const date = new Date(d);
+      if(financePeriod.from && date < financePeriod.from) return false;
+      if(financePeriod.to   && date > financePeriod.to)   return false;
+      return true;
+    });
+  }
+  return orders;
+}
+
+// Фильтрация транзакций по периоду
+function plFilteredTx(flow){
+  let txs = moneyTx;
+  if(flow) txs = txs.filter(t=>t.flow===flow);
+  if(financePeriod.from || financePeriod.to){
+    txs = txs.filter(t=>{
+      const d = parseDMY(t.date||'');
+      if(!d) return true;
+      const date = new Date(d);
+      if(financePeriod.from && date < financePeriod.from) return false;
+      if(financePeriod.to   && date > financePeriod.to)   return false;
+      return true;
+    });
+  }
+  return txs;
 }
 
 // Build the full P&L data object
@@ -15374,6 +15425,83 @@ function buildPL(){
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+// ФИЛЬТР ПЕРИОДА ДЛЯ ФИНАНСОВЫХ ОТЧЁТОВ
+// ════════════════════════════════════════════════════════════════
+
+let financePeriod = {from: null, to: null, mode: 'all'};
+
+function setFinancePeriod(mode){
+  const now = new Date();
+  let from, to;
+
+  if(mode==='month'){
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to   = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  } else if(mode==='quarter'){
+    const q = Math.floor(now.getMonth()/3);
+    from = new Date(now.getFullYear(), q*3, 1);
+    to   = new Date(now.getFullYear(), q*3+3, 0);
+  } else if(mode==='year'){
+    from = new Date(now.getFullYear(), 0, 1);
+    to   = new Date(now.getFullYear(), 11, 31);
+  } else if(mode==='custom'){
+    const f = document.getElementById('fp-date-from')?.value;
+    const t = document.getElementById('fp-date-to')?.value;
+    if(!f||!t) return;
+    from = new Date(f);
+    to   = new Date(t);
+  } else { // all
+    from = null; to = null;
+  }
+
+  financePeriod = {from, to, mode};
+
+  // Обновляем кнопки
+  ['month','quarter','year','all'].forEach(m=>{
+    const btn = document.getElementById('fp-btn-'+m);
+    if(btn) btn.style.background = m===mode ? 'var(--accent)' : '';
+    if(btn) btn.style.color = m===mode ? '#fff' : '';
+  });
+
+  // Обновляем поля дат
+  const fmt = d=>d?d.toISOString().slice(0,10):'';
+  const fromEl = document.getElementById('fp-date-from');
+  const toEl   = document.getElementById('fp-date-to');
+  if(fromEl && from) fromEl.value = fmt(from);
+  if(toEl   && to)   toEl.value   = fmt(to);
+
+  // Метка
+  const labels = {month:'Текущий месяц', quarter:'Текущий квартал',
+    year:'Текущий год', all:'Всё время', custom:'Выбранный период'};
+  const label = document.getElementById('fp-label');
+  if(label) label.textContent = labels[mode]||'';
+
+  // Перерисовываем активный отчёт
+  const activeTab = document.querySelector('#finance-tabs .tab.active');
+  if(activeTab) activeTab.click();
+}
+
+// Фильтрация данных по периоду
+function filterByFinancePeriod(items, dateField='date'){
+  if(!financePeriod.from && !financePeriod.to) return items;
+  return items.filter(item=>{
+    const d = parseDMY(item[dateField]||'');
+    if(!d) return true;
+    const date = new Date(d);
+    if(financePeriod.from && date < financePeriod.from) return false;
+    if(financePeriod.to   && date > financePeriod.to)   return false;
+    return true;
+  });
+}
+
+// Инициализация периода при открытии финансов
+function initFinancePeriod(){
+  if(!financePeriod.mode || financePeriod.mode==='all'){
+    setFinancePeriod('year'); // по умолчанию — текущий год
+  }
+}
+
 function renderPL(){
   const pl = buildPL();
   const pct = v => pl.revenue>0 ? Math.round(v/pl.revenue*100)+'%' : '—';
