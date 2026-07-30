@@ -1201,7 +1201,7 @@ async function updateOrderInDB(num, fields){
     pages:['dashboard','mrp','warehouse','wages','mycabinet']},
   accountant: {name:'Козлова Д.О.', initials:'КД', color:'#f43f5e', label:'Бухгалтер',
     pages:['dashboard','finance','money','channels','reconcile','hr','wages','mycabinet']},
-  hr:         {name:'HR-менеджер',  initials:'HR', color:'#10b981', label:'HR-менеджер',
+  hr:         {name:'Молдахова Сания Мактабековна', initials:'МС', color:'#10b981', label:'Бухгалтер/HR',
     pages:['dashboard','hr','wages','mycabinet']},
   buyer:      {name:'Закупщик',     initials:'ЗК', color:'#f59e0b', label:'Менеджер закупок',
     pages:['dashboard','purchases','suppliers','warehouse','mycabinet']},
@@ -11705,12 +11705,13 @@ let payrollStaff = [
   {id:7,  name:'Алиев Бауржан Серикович',      pos:'Маляр 4р',         salary:0,      pin:1107, color:'rgba(16,185,129,.15)',  tc:'var(--green)'},
   {id:8,  name:'Ермеков Даулет Нурланович',    pos:'Сборщик 4р',       salary:0,      pin:1108, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
   // АУП — оклад
-  {id:9,  name:'Ержан Сейтқали',               pos:'Директор',         salary:350000, pin:9001, color:'rgba(79,142,247,.2)',   tc:'var(--accent)'},
-  {id:10, name:'Козлова Дарья Олеговна',        pos:'Главный бухгалтер',salary:180000, pin:9002, color:'rgba(244,63,94,.15)',   tc:'var(--red)'},
-  {id:11, name:'Иванов Иван Иванович',          pos:'Менеджер продаж',  salary:150000, pin:9003, color:'rgba(61,214,140,.15)',  tc:'var(--green)'},
-  {id:12, name:'Смирнова Алина Павловна',       pos:'Менеджер продаж',  salary:150000, pin:9004, color:'rgba(167,139,250,.15)', tc:'var(--purple)'},
-  {id:13, name:'Сидоров Михаил Петрович',       pos:'Начальник цеха',   salary:220000, pin:9005, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
-  {id:14, name:'Петрова Светлана Николаевна',   pos:'Кладовщик',        salary:110000, pin:9006, color:'rgba(56,189,248,.15)',  tc:'var(--accent)'},
+  {id:9,  name:'Тургамбаев Булат Сагинтаевич', pos:'Директор',           salary:350000, pin:9001, color:'rgba(79,142,247,.2)',   tc:'var(--accent)'},
+  {id:10, name:'Болысбеков Ерлан Кенесбекович', pos:'Главный бухгалтер',  salary:180000, pin:9002, color:'rgba(244,63,94,.15)',   tc:'var(--red)'},
+  {id:11, name:'Алтыбасова Акерке Мажитбеккызы',pos:'Бухгалтер',         salary:150000, pin:9003, color:'rgba(61,214,140,.15)',  tc:'var(--green)'},
+  {id:12, name:'Молдахова Сания Мактабековна',   pos:'Бухгалтер / HR',    salary:150000, pin:9007, color:'rgba(236,72,153,.15)',  tc:'var(--red)'},
+  {id:13, name:'Нысанов Равиль Мартаович',       pos:'Финансовый директор',salary:300000, pin:9004, color:'rgba(167,139,250,.15)', tc:'var(--purple)'},
+  {id:14, name:'Алимов Шынгыс Айтжанулы',        pos:'Начальник цеха',    salary:220000, pin:9005, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
+  {id:15, name:'Угламова Халидам Абдувалиевна',  pos:'Кладовщик',         salary:110000, pin:9006, color:'rgba(56,189,248,.15)',  tc:'var(--accent)'},
 ];
 
 // Wage payment history per employee {empId, date, amount, method, comment}
@@ -22676,9 +22677,11 @@ function openNewCustOrderModal(){
     if(designerRow) designerRow.style.display='none';
     // Берём реальных менеджеров продаж из payrollStaff
     const mgrs = payrollStaff.filter(s=>s.salary>0&&(
-      s.pos.toLowerCase().includes('менедж')||s.pos.toLowerCase().includes('продаж')
+      s.pos.toLowerCase().includes('менедж')||
+      s.pos.toLowerCase().includes('продаж')||
+      s.pos.toLowerCase().includes('бухгалтер')
     ));
-    (mgrs.length ? mgrs.map(s=>s.name) : ['Иванов И.И.','Петров С.А.']).forEach(name=>{
+    (mgrs.length ? mgrs.map(s=>s.name) : ['Алтыбасова Акерке']).forEach(name=>{
       const o=document.createElement('option');
       o.value=name; o.textContent=name;
       respSel.appendChild(o);
@@ -22877,7 +22880,11 @@ function openEditOrderModal(orderNum, targetItemIdx){
       const o=document.createElement('option'); o.value=order.resp||''; o.textContent=order.resp||'—'; eoResp.appendChild(o);
     } else {
       // Офисные менеджеры из payrollStaff (АУП)
-      payrollStaff.filter(s=>s.salary>0&&s.pos.toLowerCase().includes('менедж')).forEach(s=>{
+      payrollStaff.filter(s=>s.salary>0&&(
+        s.pos.toLowerCase().includes('менедж')||
+        s.pos.toLowerCase().includes('продаж')||
+        s.pos.toLowerCase().includes('бухгалтер')
+      )).forEach(s=>{
         const o=document.createElement('option'); o.value=s.name; o.textContent=s.name; eoResp.appendChild(o);
       });
       // Если список пустой — показываем всех АУП
