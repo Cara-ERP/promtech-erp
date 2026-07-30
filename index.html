@@ -1943,8 +1943,9 @@ window.onerror = function(msg, src, line, col){
 
       <!-- Вкладки -->
       <div class="tabs" style="margin-bottom:16px">
-        <div class="tab active" onclick="showWhTab('stocks',this)">🏪 По складам</div>
-        <div class="tab" onclick="showWhTab('workshops',this)">🏭 Цехи</div>
+        <div class="tab active" onclick="showWhTab('warehouses',this)">🏭 По складам</div>
+        <div class="tab" onclick="showWhTab('stocks',this)">📂 По категориям</div>
+        <div class="tab" onclick="showWhTab('workshops',this)">🔧 Цехи</div>
         <div class="tab" onclick="showWhTab('docs',this)">📄 Документы</div>
         <div class="tab" onclick="showWhTab('remains',this)">📦 Все остатки</div>
         <div class="tab" onclick="showWhTab('inventory',this)">📋 Инвентаризация</div>
@@ -1952,8 +1953,13 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showWhTab('aliases',this)">🔗 Алиасы</div>
       </div>
 
-      <!-- ПО СКЛАДАМ -->
-      <div id="wh-tab-stocks">
+      <!-- ПО СКЛАДАМ (физические склады) -->
+      <div id="wh-tab-warehouses">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px" id="wh-warehouses-grid"></div>
+      </div>
+
+      <!-- ПО КАТЕГОРИЯМ -->
+      <div id="wh-tab-stocks" style="display:none">
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px" id="wh-stocks-grid"></div>
       </div>
 
@@ -7634,7 +7640,10 @@ function showPage(id, el){
     renderPurchKPIs();
   }
   if(id==='warehouse'){
-    loadWarehouseFromDB().then(()=>renderWarehouse());
+    loadWarehouseFromDB().then(()=>{
+      renderWhWarehouses();
+      renderWarehouse();
+    });
   }
   if(id==='purchases'){
     loadPurchasesFromDB().then(()=>{renderPurchKanban();renderPurchKPIs();});
@@ -15995,20 +16004,129 @@ function confirmAliasFind(){
   _aliasCallback = null;
 }
 
+// Привязка категорий к физическим складам
+const PHYSICAL_WAREHOUSES = [
+  {
+    id:'wh_plates',
+    name:'Склад плитных материалов',
+    icon:'🪵',
+    color:'#d97706',
+    cats:['ЛДСП/МДФ','Шпон','Стекло','Пиломатериалы'],
+  },
+  {
+    id:'wh_fabric',
+    name:'Склад тканей',
+    icon:'🧵',
+    color:'#7c3aed',
+    cats:['Ткань/Обивочные','Поролон/Набивка','Мягкая фурнитура'],
+  },
+  {
+    id:'wh_wood',
+    name:'Склад леса',
+    icon:'🌲',
+    color:'#16a34a',
+    cats:['Пиломатериалы'],
+  },
+  {
+    id:'wh_paint',
+    name:'Склад краски',
+    icon:'🎨',
+    color:'#dc2626',
+    cats:['ЛКМ/Химия','Расходники'],
+  },
+  {
+    id:'wh_finished',
+    name:'Склад готовой продукции',
+    icon:'🪑',
+    color:'#0ea5e9',
+    cats:['Столы','Стулья','Диваны','Кресла','Кровати','Комоды','Шкафы','Тумбы','Витрины','Зеркала','Консоли'],
+  },
+  {
+    id:'wh_main',
+    name:'Основной склад',
+    icon:'🏭',
+    color:'#4f8ef7',
+    cats:['Фурнитура/Крепёж','Крепёж Novus','Инструмент/Абразивы','Металл/Профиль','Прочее'],
+  },
+];
+
 function showWhTab(tab, el){
   document.querySelectorAll('#page-warehouse .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  ['stocks','workshops','docs','remains','inventory','cost','aliases'].forEach(id=>{
+  ['warehouses','stocks','workshops','docs','remains','inventory','cost','aliases'].forEach(id=>{
     const e=document.getElementById('wh-tab-'+id);
     if(e) e.style.display=id===tab?'':'none';
   });
-  if(tab==='stocks')    renderWhStocks();
-  if(tab==='workshops') renderWhWorkshops();
-  if(tab==='docs')      renderWhDocs();
-  if(tab==='remains')   renderWarehouse();
-  if(tab==='inventory') renderWhInventory();
-  if(tab==='cost')      renderWhCost();
-  if(tab==='aliases')   renderAliases();
+  if(tab==='warehouses') renderWhWarehouses();
+  if(tab==='stocks')     renderWhStocks();
+  if(tab==='workshops')  renderWhWorkshops();
+  if(tab==='docs')       renderWhDocs();
+  if(tab==='remains')    renderWarehouse();
+  if(tab==='inventory')  renderWhInventory();
+  if(tab==='cost')       renderWhCost();
+  if(tab==='aliases')    renderAliases();
+}
+
+function renderWhWarehouses(){
+  const grid=document.getElementById('wh-warehouses-grid');
+  if(!grid) return;
+  renderWhKPIs();
+
+  grid.innerHTML=PHYSICAL_WAREHOUSES.map(wh=>{
+    const items=warehouseData.filter(m=>wh.cats.includes(m.category||'Прочее'));
+    const value=items.reduce((s,m)=>s+(m.qty||0)*(m.price||0),0);
+    const crit=items.filter(m=>whStatus(m)==='critical').length;
+    const low=items.filter(m=>whStatus(m)==='low').length;
+    const fmtVal=value>=1000000?(value/1000000).toFixed(1)+'М':value>0?Math.round(value/1000)+'К':'—';
+
+    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer"
+      onclick="filterWhByPhysical('${wh.id}')">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);
+        background:var(--bg3);display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:${wh.color}22;
+            display:flex;align-items:center;justify-content:center;font-size:20px">${wh.icon}</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">${wh.name}</div>
+            <div style="font-size:11px;color:var(--text3)">${items.length} позиций · ${wh.cats.join(', ')}</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:20px;font-weight:700;color:${wh.color}">₸${fmtVal}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">стоимость остатков</div>
+        </div>
+        <div style="text-align:right">
+          ${crit?`<div style="font-size:12px;color:var(--red)">⚠️ ${crit} крит.</div>`:
+            low?`<div style="font-size:12px;color:var(--amber)">↓ ${low} мало</div>`:
+            `<div style="font-size:12px;color:var(--green)">✓ норма</div>`}
+          <div style="font-size:11px;color:var(--accent);margin-top:4px">Открыть →</div>
+        </div>
+      </div>
+      <div style="padding:0 16px 12px">
+        ${items.slice(0,3).map(m=>`
+          <div style="display:flex;justify-content:space-between;padding:3px 0;
+            border-top:1px solid var(--border);font-size:11px">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;
+              color:${whStatus(m)==='critical'?'var(--red)':whStatus(m)==='low'?'var(--amber)':'var(--text2)'}">${m.name}</span>
+            <span style="font-family:monospace;color:var(--text3);margin-left:8px;white-space:nowrap">${m.qty||0} ${m.unit||'шт'}</span>
+          </div>`).join('')}
+        ${items.length>3?`<div style="text-align:center;font-size:11px;color:var(--accent);padding-top:6px">
+          + ещё ${items.length-3} позиций</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterWhByPhysical(whId){
+  const wh=PHYSICAL_WAREHOUSES.find(w=>w.id===whId);
+  if(!wh) return;
+  showWhTab('remains', document.querySelectorAll('#page-warehouse .tab')[4]);
+  const sel=document.getElementById('wh-cat-filter');
+  if(sel){ sel.value=''; } // Сбрасываем фильтр — показываем все категории склада
+  // Фильтруем через поиск по категориям
+  renderWarehouse(wh.cats);
 }
 
 function whStatus(item){
@@ -16547,7 +16665,7 @@ function applyInventory(){
   renderWhKPIs();
 }
 
-function renderWarehouse(){
+function renderWarehouse(filterCats){
   renderWhKPIs();
 
   // Заполняем фильтр категорий из реальных данных
@@ -16570,6 +16688,8 @@ function renderWarehouse(){
 
   let count = 0;
   warehouseData.forEach(item=>{
+    // Если передан фильтр физического склада
+    if(filterCats && !filterCats.includes(item.category||'Прочее')) return;
     if(activeCat && item.category !== activeCat) return;
     if(search && !item.name.toLowerCase().includes(search) &&
        !(item.sku||'').toLowerCase().includes(search)) return;
@@ -16597,11 +16717,9 @@ function renderWarehouse(){
     tbody.appendChild(tr);
   });
 
-  // Счётчик
   const countEl = document.getElementById('wh-count');
   if(countEl) countEl.textContent = count.toLocaleString('ru-RU') + ' позиций';
 
-  // KPI
   let fullValue=0, fullCritical=0;
   warehouseData.forEach(w=>{ const s=whStatus(w); if(s!=='ok') fullCritical++; fullValue+=(w.qty||0)*(w.price||0); });
   document.getElementById('wh-kpi-count').textContent=warehouseData.length;
