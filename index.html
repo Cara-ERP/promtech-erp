@@ -2840,11 +2840,11 @@ window.onerror = function(msg, src, line, col){
         <div class="card">
           <div class="card-header">
             <span class="card-title">Список клиентов</span>
-            <input type="text" placeholder="Поиск по названию..." style="width:200px;font-size:13px" oninput="filterTable('clients-tbody',this.value)">
+            <input type="text" placeholder="Поиск по названию..." style="width:200px;font-size:13px" oninput="filterTable('old-clients-tbody',this.value)">
           </div>
           <table class="data-table">
             <thead><tr><th>Название / ФИО</th><th>Продавец</th><th>Заказов</th><th>Оборот</th><th>% предоплаты</th><th>Статус</th><th></th></tr></thead>
-            <tbody id="clients-tbody"></tbody>
+            <tbody id="old-clients-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -9504,7 +9504,7 @@ function goToClientFromPerson(personId){
   if(clientLink){
     switchToCustTabByKey('clients');
     setTimeout(()=>{
-      const tr=document.querySelector(`#clients-tbody tr[data-id="${clientLink.id}"]`);
+      const tr=document.querySelector(`#old-clients-tbody tr[data-id="${clientLink.id}"]`);
       flashHighlightRow(tr);
     },50);
     return;
@@ -23084,7 +23084,7 @@ function recalcAllCustomerTurnover(){
 
 // renderClients: shows computed turnover (read-only), order count, seller(s) and prepayment %
 function renderClients(){
-  const tbody=document.getElementById('clients-tbody');
+  const tbody=document.getElementById('old-clients-tbody');
   if(!tbody) return;
   tbody.innerHTML='';
   let legal=0, individual=0, totalT=0;
