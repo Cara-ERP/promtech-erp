@@ -2938,6 +2938,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showOrdersTab('queue',this)">⏳ Очередь (<span id="tab-count-queue">0</span>)</div>
         <div class="tab" onclick="showOrdersTab('progress',this)">🔧 В работе (<span id="tab-count-progress">0</span>)</div>
         <div class="tab" onclick="showOrdersTab('done',this)">✅ Завершено (<span id="tab-count-done">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('sales-journal',this)">📒 Реализация</div>
         <div class="tab" id="crm-tab-clients" onclick="showOrdersTab('clients',this)">👥 Клиенты (<span id="tab-count-clients">0</span>)</div>
         <div class="tab" id="crm-tab-leads" onclick="showOrdersTab('leads',this)">🎯 Лиды (<span id="tab-count-leads">0</span>)</div>
         <div class="tab" data-tab="funnel" onclick="showOrdersTab('funnel',this)">🎯 Воронка лидов</div>
@@ -3150,6 +3151,50 @@ window.onerror = function(msg, src, line, col){
               <th></th>
             </tr></thead>
             <tbody id="clients-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB: Журнал реализации -->
+      <div class="orders-tab" id="orders-sales-journal" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <input type="date" id="sj-date-from" onchange="renderSalesJournal()" style="font-size:13px">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="sj-date-to" onchange="renderSalesJournal()" style="font-size:13px">
+          <select id="sj-channel" onchange="renderSalesJournal()" style="font-size:13px">
+            <option value="">Все каналы</option>
+            <option value="office">Офис</option>
+            <option value="salon_armada">Салон Армада</option>
+            <option value="salon_nazarbayeva">Салон Назарбаева</option>
+            <option value="dealer_astana">Дилер Астана</option>
+            <option value="dealer_aktau">Дилер Актау</option>
+            <option value="dealer_shymkent">Дилер Шымкент</option>
+            <option value="dealer_atyrau">Дилер Атырау</option>
+            <option value="dealer_aktobe">Дилер Актобе</option>
+          </select>
+          <input type="search" id="sj-search" placeholder="🔍 Поиск..." style="font-size:13px;width:180px" oninput="renderSalesJournal()">
+          <button class="btn btn-ghost btn-sm" onclick="exportSalesJournalExcel()">📥 Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Печать</button>
+          <span id="sj-totals" style="font-size:12px;color:var(--text3);margin-left:8px"></span>
+        </div>
+        <div class="card" style="padding:0">
+          <table class="data-table" id="sj-table">
+            <thead><tr>
+              <th>№</th>
+              <th>Дата</th>
+              <th>Номер заказа</th>
+              <th>Покупатель</th>
+              <th>Канал</th>
+              <th>Товар / Позиция</th>
+              <th style="text-align:right">Кол-во</th>
+              <th style="text-align:right">Цена (₸)</th>
+              <th style="text-align:right">Сумма (₸)</th>
+              <th style="text-align:right">% оплаты</th>
+              <th style="text-align:right">Оплачено (₸)</th>
+              <th>Статус</th>
+            </tr></thead>
+            <tbody id="sj-tbody"></tbody>
+            <tfoot id="sj-tfoot"></tfoot>
           </table>
         </div>
       </div>
@@ -18678,6 +18723,7 @@ function showOrdersTab(tab, el){
   document.querySelectorAll('.orders-tab').forEach(t=>t.style.display='none');
   const tabEl = document.getElementById('orders-'+tab);
   if(tabEl) tabEl.style.display='block';
+  if(tab==='sales-journal') renderSalesJournal();
   if(tab==='funnel'){
     // Мержим leadsData в crmLeads для воронки
     loadLeadsFromDB().then(()=>{
@@ -18719,6 +18765,126 @@ function showOrdersTab(tab, el){
       if(e) e.textContent=leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
     });
   }
+}
+
+function renderSalesJournal(){
+  // Устанавливаем даты по умолчанию если пустые
+  const fromEl = document.getElementById('sj-date-from');
+  const toEl   = document.getElementById('sj-date-to');
+  if(fromEl && !fromEl.value){
+    const now = new Date();
+    fromEl.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    toEl.value   = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+  }
+
+  const dateFrom  = fromEl?.value || '';
+  const dateTo    = toEl?.value || '';
+  const channel   = document.getElementById('sj-channel')?.value || '';
+  const search    = (document.getElementById('sj-search')?.value||'').toLowerCase();
+  const chFilter  = getChannelFilter(); // для дилеров/салонов
+
+  const tbody = document.getElementById('sj-tbody');
+  const tfoot = document.getElementById('sj-tfoot');
+  if(!tbody) return;
+
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const channelLabel = ch=>{
+    const map = {office:'Офис',salon_armada:'Армада',salon_nazarbayeva:'Назарбаева',
+      dealer_astana:'Астана',dealer_aktau:'Актау',dealer_shymkent:'Шымкент',
+      dealer_atyrau:'Атырау',dealer_aktobe:'Актобе'};
+    return map[ch]||ch||'—';
+  };
+
+  const statusLabel = s=>{
+    const map={queue:'В очереди',progress:'В работе',done:'Готово',shipping:'Отгружено'};
+    return map[s]||s||'—';
+  };
+
+  // Собираем строки — каждая позиция заказа отдельной строкой
+  const rows = [];
+  ordersData.forEach(order=>{
+    // Фильтр канала
+    if(chFilter && order.channel !== chFilter) return;
+    if(channel && order.channel !== channel) return;
+
+    // Фильтр дат
+    const d = parseDMY(order.date||order.createdDate||'');
+    if(dateFrom && d && d < dateFrom) return;
+    if(dateTo   && d && d > dateTo)   return;
+
+    const items = order.items?.length ? order.items : [{name:'—', qty:1, price:orderTotal(order)}];
+    items.forEach(item=>{
+      if(search && !order.customer.toLowerCase().includes(search) &&
+         !item.name.toLowerCase().includes(search) &&
+         !order.num.toLowerCase().includes(search)) return;
+
+      const lineTotal = (item.qty||1) * (item.price||0);
+      const paid = lineTotal * (order.payment||0) / 100;
+      rows.push({
+        date:     order.date||order.createdDate||'—',
+        num:      order.num,
+        customer: order.customer,
+        channel:  channelLabel(order.channel),
+        item:     item.name||'—',
+        qty:      item.qty||1,
+        price:    item.price||0,
+        total:    lineTotal,
+        payPct:   order.payment||0,
+        paid:     paid,
+        status:   statusLabel(order.status),
+      });
+    });
+  });
+
+  // Сортируем по дате
+  rows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+
+  // Итоги
+  const totalSum  = rows.reduce((s,r)=>s+r.total, 0);
+  const totalPaid = rows.reduce((s,r)=>s+r.paid, 0);
+  const totalsEl  = document.getElementById('sj-totals');
+  if(totalsEl) totalsEl.textContent =
+    `${rows.length} позиций · Сумма: ${fmt(totalSum)} · Оплачено: ${fmt(totalPaid)}`;
+
+  tbody.innerHTML = rows.map((r,i)=>`<tr>
+    <td style="color:var(--text3);font-size:12px">${i+1}</td>
+    <td style="font-size:12px;white-space:nowrap">${r.date}</td>
+    <td style="font-family:monospace;color:var(--accent);font-size:12px">${r.num}</td>
+    <td style="font-weight:500">${r.customer}</td>
+    <td style="font-size:12px;color:var(--text3)">${r.channel}</td>
+    <td>${r.item}</td>
+    <td style="text-align:right;font-family:monospace">${r.qty}</td>
+    <td style="text-align:right;font-family:monospace">${fmt(r.price)}</td>
+    <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(r.total)}</td>
+    <td style="text-align:right;font-family:monospace;color:${r.payPct>=100?'var(--green)':r.payPct>0?'var(--amber)':'var(--red)'}">${r.payPct}%</td>
+    <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(r.paid)}</td>
+    <td><span class="badge ${r.status==='Готово'||r.status==='Отгружено'?'badge-green':r.status==='В работе'?'badge-blue':'badge-red'}" style="font-size:10px">${r.status}</span></td>
+  </tr>`).join('') || '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за период</td></tr>';
+
+  tfoot.innerHTML = `<tr style="background:var(--bg3);font-weight:700">
+    <td colspan="8" style="text-align:right;padding:8px 12px;font-size:13px">Итого:</td>
+    <td style="text-align:right;font-family:monospace;font-size:13px;padding:8px 12px">${fmt(totalSum)}</td>
+    <td></td>
+    <td style="text-align:right;font-family:monospace;font-size:13px;color:var(--green);padding:8px 12px">${fmt(totalPaid)}</td>
+    <td></td>
+  </tr>`;
+}
+
+function exportSalesJournalExcel(){
+  if(typeof XLSX==='undefined'){ alert('Excel загружается...'); return; }
+  const rows = [];
+  document.querySelectorAll('#sj-tbody tr').forEach(tr=>{
+    const cells = [...tr.querySelectorAll('td')].map(td=>td.textContent.trim());
+    if(cells.length>=12) rows.push(cells);
+  });
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['№','Дата','Заказ','Покупатель','Канал','Товар','Кол-во','Цена','Сумма','% оплаты','Оплачено','Статус'],
+    ...rows
+  ]);
+  ws['!cols']=[{wch:5},{wch:12},{wch:10},{wch:30},{wch:12},{wch:40},{wch:8},{wch:14},{wch:14},{wch:10},{wch:14},{wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Журнал реализации');
+  XLSX.writeFile(wb, 'Журнал_реализации_'+new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')+'.xlsx');
 }
 
 function renderOrdersKanban(){
