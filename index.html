@@ -2005,6 +2005,7 @@ window.onerror = function(msg, src, line, col){
           <input type="text" id="wh-search" placeholder="🔍 Поиск по наименованию..." style="flex:1;max-width:280px;font-size:13px" oninput="renderWarehouse()">
           <select id="wh-status-filter" onchange="renderWarehouse()" style="font-size:13px;width:auto">
             <option value="all">Все позиции</option>
+            <option value="instock">✅ В наличии (qty > 0)</option>
             <option value="critical">🔴 Критично (ниже минимума)</option>
             <option value="low">🟡 Мало (менее 2× минимума)</option>
             <option value="ok">🟢 Норма</option>
@@ -16694,6 +16695,7 @@ function renderWarehouse(filterCats){
     if(search && !item.name.toLowerCase().includes(search) &&
        !(item.sku||'').toLowerCase().includes(search)) return;
     const status = whStatus(item);
+    if(statusF === 'instock'  && (item.qty||0) <= 0)  return;
     if(statusF === 'critical' && status !== 'critical') return;
     if(statusF === 'low'      && status !== 'low')      return;
     if(statusF === 'ok'       && status !== 'ok')       return;
