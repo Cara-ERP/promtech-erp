@@ -822,10 +822,18 @@ async function loadMoneyFromDB(){
 // Загрузить клиентов из Supabase
 async function loadCustomersFromDB(){
   try {
-    const data = await sbFetch('customers', 'select=*&order=name');
-    if(data && data.length > 0){
-      personsData = []; // сбрасываем перед загрузкой
-      data.forEach(c=>{
+    let allData = [], from = 0, pageSize = 1000;
+    while(true){
+      const page = await sbFetch('customers',
+        `select=*&order=name&limit=${pageSize}&offset=${from}`);
+      if(!page || page.length === 0) break;
+      allData = allData.concat(page);
+      if(page.length < pageSize) break;
+      from += pageSize;
+    }
+    if(allData.length > 0){
+      personsData = [];
+      allData.forEach(c=>{
         personsData.push({
           id:      personSeq++,
           sbId:    c.id,
@@ -839,7 +847,7 @@ async function loadCustomersFromDB(){
           comment: c.comment||'',
         });
       });
-      console.log('✅ Клиенты загружены из Supabase: '+data.length);
+      console.log('✅ Клиенты загружены из Supabase: '+allData.length);
     }
     return true;
   } catch(e){
