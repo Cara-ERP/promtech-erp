@@ -2932,6 +2932,25 @@ window.onerror = function(msg, src, line, col){
       <div id="sales-tab-content"></div>
     </div>
 
+    <!-- ===== ПРОДАЖИ ===== -->
+    <div class="page" id="page-sales">
+      <div class="section-header">
+        <div><div class="section-title">Продажи</div><div class="section-sub">Заказы покупателей · журнал реализации · отчёты</div></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="openNewCustOrderModal()">+ Новый заказ</button>
+        </div>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="showOrdersTab('all-orders',this)">📋 Все заказы (<span id="tab-count-all">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('queue',this)">⏳ Очередь (<span id="tab-count-queue">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('progress',this)">🔧 В работе (<span id="tab-count-progress">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('done',this)">✅ Завершено (<span id="tab-count-done">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('sales-journal',this)">📒 Реализация</div>
+        <div class="tab" data-tab="report" onclick="showOrdersTab('report',this)">📈 Отчёт</div>
+      </div>
+    </div>
+
+    <!-- ===== CRM ===== -->
     <div class="page" id="page-crm">
       <div class="section-header">
         <div><div class="section-title">CRM</div><div class="section-sub">Клиенты · Лиды · Воронки · Задачи</div></div>
