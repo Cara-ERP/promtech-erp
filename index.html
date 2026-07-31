@@ -2906,10 +2906,15 @@ window.onerror = function(msg, src, line, col){
           </table>
         </div>
       </div>
+      <!-- TAB: Сверки с контрагентами -->
+      <div class="cust-tab" id="cust-reconcile-counterparties" style="display:none">
+        <div style="padding:20px;color:var(--text3);text-align:center">
+          <div style="font-size:32px;margin-bottom:12px">📊</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:8px">Сверки с контрагентами</div>
+          <div style="font-size:13px">Раздел в разработке. Здесь будут акты сверки с юридическими лицами.</div>
+        </div>
+      </div>
     </div>
-
-    <!-- ===== ORDERS (CRM) ===== -->
-    <div class="page" id="page-sales">
       <div class="section-header">
         <div><div class="section-title">Продажи</div><div class="section-sub">Заказы покупателей · журнал реализации · отчёты</div></div>
         <div style="display:flex;gap:8px">
@@ -9380,24 +9385,32 @@ function renderPersons(){
   if(!tbody) return;
   tbody.innerHTML='';
   let legal=0, individual=0;
-  personsData.forEach(p=>{
-    if(p.type==='Юр. лицо') legal++; else individual++;
-    const typeBadge=p.type==='Юр. лицо'?'badge-blue':'badge-purple';
+
+  // Фильтруем — в Контрагентах показываем юр.лица и всех
+  const ch = getChannelFilter();
+  let data = personsData;
+  if(ch) data = data.filter(p=>!p.source||p.source===ch);
+
+  data.forEach(p=>{
+    // Нормализуем тип
+    const isLegal = p.type==='company'||p.type==='Юр. лицо'||
+      (p.name||'').match(/^(ТОО|ИП|АО|ООО|КПК)\b/i);
+    if(isLegal) legal++; else individual++;
+    const typeLabel = isLegal ? 'Юр. лицо' : 'Физ. лицо';
+    const typeBadge = isLegal ? 'badge-blue' : 'badge-purple';
     const tr=document.createElement('tr');
-    tr.dataset.personId=p.id;
     tr.innerHTML=`
-      <td style="font-weight:500;color:var(--accent);cursor:pointer" onclick="goToClientFromPerson(${p.id})" title="Найти в Клиенты/Дилеры/Салоны">${p.name}</td>
-      <td><span class="badge ${typeBadge}">${p.type}</span></td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${p.idNum||'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${p.phone||'—'}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.source||'—'}</td>
+      <td style="font-weight:500;cursor:pointer" onclick="openPersonModal(${p.id})">${p.name}</td>
+      <td><span class="badge ${typeBadge}">${typeLabel}</span></td>
+      <td style="font-family:monospace;font-size:12px">${p.idNum||'—'}</td>
+      <td style="font-family:monospace;font-size:12px">${p.phone||'—'}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.source||'office'}</td>
       <td style="display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="openPersonModal(${p.id})">Изменить</button>
-        <button class="row-delete-btn" onclick="deletePerson(${p.id})">✕</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPersonModal(${p.id})">✏️</button>
       </td>`;
     tbody.appendChild(tr);
   });
-  setEl('person-count', personsData.length);
+  setEl('person-count', data.length);
   setEl('person-legal', legal);
   setEl('person-individual', individual);
 }
@@ -9490,9 +9503,11 @@ let clientsData=[
 ];
 
 let dealersData=[
-  {id:dlrSeq++, name:'Дилер «ВостокМеталл»', region:'Шымкент', orders:21, turnover:3100000, status:'Активен'},
-  {id:dlrSeq++, name:'Дилер «СтройОпт»',     region:'Астана',  orders:17, turnover:2400000, status:'Активен'},
-  {id:dlrSeq++, name:'Дилер «ЮгТорг»',       region:'Тараз',   orders:9,  turnover:1200000, status:'На паузе'},
+  {id:dlrSeq++, name:'Дилер Астана',  region:'Астана',  channel:'dealer_astana',  orders:0, turnover:0, status:'Активен'},
+  {id:dlrSeq++, name:'Дилер Актау',   region:'Актау',   channel:'dealer_aktau',   orders:0, turnover:0, status:'Активен'},
+  {id:dlrSeq++, name:'Дилер Шымкент', region:'Шымкент', channel:'dealer_shymkent',orders:0, turnover:0, status:'Активен'},
+  {id:dlrSeq++, name:'Дилер Атырау',  region:'Атырау',  channel:'dealer_atyrau',  orders:0, turnover:0, status:'Активен'},
+  {id:dlrSeq++, name:'Дилер Актобе',  region:'Актобе',  channel:'dealer_aktobe',  orders:0, turnover:0, status:'Активен'},
 ];
 
 let salonsData={
@@ -9547,9 +9562,14 @@ Object.values(salonsData).forEach(salon=>{
 // ---- Tab switcher ----
 function showCustTab(tab, el){
   document.querySelectorAll('#page-customers .tab').forEach(t=>t.classList.remove('active'));
-  el.classList.add('active');
+  if(el) el.classList.add('active');
   document.querySelectorAll('.cust-tab').forEach(t=>t.style.display='none');
-  document.getElementById('cust-'+tab).style.display='block';
+  const tabEl = document.getElementById('cust-'+tab);
+  if(tabEl) tabEl.style.display='block';
+  if(tab==='persons')   loadCustomersFromDB().then(()=>renderPersons());
+  if(tab==='dealers')   renderDealersTab();
+  if(tab==='salons')    renderSalonsTab();
+  if(tab==='reconcile-counterparties') renderCounterpartyReconcile();
 }
 
 function showMrpTab(tab, el){
@@ -9649,6 +9669,33 @@ function filterTable(tbodyId, query){
 function deleteClient(id){ clientsData=clientsData.filter(c=>c.id!==id); renderClients(); renderOrders(); }
 
 // ---- DEALERS render ----
+function renderDealersTab(){
+  // Считаем реальные заказы и обороты из ordersData
+  dealersData.forEach(d=>{
+    const ch = d.channel;
+    const dlrOrders = ordersData.filter(o=>o.channel===ch);
+    d.orders   = dlrOrders.length;
+    d.turnover = dlrOrders.reduce((s,o)=>s+orderTotal(o),0);
+  });
+
+  const total   = dealersData.reduce((s,d)=>s+d.orders,0);
+  const turnover= dealersData.reduce((s,d)=>s+d.turnover,0);
+  const fmt = n=>'₸'+Math.round(n/1000)+'К';
+
+  setEl('dealer-count',   dealersData.length);
+  setEl('dealer-orders',  total);
+  setEl('dealer-turnover',fmt(turnover));
+  renderDealers();
+}
+
+function renderSalonsTab(){
+  renderSalons();
+}
+
+function renderCounterpartyReconcile(){
+  // Заглушка — будет развита позже
+}
+
 function renderDealers(){
   const tbody=document.getElementById('dealers-tbody');
   if(!tbody) return;
