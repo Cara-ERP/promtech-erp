@@ -1192,60 +1192,50 @@ async function updateOrderInDB(num, fields){
 // Содержит всё необходимое для входа — доступен сразу при клике.
  var _USERS={
   director:   {name:'Тургамбаев Булат Сагинтаевич', initials:'ТБ', color:'#4f8ef7', label:'Директор',
-    pages:['dashboard','mrp','warehouse','purchases','suppliers','catalog','customers','crm','finance','money','channels','reconcile','hr','wages','techcards','mycabinet','ai']},
-  manager:    {name:'Иванов И.И.',    initials:'ИИ', color:'#3dd68c', label:'Менеджер продаж',
-    pages:['dashboard','catalog','customers','crm','mycabinet']},
-  storekeeper:{name:'Петров С.А.',   initials:'ПС', color:'#f5a623', label:'Кладовщик',
+    pages:['dashboard','mrp','warehouse','purchases','suppliers','catalog','sales','customers','crm','finance','money','channels','reconcile','hr','wages','techcards','mycabinet','ai']},
+  manager:    {name:'Алтыбасова Акерке', initials:'АА', color:'#3dd68c', label:'Бухгалтер (продажи)',
+    pages:['dashboard','catalog','sales','customers','crm','mycabinet']},
+  storekeeper:{name:'Угламова Халидам',  initials:'УХ', color:'#f5a623', label:'Кладовщик',
     pages:['dashboard','warehouse','purchases','suppliers','mycabinet']},
-  foreman:    {name:'Сидоров М.В.',  initials:'СМ', color:'#a78bfa', label:'Начальник цеха',
+  foreman:    {name:'Алимов Шынгыс',     initials:'АШ', color:'#a78bfa', label:'Нач. цеха',
     pages:['dashboard','mrp','warehouse','wages','mycabinet']},
-  accountant: {name:'Козлова Д.О.', initials:'КД', color:'#f43f5e', label:'Бухгалтер',
-    pages:['dashboard','finance','money','channels','reconcile','hr','wages','mycabinet']},
+  accountant: {name:'Болысбеков Ерлан',  initials:'БЕ', color:'#f43f5e', label:'Гл. бухгалтер',
+    pages:['dashboard','finance','money','channels','reconcile','hr','wages','sales','customers','mycabinet']},
   hr:         {name:'Молдахова Сания Мактабековна', initials:'МС', color:'#10b981', label:'Бухгалтер/HR',
     pages:['dashboard','hr','wages','mycabinet']},
-  buyer:      {name:'Закупщик',     initials:'ЗК', color:'#f59e0b', label:'Менеджер закупок',
+  buyer:      {name:'Куланбаев Арман',   initials:'КА', color:'#f59e0b', label:'Закупщик',
     pages:['dashboard','purchases','suppliers','warehouse','mycabinet']},
-  // ── Салоны ──────────────────────────────────────────────────────────────
   salon_armada:     {name:'Салон Армада',    initials:'АР', color:'#8b5cf6', label:'Салон Армада',
-    channel:'salon_armada',
-    cashAccountId: 2,
-    isManager: false,
-    pages:['catalog','crm','money_salon','reconcile'],
-    canCreateOrders: true, canCashIn: true, canViewRS: true, canTransferToOffice: true},
+    channel:'salon_armada', cashAccountId:2, isManager:false,
+    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
+    canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
   salon_nazarbayeva:{name:'Салон Назарбаева',initials:'НЗ', color:'#ec4899', label:'Салон Назарбаева',
-    channel:'salon_nazarbayeva',
-    cashAccountId: 3,
-    isManager: false,
-    pages:['catalog','crm','money_salon','reconcile'],
-    canCreateOrders: true, canCashIn: true, canViewRS: true, canTransferToOffice: true},
-  salon_armada_mgr:     {name:'Сукачева Ольга', initials:'СО', color:'#8b5cf6', label:'Нач. салона Армада',
+    channel:'salon_nazarbayeva', cashAccountId:3, isManager:false,
+    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
+    canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
+  salon_armada_mgr:     {name:'Сукачева Ольга', initials:'СО', color:'#8b5cf6', label:'Нач. салонов Армада/Назарбаева',
     channel:'salon_armada', cashAccountId:2, isManager:true,
-    pages:['catalog','crm','money_salon','reconcile'],
+    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
   salon_nazarbayeva_mgr:{name:'Сукачева Ольга', initials:'СО', color:'#ec4899', label:'Нач. салона Назарбаева',
     channel:'salon_nazarbayeva', cashAccountId:3, isManager:true,
-    pages:['catalog','crm','money_salon','reconcile'],
+    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
-  dealer_astana:    {name:'Дилер Астана',    initials:'АС', color:'#06b6d4', label:'Дилер — Астана',
-    channel:'dealer_astana',
-    pages:['catalog','crm','reconcile'],
-    canCreateOrders: true, canCashIn: false, canViewRS: false},
-  dealer_aktau:     {name:'Дилер Актау',     initials:'АК', color:'#06b6d4', label:'Дилер — Актау',
-    channel:'dealer_aktau',
-    pages:['catalog','crm','reconcile'],
-    canCreateOrders: true, canCashIn: false, canViewRS: false},
-  dealer_shymkent:  {name:'Дилер Шымкент',  initials:'ШЫ', color:'#06b6d4', label:'Дилер — Шымкент',
-    channel:'dealer_shymkent',
-    pages:['catalog','crm','reconcile'],
-    canCreateOrders: true, canCashIn: false, canViewRS: false},
-  dealer_atyrau:    {name:'Дилер Атырау',    initials:'АТ', color:'#06b6d4', label:'Дилер — Атырау',
-    channel:'dealer_atyrau',
-    pages:['catalog','crm','reconcile'],
-    canCreateOrders: true, canCashIn: false, canViewRS: false},
-  dealer_aktobe:    {name:'Дилер Актобе',    initials:'АКТ',color:'#06b6d4', label:'Дилер — Актобе',
-    channel:'dealer_aktobe',
-    pages:['catalog','crm','reconcile'],
-    canCreateOrders: true, canCashIn: false, canViewRS: false},
+  dealer_astana:  {name:'Дилер Астана',  initials:'АС', color:'#06b6d4', label:'Дилер — Астана',
+    channel:'dealer_astana',  pages:['catalog','sales','reconcile'],
+    canCreateOrders:true, canCashIn:false, canViewRS:false},
+  dealer_aktau:   {name:'Дилер Актау',   initials:'АК', color:'#06b6d4', label:'Дилер — Актау',
+    channel:'dealer_aktau',   pages:['catalog','sales','reconcile'],
+    canCreateOrders:true, canCashIn:false, canViewRS:false},
+  dealer_shymkent:{name:'Дилер Шымкент', initials:'ШЫ', color:'#06b6d4', label:'Дилер — Шымкент',
+    channel:'dealer_shymkent',pages:['catalog','sales','reconcile'],
+    canCreateOrders:true, canCashIn:false, canViewRS:false},
+  dealer_atyrau:  {name:'Дилер Атырау',  initials:'АТ', color:'#06b6d4', label:'Дилер — Атырау',
+    channel:'dealer_atyrau',  pages:['catalog','sales','reconcile'],
+    canCreateOrders:true, canCashIn:false, canViewRS:false},
+  dealer_aktobe:  {name:'Дилер Актобе',  initials:'АБ', color:'#06b6d4', label:'Дилер — Актобе',
+    channel:'dealer_aktobe',  pages:['catalog','sales','reconcile'],
+    canCreateOrders:true, canCashIn:false, canViewRS:false},
  };
 var _PWD={
   director:'dir2026', manager:'mgr2026', storekeeper:'wh2026',
@@ -1369,26 +1359,27 @@ function doLogin(){
   // Скрываем кнопку производственного заказа для дилеров и салонов
   const prodBtn=document.getElementById('topbar-prod-order-btn');
   if(prodBtn) prodBtn.style.display=role.channel?'none':'';
-  // Скрываем вкладки Клиенты и Лиды для дилеров
-  const isDealer = role.channel?.startsWith('dealer_');
+
+  const isDealer = !!(role.channel?.startsWith('dealer_'));
+  const isSalon  = !!(role.channel?.startsWith('salon_'));
+
+  // Дилеры не видят вкладки Дилеры и Салоны в Покупателях
+  const dealerTab = document.getElementById('cust-tab-dealers');
+  const salonTab  = document.getElementById('cust-tab-salons');
+  const reconcileTab = document.getElementById('cust-tab-reconcile');
+  if(dealerTab)    dealerTab.style.display    = isDealer?'none':'';
+  if(salonTab)     salonTab.style.display     = isDealer?'none':'';
+  if(reconcileTab) reconcileTab.style.display = isDealer?'none':'';
+
+  // Дилеры не видят CRM клиентов и лидов
   const cliTab=document.getElementById('crm-tab-clients');
   const ledTab=document.getElementById('crm-tab-leads');
   if(cliTab) cliTab.style.display=isDealer?'none':'';
   if(ledTab) ledTab.style.display=isDealer?'none':'';
-  if(role.channel){
-    setTimeout(function(){
-      const isDlr=role.channel.startsWith('dealer_');
-      const isSln=role.channel.startsWith('salon_');
-      ['funnel','tasks'].forEach(function(tab){
-        document.querySelectorAll('#page-crm .tab[data-tab="'+tab+'"]').forEach(function(t){
-          t.style.display=isDlr?'none':'';
-        });
-      });
-      document.querySelectorAll('#page-crm .tab[data-tab="report"]').forEach(function(t){
-        t.style.display=(isDlr||isSln)?'none':'';
-      });
-    },300);
-  }
+
+  // Скрываем nav-customers для дилеров
+  const navCust = document.getElementById('nav-customers');
+  if(navCust) navCust.style.display = isDealer?'none':'';
   // Обновляем сайдбар
   var av=document.getElementById('sidebar-avatar');
   var un=document.getElementById('sidebar-username');
@@ -1646,21 +1637,25 @@ window.onerror = function(msg, src, line, col){
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16,8 20,8 23,11 23,16 16,16"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
       <span>Поставщики</span>
     </div>
-    <div class="nav-item" onclick="showPage('catalog',this)">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-      <span>Каталог</span>
-    </div>
-    <div class="nav-item" onclick="showPage('customers',this)">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>Покупатели</span>
-    </div>
   </div>
 
   <div class="nav-section">
     <div class="nav-label">Продажи</div>
+    <div class="nav-item" onclick="showPage('catalog',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <span>Каталог</span>
+    </div>
+    <div class="nav-item" onclick="showPage('sales',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      <span>Продажи</span>
+    </div>
+    <div class="nav-item" id="nav-customers" onclick="showPage('customers',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Покупатели</span>
+    </div>
     <div class="nav-item" onclick="showPage('crm',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>CRM / Продажи</span>
+      <span>CRM</span>
     </div>
   </div>
 
@@ -2778,34 +2773,22 @@ window.onerror = function(msg, src, line, col){
 
     <div class="page" id="page-customers">
       <div class="section-header">
-        <div><div class="section-title">Покупатели</div><div class="section-sub">Оборот рассчитывается автоматически из заказов</div></div>
-        <div style="display:flex;align-items:center;gap:16px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:12px;color:var(--text3)">Статус заказов:</span>
-            <select id="cust-status-filter" onchange="recalcAllCustomerTurnover()" style="font-size:13px;padding:5px 10px;width:auto">
-              <option value="all" selected>Все</option>
-              <option value="queue">В очереди</option>
-              <option value="progress">В работе</option>
-              <option value="done">Готово</option>
-            </select>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:12px;color:var(--text3)">Период:</span>
-            <select id="cust-period" onchange="recalcAllCustomerTurnover()" style="font-size:13px;padding:5px 10px;width:auto">
-              <option value="all">Всё время</option>
-              <option value="year" selected>Текущий год (2026)</option>
-              <option value="quarter">Текущий квартал</option>
-              <option value="month">Текущий месяц</option>
-            </select>
-          </div>
+        <div><div class="section-title">Покупатели</div><div class="section-sub">Юридические лица — ТОО, ИП, АО · Дилеры · Салоны · Сверки</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <select id="cust-period" onchange="recalcAllCustomerTurnover()" style="font-size:13px;padding:5px 10px;width:auto">
+            <option value="all">Всё время</option>
+            <option value="year" selected>Текущий год</option>
+            <option value="quarter">Текущий квартал</option>
+            <option value="month">Текущий месяц</option>
+          </select>
         </div>
       </div>
 
       <div class="tabs">
-        <div class="tab active" onclick="showCustTab('persons',this)">Справочник контрагентов</div>
-        <div class="tab" onclick="showCustTab('clients',this)">Клиенты</div>
-        <div class="tab" onclick="showCustTab('dealers',this)">Дилеры</div>
-        <div class="tab" onclick="showCustTab('salons',this)">Салоны</div>
+        <div class="tab active" id="cust-tab-counterparties" onclick="showCustTab('persons',this)">🏢 Контрагенты</div>
+        <div class="tab" id="cust-tab-dealers" onclick="showCustTab('dealers',this)">🚚 Дилеры</div>
+        <div class="tab" id="cust-tab-salons" onclick="showCustTab('salons',this)">🏬 Салоны</div>
+        <div class="tab" id="cust-tab-reconcile" onclick="showCustTab('reconcile-counterparties',this)">📊 Сверки</div>
       </div>
 
       <!-- TAB: Persons directory (физ./юр. лица) -->
@@ -2926,25 +2909,37 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- ===== ORDERS (CRM) ===== -->
+    <div class="page" id="page-sales">
+      <div class="section-header">
+        <div><div class="section-title">Продажи</div><div class="section-sub">Заказы покупателей · журнал реализации · отчёты</div></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="openNewCustOrderModal()">+ Новый заказ</button>
+        </div>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="showOrdersTab('all-orders',this)">📋 Все заказы (<span id="tab-count-all">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('queue',this)">⏳ Очередь (<span id="tab-count-queue">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('progress',this)">🔧 В работе (<span id="tab-count-progress">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('done',this)">✅ Завершено (<span id="tab-count-done">0</span>)</div>
+        <div class="tab" onclick="showOrdersTab('sales-journal',this)">📒 Реализация</div>
+        <div class="tab" data-tab="report" onclick="showOrdersTab('report',this)">📈 Отчёт</div>
+      </div>
+      <div id="sales-tab-content"></div>
+    </div>
+
     <div class="page" id="page-crm">
       <div class="section-header">
-        <div><div class="section-title">Заказы покупателей</div><div class="section-sub">Журнал заказов и товарных позиций</div></div>
+        <div><div class="section-title">CRM</div><div class="section-sub">Клиенты · Лиды · Воронки · Задачи</div></div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary btn-sm" onclick="openNewCustOrderModal()">+ Новый заказ покупателя</button>
         </div>
       </div>
       <div class="tabs">
-        <div class="tab active" onclick="showOrdersTab('all-orders',this)">📋 Заказы (<span id="tab-count-all">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('queue',this)">⏳ Очередь (<span id="tab-count-queue">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('progress',this)">🔧 В работе (<span id="tab-count-progress">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('done',this)">✅ Завершено (<span id="tab-count-done">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('sales-journal',this)">📒 Реализация</div>
-        <div class="tab" id="crm-tab-clients" onclick="showOrdersTab('clients',this)">👥 Клиенты (<span id="tab-count-clients">0</span>)</div>
+        <div class="tab active" id="crm-tab-clients" onclick="showOrdersTab('clients',this)">👥 Клиенты (<span id="tab-count-clients">0</span>)</div>
         <div class="tab" id="crm-tab-leads" onclick="showOrdersTab('leads',this)">🎯 Лиды (<span id="tab-count-leads">0</span>)</div>
         <div class="tab" data-tab="funnel" onclick="showOrdersTab('funnel',this)">🎯 Воронка лидов</div>
         <div class="tab" data-tab="orders-kanban" onclick="showOrdersTab('orders-kanban',this)">📊 Воронка заказов</div>
         <div class="tab" data-tab="tasks" onclick="showOrdersTab('tasks',this)">✅ Задачи <span class="kanban-count" id="tasks-open-count">0</span></div>
-        <div class="tab" data-tab="report" onclick="showOrdersTab('report',this)">📈 Отчёт</div>
       </div>
 
       <!-- TAB: Margin report -->
@@ -7865,7 +7860,7 @@ function showPage(id, el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   if(el) el.classList.add('active');
-  const titles={dashboard:'Дашборд',mrp:'Производство (MRP)',warehouse:'Склад',purchases:'Закупки',suppliers:'Поставщики',catalog:'Каталог продукции',customers:'Покупатели',crm:'CRM / Продажи',finance:'Финансы — P&L',money:'Деньги',channels:'Центры прибыли',money_salon:'Касса салона',reconcile:'Сверка с офисом',hr:'Сотрудники',wages:'Сдельная оплата',techcards:'Тех. карты',mycabinet:'Личный кабинет',ai:'AI Ассистент'};
+  const titles={dashboard:'Дашборд',mrp:'Производство (MRP)',warehouse:'Склад',purchases:'Закупки',suppliers:'Поставщики',catalog:'Каталог продукции',sales:'Продажи',customers:'Покупатели',crm:'CRM',finance:'Финансы — P&L',money:'Деньги',channels:'Центры прибыли',money_salon:'Касса салона',reconcile:'Сверка с офисом',hr:'Сотрудники',wages:'Сдельная оплата',techcards:'Тех. карты',mycabinet:'Личный кабинет',ai:'AI Ассистент'};
   document.getElementById('topbar-title').textContent=titles[id]||id;
   if(id==='finance'){
     initFinancePeriod();
@@ -7875,6 +7870,12 @@ function showPage(id, el){
     if(tc) tc.textContent=allAR.length;
     const pc=document.getElementById('pur-tab-count');
     if(pc) pc.textContent=purchasesData.filter(r=>purStatus(r)!=='paid').length||'';
+  }
+  if(id==='sales'){
+    loadOrdersFromDB().then(()=>{
+      renderOrdersList();
+      updateOrderTabCounts();
+    });
   }
   if(id==='catalog'){
     loadCatalogFromDB().then(()=>renderCatalog());
@@ -18717,8 +18718,30 @@ function renderOrders(){
   setCount('tab-count-leads',    leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length);
 }
 
+function renderOrdersList(){
+  // Активируем первую вкладку в page-sales
+  const firstTab = document.querySelector('#page-sales .tab');
+  if(firstTab) showOrdersTab('all-orders', firstTab);
+}
+
+function updateOrderTabCounts(){
+  const setCount=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  const statusCounts={queue:0,progress:0,done:0};
+  ordersData.forEach(o=>{if(statusCounts[o.status]!==undefined)statusCounts[o.status]++;});
+  setCount('tab-count-all',      ordersData.length);
+  setCount('tab-count-queue',    statusCounts.queue||0);
+  setCount('tab-count-progress', statusCounts.progress||0);
+  setCount('tab-count-done',     statusCounts.done||0);
+}
+
 function showOrdersTab(tab, el){
-  document.querySelectorAll('#page-crm .tab').forEach(t=>t.classList.remove('active'));
+  // Определяем в какой странице находимся
+  const activePage = document.querySelector('#page-sales[style*="flex"], #page-sales:not([style])') &&
+    !document.getElementById('page-sales').style.display.includes('none')
+    ? '#page-sales' : '#page-crm';
+
+  document.querySelectorAll(`${activePage} .tab, #page-crm .tab, #page-sales .tab`)
+    .forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
   document.querySelectorAll('.orders-tab').forEach(t=>t.style.display='none');
   const tabEl = document.getElementById('orders-'+tab);
