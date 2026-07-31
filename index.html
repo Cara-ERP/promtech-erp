@@ -22966,22 +22966,10 @@ function openNewOrderModalReset(){
   });
   const dlrSel=document.getElementById('co-dealer-select');
   dlrSel.innerHTML='<option value="">— выберите дилера —</option>';
-  // Используем SALES_CHANNELS для списка дилеров
   SALES_CHANNELS.filter(c=>c.group==='dealer').forEach(d=>{
     const o=document.createElement('option');
-    o.value=d.id;
-    o.textContent=d.name;
-    dlrSel.appendChild(o);
+    o.value=d.id; o.textContent=d.name; dlrSel.appendChild(o);
   });
-  // Также добавляем из dealersData если есть
-  if(typeof dealersData!=='undefined'){
-    dealersData.forEach(d=>{
-      if(!dlrSel.querySelector(`option[value="${d.id}"]`)){
-        const o=document.createElement('option');
-        o.value=d.id; o.textContent=d.name; dlrSel.appendChild(o);
-      }
-    });
-  }
   // reset salon cascades
   document.getElementById('co-salon-select').value='';
   document.getElementById('co-salon-seller').innerHTML='<option value="">— сначала выберите салон —</option>';
