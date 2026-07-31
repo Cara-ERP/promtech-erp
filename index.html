@@ -242,7 +242,8 @@ select option{background:var(--bg3)}
 .cust-tab{display:block}
 
 /* ORDERS JOURNAL */
-.orders-tab{display:block}
+.orders-tab{display:none}
+.page.active .orders-tab.active-tab{display:block}
 .order-item-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px;padding:10px;background:var(--bg3);border-radius:8px}
 .order-item-row.edit-mode{grid-template-columns:1.6fr .8fr .8fr .8fr .8fr 1fr auto}
 .order-item-row .label{margin-bottom:4px}
@@ -2940,13 +2941,13 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-primary btn-sm" onclick="openNewCustOrderModal()">+ Новый заказ</button>
         </div>
       </div>
-      <div class="tabs">
-        <div class="tab active" onclick="showOrdersTab('all-orders',this)">📋 Все заказы (<span id="tab-count-all">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('queue',this)">⏳ Очередь (<span id="tab-count-queue">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('progress',this)">🔧 В работе (<span id="tab-count-progress">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('done',this)">✅ Завершено (<span id="tab-count-done">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('sales-journal',this)">📒 Реализация</div>
-        <div class="tab" data-tab="report" onclick="showOrdersTab('report',this)">📈 Отчёт</div>
+      <div class="tabs" id="sales-tabs">
+        <div class="tab active" onclick="showSalesTab('all-orders',this)">📋 Все заказы (<span id="s-count-all">0</span>)</div>
+        <div class="tab" onclick="showSalesTab('queue',this)">⏳ Очередь (<span id="s-count-queue">0</span>)</div>
+        <div class="tab" onclick="showSalesTab('progress',this)">🔧 В работе (<span id="s-count-progress">0</span>)</div>
+        <div class="tab" onclick="showSalesTab('done',this)">✅ Завершено (<span id="s-count-done">0</span>)</div>
+        <div class="tab" onclick="showSalesTab('sales-journal',this)">📒 Реализация</div>
+        <div class="tab" onclick="showSalesTab('report',this)">📈 Отчёт</div>
       </div>
     </div>
 
@@ -18785,33 +18786,48 @@ function renderOrders(){
 }
 
 function renderOrdersList(){
-  // Активируем первую вкладку в page-sales
-  const firstTab = document.querySelector('#page-sales .tab');
-  if(firstTab) showOrdersTab('all-orders', firstTab);
+  // Убираем active-tab со всех, ставим на all-orders
+  document.querySelectorAll('.orders-tab').forEach(t=>t.classList.remove('active-tab'));
+  const tabEl = document.getElementById('orders-all-orders');
+  if(tabEl) tabEl.classList.add('active-tab');
+  const firstTab = document.querySelector('#sales-tabs .tab');
+  if(firstTab){
+    document.querySelectorAll('#sales-tabs .tab').forEach(t=>t.classList.remove('active'));
+    firstTab.classList.add('active');
+  }
+  renderOrders();
 }
 
 function updateOrderTabCounts(){
-  const setCount=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  const setC=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
   const statusCounts={queue:0,progress:0,done:0};
   ordersData.forEach(o=>{if(statusCounts[o.status]!==undefined)statusCounts[o.status]++;});
-  setCount('tab-count-all',      ordersData.length);
-  setCount('tab-count-queue',    statusCounts.queue||0);
-  setCount('tab-count-progress', statusCounts.progress||0);
-  setCount('tab-count-done',     statusCounts.done||0);
+  setC('s-count-all',      ordersData.length);
+  setC('s-count-queue',    statusCounts.queue||0);
+  setC('s-count-progress', statusCounts.progress||0);
+  setC('s-count-done',     statusCounts.done||0);
+  setC('tab-count-all',    ordersData.length);
+  setC('tab-count-queue',  statusCounts.queue||0);
+  setC('tab-count-progress',statusCounts.progress||0);
+  setC('tab-count-done',   statusCounts.done||0);
+}
+
+function showSalesTab(tab, el){
+  document.querySelectorAll('#sales-tabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.querySelectorAll('.orders-tab').forEach(t=>t.classList.remove('active-tab'));
+  const tabEl = document.getElementById('orders-'+tab);
+  if(tabEl) tabEl.classList.add('active-tab');
+  if(tab==='sales-journal') renderSalesJournal();
+  if(tab==='report')        renderOrderReport();
 }
 
 function showOrdersTab(tab, el){
-  // Определяем в какой странице находимся
-  const activePage = document.querySelector('#page-sales[style*="flex"], #page-sales:not([style])') &&
-    !document.getElementById('page-sales').style.display.includes('none')
-    ? '#page-sales' : '#page-crm';
-
-  document.querySelectorAll(`${activePage} .tab, #page-crm .tab, #page-sales .tab`)
-    .forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('#page-crm .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  document.querySelectorAll('.orders-tab').forEach(t=>t.style.display='none');
+  document.querySelectorAll('.orders-tab').forEach(t=>t.classList.remove('active-tab'));
   const tabEl = document.getElementById('orders-'+tab);
-  if(tabEl) tabEl.style.display='block';
+  if(tabEl) tabEl.classList.add('active-tab');
   if(tab==='sales-journal') renderSalesJournal();
   if(tab==='funnel'){
     // Мержим leadsData в crmLeads для воронки
