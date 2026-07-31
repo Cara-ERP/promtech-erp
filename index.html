@@ -2916,23 +2916,6 @@ window.onerror = function(msg, src, line, col){
         </div>
       </div>
     </div>
-      <div class="section-header">
-        <div><div class="section-title">Продажи</div><div class="section-sub">Заказы покупателей · журнал реализации · отчёты</div></div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-primary btn-sm" onclick="openNewCustOrderModal()">+ Новый заказ</button>
-        </div>
-      </div>
-      <div class="tabs">
-        <div class="tab active" onclick="showOrdersTab('all-orders',this)">📋 Все заказы (<span id="tab-count-all">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('queue',this)">⏳ Очередь (<span id="tab-count-queue">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('progress',this)">🔧 В работе (<span id="tab-count-progress">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('done',this)">✅ Завершено (<span id="tab-count-done">0</span>)</div>
-        <div class="tab" onclick="showOrdersTab('sales-journal',this)">📒 Реализация</div>
-        <div class="tab" data-tab="report" onclick="showOrdersTab('report',this)">📈 Отчёт</div>
-      </div>
-      <div id="sales-tab-content"></div>
-    </div>
-
     <!-- ===== ПРОДАЖИ ===== -->
     <div class="page" id="page-sales">
       <div class="section-header">
@@ -18786,15 +18769,23 @@ function renderOrders(){
 }
 
 function renderOrdersList(){
-  // Убираем active-tab со всех, ставим на all-orders
+  // Переносим orders-tab блоки продаж в page-sales
+  const salesPage = document.getElementById('page-sales');
+  if(salesPage){
+    const salesTabs = ['orders-all-orders','orders-all-items','orders-queue',
+      'orders-progress','orders-done','orders-sales-journal','orders-report'];
+    salesTabs.forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && el.parentElement !== salesPage) salesPage.appendChild(el);
+    });
+  }
+  // Показываем первую вкладку
   document.querySelectorAll('.orders-tab').forEach(t=>t.classList.remove('active-tab'));
   const tabEl = document.getElementById('orders-all-orders');
   if(tabEl) tabEl.classList.add('active-tab');
+  document.querySelectorAll('#sales-tabs .tab').forEach(t=>t.classList.remove('active'));
   const firstTab = document.querySelector('#sales-tabs .tab');
-  if(firstTab){
-    document.querySelectorAll('#sales-tabs .tab').forEach(t=>t.classList.remove('active'));
-    firstTab.classList.add('active');
-  }
+  if(firstTab) firstTab.classList.add('active');
   renderOrders();
 }
 
