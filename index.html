@@ -1132,20 +1132,21 @@ async function loadOrdersFromDB(){
 
     // Собираем полные объекты заказов
     ordersData = orders.map(o=>({
-      num:           o.num,
-      channel:       o.channel||'office',
-      customer:      o.customer||'',
-      seller:        o.seller||'',
-      resp:          o.seller||'',
-      createdDate:   normDate(o.created_date),
-      date:          normDate(o.date),
-      deliveryDate:  normDate(o.delivery_date),
-      payment:       o.payment||0,
-      status:        o.status||'queue',
-      comment:       o.comment||'',
-      paymentDue:    o.payment_due||'',
+      num:            o.num,
+      channel:        o.channel||'office',
+      customer:       o.customer||'',
+      seller:         o.seller||'',
+      resp:           o.seller||'',
+      createdDate:    normDate(o.created_date),
+      date:           normDate(o.date),
+      deliveryDate:   normDate(o.delivery_date),
+      payment:        o.payment||0,
+      status:         o.status||'queue',
+      comment:        o.comment||'',
+      paymentDue:     o.payment_due||'',
+      salonClientName: o.end_client||'',
       paymentHistory: paymentsByOrder[o.num]||[],
-      items:         itemsByOrder[o.num]||[],
+      items:          itemsByOrder[o.num]||[],
     }));
 
     // Обновляем счётчик заказов — берём максимальный номер + 1
@@ -1186,6 +1187,7 @@ async function saveOrderToDB(order){
         payment:      order.payment||0,
         comment:      order.comment||'',
         payment_due:  order.paymentDue||'',
+        end_client:   order.salonClientName||'',
       })
     });
 
@@ -3162,6 +3164,7 @@ window.onerror = function(msg, src, line, col){
               <th>Дата</th>
               <th>Номер заказа</th>
               <th>Покупатель</th>
+              <th>Конечный клиент</th>
               <th>Канал</th>
               <th>Товар / Позиция</th>
               <th style="text-align:right">Кол-во</th>
@@ -19433,17 +19436,18 @@ function renderSalesJournal(){
       const lineTotal = (item.qty||1) * (item.price||0);
       const paid = lineTotal * (order.payment||0) / 100;
       rows.push({
-        date:     order.date||order.createdDate||'—',
-        num:      order.num,
-        customer: order.customer,
-        channel:  channelLabel(order.channel),
-        item:     item.name||'—',
-        qty:      item.qty||1,
-        price:    item.price||0,
-        total:    lineTotal,
-        payPct:   order.payment||0,
-        paid:     paid,
-        status:   statusLabel(order.status),
+        date:      order.date||order.createdDate||'—',
+        num:       order.num,
+        customer:  order.customer,
+        endClient: order.salonClientName||'',
+        channel:   channelLabel(order.channel),
+        item:      item.name||'—',
+        qty:       item.qty||1,
+        price:     item.price||0,
+        total:     lineTotal,
+        payPct:    order.payment||0,
+        paid:      paid,
+        status:    statusLabel(order.status),
       });
     });
   });
@@ -19464,6 +19468,7 @@ function renderSalesJournal(){
     <td style="font-size:12px;white-space:nowrap">${r.date}</td>
     <td style="font-family:monospace;color:var(--accent);font-size:12px">${r.num}</td>
     <td style="font-weight:500">${r.customer}</td>
+    <td style="font-size:12px;color:var(--text2)">${r.endClient||'—'}</td>
     <td style="font-size:12px;color:var(--text3)">${r.channel}</td>
     <td>${r.item}</td>
     <td style="text-align:right;font-family:monospace">${r.qty}</td>
@@ -19472,7 +19477,7 @@ function renderSalesJournal(){
     <td style="text-align:right;font-family:monospace;color:${r.payPct>=100?'var(--green)':r.payPct>0?'var(--amber)':'var(--red)'}">${r.payPct}%</td>
     <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(r.paid)}</td>
     <td><span class="badge ${r.status==='Готово'||r.status==='Отгружено'?'badge-green':r.status==='В работе'?'badge-blue':'badge-red'}" style="font-size:10px">${r.status}</span></td>
-  </tr>`).join('') || '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за период</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="13" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за период</td></tr>';
 
   tfoot.innerHTML = `<tr style="background:var(--bg3);font-weight:700">
     <td colspan="8" style="text-align:right;padding:8px 12px;font-size:13px">Итого:</td>
