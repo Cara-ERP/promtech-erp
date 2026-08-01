@@ -143,7 +143,7 @@ select option{background:var(--bg3)}
 .kanban-col{min-width:220px;background:var(--bg3);border-radius:10px;padding:14px;flex-shrink:0}
 .kanban-col-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .kanban-col-title{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
-.kanban-count{background:var(--bg4);color:var(--text3);font-size:11px;font-family:'IBM Plex Mono',monospace;padding:2px 7px;border-radius:10px}
+.kanban-count{background:var(--bg4);color:var(--text3);font-size:11px;font-family:'IBM Plex Mono',monospace;padding:2px 7px;border-radius:10px;vertical-align:middle;display:inline-block;line-height:1.4}
 .kanban-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer;transition:all .15s}
 .kanban-card:hover{border-color:var(--border2);transform:translateY(-1px)}
 .kanban-card-title{font-size:13px;font-weight:500;margin-bottom:6px}
@@ -311,10 +311,10 @@ select option{background:var(--bg3)}
 .sf-token-done-check{font-size:10.5px;color:var(--green);font-weight:500;margin-bottom:3px}
 
 /* CRM KANBAN PIPELINE */
-.crm-pipeline{display:flex;gap:0;min-width:max-content}
+.crm-pipeline{display:flex;gap:0;min-width:max-content;align-items:start}
 .crm-row-labels{display:flex;flex-direction:column;flex-shrink:0;width:200px;position:sticky;left:0;background:var(--bg);z-index:3}
 .crm-row-label-header{height:52px;display:flex;align-items:center;padding:0 12px;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:4}
-.crm-row-label{min-height:90px;display:flex;flex-direction:column;justify-content:center;padding:8px 12px;border-bottom:1px solid var(--border);border-right:1px solid var(--border)}
+.crm-row-label{min-height:90px;display:flex;flex-direction:column;justify-content:center;padding:8px 12px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);box-sizing:border-box}
 .crm-row-label-name{font-size:13px;font-weight:500;cursor:pointer;color:var(--accent)}
 .crm-row-label-meta{font-size:11px;color:var(--text3);margin-top:2px}
 .crm-col{display:flex;flex-direction:column;width:190px;flex-shrink:0;border-right:1px solid var(--border)}
@@ -18186,6 +18186,20 @@ function renderCrmKanban(){
 
   html+='</div>';
   board.innerHTML=html;
+
+  // Синхронизируем высоты строк
+  requestAnimationFrame(()=>{
+    const labels = board.querySelectorAll('.crm-row-label');
+    const cols   = board.querySelectorAll('.crm-col');
+    labels.forEach((lbl, i)=>{
+      // Получаем все ячейки i-й строки из всех колонок
+      const cells = [...cols].map(col=>[...col.querySelectorAll('.crm-cell')][i]).filter(Boolean);
+      // Находим максимальную высоту
+      const maxH  = Math.max(lbl.scrollHeight, ...cells.map(c=>c.scrollHeight), 90);
+      lbl.style.minHeight = maxH+'px';
+      cells.forEach(c=>c.style.minHeight=maxH+'px');
+    });
+  });
 }
 
 // ----- Drag & drop -----
@@ -19042,9 +19056,12 @@ function showOrdersTab(tab, el){
   if(tab==='report')        renderOrderReport();
   if(tab==='clients'){
     loadCustomersFromDB().then(()=>{
-      renderClientsTab();
+      // Считаем только клиентов с заказами
+      const withOrders = new Set(ordersData.map(o=>o.customer));
+      const count = personsData.filter(p=>withOrders.has(p.name)).length;
       const e=document.getElementById('tab-count-clients');
-      if(e) e.textContent=personsData.length;
+      if(e) e.textContent=count;
+      renderClientsTab();
     });
   }
   if(tab==='leads'){
@@ -19247,9 +19264,20 @@ function renderClientsTab(){
   const search = (document.getElementById('clients-search')?.value||'').toLowerCase();
   const typeF  = document.getElementById('clients-type-filter')?.value||'all';
 
-  // Берём клиентов из personsData (загружены из Supabase)
+  // Строим индекс заказов по имени клиента
+  const clientOrders = {};
+  ordersData.forEach(o=>{
+    if(!clientOrders[o.customer]) clientOrders[o.customer]={count:0,sum:0};
+    clientOrders[o.customer].count++;
+    clientOrders[o.customer].sum += orderTotal(o)||0;
+  });
+
+  // Берём только клиентов с заказами (остальные — лиды)
   const ch = getChannelFilter();
-  let clients = personsData.filter(p=>!ch || p.source===ch || !p.source);
+  let clients = personsData.filter(p=>{
+    if(ch && p.source && p.source!==ch) return false;
+    return clientOrders[p.name]; // только с заказами
+  });
 
   if(search) clients = clients.filter(p=>
     p.name.toLowerCase().includes(search) ||
@@ -19261,21 +19289,15 @@ function renderClientsTab(){
   // KPI
   const kpiEl = document.getElementById('clients-kpi');
   if(kpiEl){
-    const permanent = personsData.filter(p=>(p.comment||'').includes('Постоянный')).length;
-    // Считаем обороты по заказам
-    const clientOrders = {};
-    ordersData.forEach(o=>{
-      if(!clientOrders[o.customer]) clientOrders[o.customer]={count:0,sum:0};
-      clientOrders[o.customer].count++;
-      clientOrders[o.customer].sum += orderTotal(o)||0;
-    });
-    const totalSum = Object.values(clientOrders).reduce((s,c)=>s+c.sum,0);
+    const permanent = clients.filter(p=>(p.comment||'').includes('Постоянный')).length;
+    const totalSum  = Object.values(clientOrders).reduce((s,c)=>s+c.sum,0);
+    const withOrders= Object.keys(clientOrders).length;
 
     kpiEl.innerHTML=[
-      {label:'Всего клиентов', value:personsData.length, color:'var(--accent)'},
-      {label:'Постоянных',     value:permanent,           color:'var(--green)'},
-      {label:'С заказами',     value:Object.keys(clientOrders).length, color:'var(--amber)'},
-      {label:'Общий оборот',   value:'₸'+Math.round(totalSum/1000)+'К', color:'var(--purple)'},
+      {label:'Клиентов с заказами', value:withOrders,                          color:'var(--accent)'},
+      {label:'Постоянных',          value:permanent,                            color:'var(--green)'},
+      {label:'Без заказов (лиды)',   value:personsData.length-withOrders,        color:'var(--amber)'},
+      {label:'Общий оборот',         value:'₸'+Math.round(totalSum/1000)+'К',   color:'var(--purple)'},
     ].map(k=>`<div class="card" style="padding:14px 16px">
       <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
       <div style="font-size:20px;font-weight:700;color:${k.color}">${k.value}</div>
@@ -19287,14 +19309,6 @@ function renderClientsTab(){
 
   const tbody = document.getElementById('clients-tbody');
   if(!tbody) return;
-
-  // Считаем заказы по клиентам
-  const clientOrders = {};
-  ordersData.forEach(o=>{
-    if(!clientOrders[o.customer]) clientOrders[o.customer]={count:0,sum:0};
-    clientOrders[o.customer].count++;
-    clientOrders[o.customer].sum += orderTotal(o)||0;
-  });
 
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
