@@ -18170,19 +18170,51 @@ function populateCrmMgrFilter(){
 }
 
 function renderCrmKanban(){
+  const board=document.getElementById('crm-kanban-board');
+  if(!board) return;
+
+  // Только активные лиды — из leadsData (уже загружены) или crmLeads
+  // Исключаем won/lost и fromCustomers (слишком много)
+  const ACTIVE = ['new','contact','meeting','proposal'];
+
+  // Мержим источники но берём ТОЛЬКО активные и только fromLeads
+  const activeSrc = leadsData.filter(l=>
+    l.fromLeads && ACTIVE.includes(l.status)
+  );
+
+  // Конвертируем в формат crmLeads если нужно
+  let merged = [...crmLeads];
+  activeSrc.forEach(l=>{
+    if(!merged.find(c=>c.name===l.name)){
+      merged.push({
+        id: l.id,
+        name: l.name,
+        phone: l.phone||'',
+        stage: l.status==='contact'?'contacted':
+               l.status==='meeting'?'meeting':
+               l.status==='proposal'?'proposal':'new',
+        manager: l.manager||'',
+        interest: l.interest||'',
+        budget: l.budget||0,
+        source: l.source||'',
+      });
+    }
+  });
+
+  // Фильтруем только активные этапы
+  let leads = merged.filter(l=>ACTIVE.includes(l.stage)||l.stage==='contacted'||l.stage==='new');
+
+  // Применяем фильтры менеджера
   populateCrmMgrFilter();
   renderCrmFilterBars();
   renderCrmFunnelSummary();
   const mgrFilter=document.getElementById('crm-mgr-filter')?.value||'';
-  let leads=mgrFilter ? crmLeads.filter(l=>l.manager===mgrFilter) : crmLeads;
-  // Apply segment filter
+  if(mgrFilter) leads=leads.filter(l=>l.manager===mgrFilter);
   if(crmActiveSegmentFilter) leads=leads.filter(l=>l.segment===crmActiveSegmentFilter);
-  // Apply tag filter
   if(crmActiveTagFilter) leads=leads.filter(l=>(l.tags||[]).includes(crmActiveTagFilter));
-  const board=document.getElementById('crm-kanban-board');
-  if(!board) return;
+
   if(leads.length===0){
-    board.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Нет лидов, соответствующих фильтру. <span style="color:var(--accent);cursor:pointer" onclick="crmActiveTagFilter=null;crmActiveSegmentFilter=null;renderCrmKanban()">Сбросить фильтры</span></div>';
+    board.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Нет активных лидов. <span style="color:var(--accent);cursor:pointer" onclick="crmActiveTagFilter=null;crmActiveSegmentFilter=null;renderCrmKanban()">Сбросить фильтры</span></div>';
     return;
   }
 
@@ -19083,28 +19115,26 @@ function showOrdersTab(tab, el){
   if(tabEl) tabEl.style.display='block';
   if(tab==='sales-journal') renderSalesJournal();
   if(tab==='funnel'){
-    // Мержим leadsData в crmLeads для воронки
-    loadLeadsFromDB().then(()=>{
-      leadsData.forEach(l=>{
+    showLoading('Загрузка воронки...', 'Только активные лиды');
+    // Загружаем только активные лиды из Supabase (намного быстрее)
+    sbFetch('leads',
+      `select=id,name,phone,status,interest,budget,source,manager&` +
+      `status=in.(new,contact,meeting,proposal)&order=created_at.desc`
+    ).then(data=>{
+      hideLoading();
+      // Мержим в crmLeads
+      (data||[]).forEach(l=>{
         if(!crmLeads.find(c=>c.name===l.name)){
           crmLeads.push({
-            id: crmLeads.length+10000+Math.random(),
-            name: l.name,
-            phone: l.phone||'',
-            stage: l.status==='new'?'new':
-                   l.status==='contact'?'contacted':
-                   l.status==='meeting'?'meeting':
-                   l.status==='proposal'?'proposal':
-                   l.status==='won'?'won':'lost',
-            manager: l.manager||'',
-            interest: l.interest||'',
-            budget: l.budget||0,
-            source: l.source||'',
+            id: l.id, name: l.name, phone: l.phone||'',
+            stage: l.status==='contact'?'contacted':l.status||'new',
+            manager: l.manager||'', interest: l.interest||'',
+            budget: l.budget||0, source: l.source||'',
           });
         }
       });
       renderCrmKanban();
-    });
+    }).catch(()=>{ hideLoading(); renderCrmKanban(); });
   }
   if(tab==='orders-kanban') renderOrdersKanban();
   if(tab==='tasks')         renderTasks();
