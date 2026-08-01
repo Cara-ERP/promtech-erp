@@ -9670,23 +9670,37 @@ function renderPersons(){
   const searchEl = document.getElementById('persons-search');
   const search = (searchEl?.value||'').toLowerCase();
 
-  // Прямые покупатели офиса = те чьё имя стоит в заказах с channel='office'
+  // Прямые покупатели офиса:
+  // 1. Те чьё имя в заказах с channel='office'
+  // 2. Те кто создан вручную как контрагент (source='office')
   const officeCustomers = new Set(
     ordersData.filter(o=>o.channel==='office').map(o=>o.customer).filter(Boolean)
   );
 
-  // personsData содержит всех — берём только тех кто в officeCustomers
-  let data = personsData.filter(p=>officeCustomers.has(p.name));
-
-  if(search) data = data.filter(p=>
+  // Убираем дубли — оставляем по одному на имя
+  const seen = new Set();
+  const data = personsData.filter(p=>{
+    // Включаем если: есть заказ через офис ИЛИ создан с source='office'
+    const isOffice = officeCustomers.has(p.name) || p.source==='office';
+    if(!isOffice) return false;
+    if(seen.has(p.name)) return false;
+    seen.add(p.name);
+    return true;
+  }).filter(p=>!search ||
     (p.name||'').toLowerCase().includes(search)||
     (p.phone||'').includes(search));
 
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
+  // Расширенный список признаков юр.лица
+  const isLegalName = name => {
+    const n = (name||'').trim();
+    return /^(ТОО|ИП|АО|ООО|ЗАО|ОАО|КПК|ПК|СХПК|НКО|МКО)\b/i.test(n) ||
+           /\b(ТОО|ИП|АО|ООО|ЗАО|ОАО)\b/i.test(n);
+  };
+
   data.forEach(p=>{
-    const isLegal = p.type==='company'||p.type==='Юр. лицо'||
-      !!(p.name||'').match(/^(ТОО|ИП|АО|ООО|КПК)\b/i);
+    const isLegal = p.type==='company'||p.type==='Юр. лицо'|| isLegalName(p.name);
     if(isLegal) legal++; else individual++;
     const typeLabel = isLegal?'Юр. лицо':'Физ. лицо';
     const typeBadge = isLegal?'badge-blue':'badge-purple';
@@ -9760,14 +9774,13 @@ function savePerson(){
       {name, type, inn:idNum, phone})
       .catch(e=>console.warn('Ошибка обновления клиента:', e.message));
   } else {
-    const presetSource=document.getElementById('personModal').dataset.presetSource || 'Офис';
-    const newPerson={id:personSeq++, name, type, idNum, phone, source:presetSource};
+    const channel = getChannelFilter()||'office';
+    const newPerson={id:personSeq++, name, type, idNum, phone, source:channel};
     personsData.push(newPerson);
     // Сохраняем в Supabase
-    sbInsert('customers', {name, type, phone, inn:idNum,
-      channel: getChannelFilter()||'office'})
-      .then(()=>console.log('✅ Клиент сохранён в Supabase'))
-      .catch(e=>console.warn('Ошибка сохранения клиента:', e.message));
+    sbInsert('customers', {name, type, phone, inn:idNum, channel})
+      .then(()=>console.log('✅ Контрагент сохранён в Supabase'))
+      .catch(e=>console.warn('Ошибка сохранения:', e.message));
   }
   renderPersons();
   // Downstream tables display person name/type/phone live, so refresh them too
