@@ -18479,13 +18479,12 @@ function renderCrmKanban(){
 let crmDragLeadId=null;
 
 function crmDragStart(ev){
-  crmDragLeadId=parseInt(ev.target.closest('.crm-card').dataset.leadId);
+  crmDragLeadId=ev.target.closest('.crm-card').dataset.leadId;
   ev.dataTransfer.effectAllowed='move';
 }
 function crmDragOver(ev){
   ev.preventDefault();
-  const cell=ev.currentTarget;
-  if(parseInt(cell.dataset.leadId)===crmDragLeadId) cell.classList.add('crm-dragover');
+  ev.currentTarget.classList.add('crm-dragover');
 }
 function crmDragLeave(ev){ ev.currentTarget.classList.remove('crm-dragover'); }
 function crmDrop(ev){
@@ -18510,36 +18509,46 @@ function crmDrop(ev){
 // ----- Lead modal (add / edit) -----
 function openCrmLeadModal(leadId){
   editingLeadId=leadId;
+
+  // Ищем лид — сначала в crmLeads, потом в leadsData
+  const lead = crmLeads.find(l=>l.id==leadId) || leadsData.find(l=>l.id==leadId);
+
   const err=document.getElementById('crm-lead-form-error');
-  err.textContent='';
-  document.getElementById('crm-lead-delete-btn').style.display=leadId ? 'block' : 'none';
+  if(err) err.textContent='';
+  const delBtn=document.getElementById('crm-lead-delete-btn');
+  if(delBtn) delBtn.style.display=leadId ? 'block' : 'none';
 
-  // Populate segment dropdown
-  const segSel=document.getElementById('cl-segment');
-  populateSegmentSelect(segSel, null);
-
-  if(leadId){
-    const l=crmLeads.find(x=>x.id===leadId);
-    document.getElementById('crm-lead-modal-title').textContent='Карточка клиента';
-    document.getElementById('cl-name').value=l.name||'';
-    document.getElementById('cl-phone').value=l.phone||'';
-    document.getElementById('cl-amount').value=l.amount||'';
-    document.getElementById('cl-manager').value=l.manager||'';
-    document.getElementById('cl-source').value=l.source||'';
-    document.getElementById('cl-stage').value=l.stage||'lead';
-    document.getElementById('cl-next-date').value=l.nextDate||'';
-    document.getElementById('cl-next-action').value=l.nextAction||'';
-    document.getElementById('cl-comment').value=l.comment||'';
-    populateSegmentSelect(segSel, l.segment||null);
-    editingLeadTags=[...(l.tags||[])];
-  } else {
-    document.getElementById('crm-lead-modal-title').textContent='Новый лид';
-    ['cl-name','cl-phone','cl-amount','cl-next-date','cl-next-action','cl-comment'].forEach(id=>document.getElementById(id).value='');
-    document.getElementById('cl-manager').value='';
-    document.getElementById('cl-source').value='';
-    document.getElementById('cl-stage').value='lead';
+  if(!lead){
+    // Новый лид
+    const segSel=document.getElementById('cl-segment');
+    if(segSel) populateSegmentSelect(segSel, null);
+    ['cl-name','cl-phone','cl-manager','cl-source','cl-next-date','cl-next-action','cl-comment'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.value='';
+    });
+    const stageEl=document.getElementById('cl-stage');
+    if(stageEl) stageEl.value='lead';
     editingLeadTags=[];
+    renderLeadTagsInModal();
+    showModal('crmLeadModal');
+    return;
   }
+
+  // Существующий лид
+  const l = lead;
+  const segSel=document.getElementById('cl-segment');
+  document.getElementById('crm-lead-modal-title').textContent='Карточка лида';
+  document.getElementById('cl-name').value=l.name||'';
+  document.getElementById('cl-phone').value=l.phone||'';
+  if(document.getElementById('cl-amount')) document.getElementById('cl-amount').value=l.budget||l.amount||'';
+  document.getElementById('cl-manager').value=l.manager||'';
+  document.getElementById('cl-source').value=l.source||'';
+  if(document.getElementById('cl-stage')) document.getElementById('cl-stage').value=l.stage||'lead';
+  if(document.getElementById('cl-next-date')) document.getElementById('cl-next-date').value=l.nextDate||'';
+  if(document.getElementById('cl-next-action')) document.getElementById('cl-next-action').value=l.nextAction||'';
+  document.getElementById('cl-comment').value=l.comment||'';
+  populateSegmentSelect(segSel, l.segment||null);
+  editingLeadTags=[...(l.tags||[])];
   renderLeadTagsInModal();
   showModal('crmLeadModal');
 }
@@ -19514,7 +19523,7 @@ function renderOrdersKanban(){
 
     const cards = cols.map(o=>`
       <div class="card" style="padding:10px 12px;margin-bottom:8px;cursor:pointer;border-left:3px solid ${stage.color}"
-        onclick="openOrderModal(${JSON.stringify(o.num)})">
+        onclick="openEditOrderModal(${JSON.stringify(o.num)})">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
           <span style="font-family:monospace;font-size:12px;color:${stage.color};font-weight:600">${o.num}</span>
           <span style="font-size:11px;color:var(--text3)">${o.date||''}</span>
