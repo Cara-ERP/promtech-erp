@@ -3384,8 +3384,10 @@ window.onerror = function(msg, src, line, col){
                 <select id="lead-status">
                   <option value="new">🆕 Новый</option>
                   <option value="contact">📞 Контакт установлен</option>
-                  <option value="meeting">🤝 Встреча</option>
-                  <option value="proposal">📄 КП отправлено</option>
+                  <option value="meeting">🤝 Встреча назначена</option>
+                  <option value="qualify">🔍 Квалификация (→ воронка)</option>
+                  <option value="proposal">📄 КП отправлено (→ воронка)</option>
+                  <option value="negotiation">🤝 Переговоры (→ воронка)</option>
                   <option value="won">✅ Выиграли</option>
                   <option value="lost">❌ Проиграли</option>
                 </select>
@@ -17992,12 +17994,9 @@ let orderSeqNum=2245;
 // ===== CRM KANBAN PIPELINE =====
 
 const CRM_STAGES=[
-  {key:'lead',       label:'Лид',             cls:''},
-  {key:'qualify',    label:'Квалификация',     cls:''},
-  {key:'proposal',   label:'КП отправлено',    cls:''},
-  {key:'negotiation',label:'Переговоры',       cls:''},
-  {key:'won',        label:'Сделка закрыта',   cls:'stage-won'},
-  {key:'lost',       label:'Отказ',            cls:'stage-lost'},
+  {key:'qualify',    label:'🔍 Квалификация',  cls:''},
+  {key:'proposal',   label:'📄 КП отправлено', cls:''},
+  {key:'negotiation',label:'🤝 Переговоры',    cls:''},
 ];
 
 let crmLeadSeq=1;
@@ -18174,52 +18173,26 @@ function renderCrmKanban(){
   const board=document.getElementById('crm-kanban-board');
   if(!board) return;
 
-  // Только активные лиды — из leadsData (уже загружены) или crmLeads
-  // Исключаем won/lost и fromCustomers (слишком много)
-  const ACTIVE = ['new','contact','meeting','proposal'];
-
-  // Мержим источники но берём ТОЛЬКО активные и только fromLeads
-  const activeSrc = leadsData.filter(l=>
-    l.fromLeads && ACTIVE.includes(l.status)
-  );
-
-  // Конвертируем в формат crmLeads если нужно
-  let merged = [...crmLeads];
-  activeSrc.forEach(l=>{
-    if(!merged.find(c=>c.name===l.name)){
-      merged.push({
-        id: l.id,
-        name: l.name,
-        phone: l.phone||'',
-        stage: l.status==='contact'?'contacted':
-               l.status==='meeting'?'meeting':
-               l.status==='proposal'?'proposal':'new',
-        manager: l.manager||'',
-        interest: l.interest||'',
-        budget: l.budget||0,
-        source: l.source||'',
-      });
-    }
-  });
-
-  // Фильтруем только активные этапы
-  let leads = merged.filter(l=>ACTIVE.includes(l.stage)||l.stage==='contacted'||l.stage==='new');
-
-  // Применяем фильтры менеджера
+  // Применяем фильтры
   populateCrmMgrFilter();
   renderCrmFilterBars();
   renderCrmFunnelSummary();
   const mgrFilter=document.getElementById('crm-mgr-filter')?.value||'';
-  if(mgrFilter) leads=leads.filter(l=>l.manager===mgrFilter);
+  let leads = mgrFilter ? crmLeads.filter(l=>l.manager===mgrFilter) : [...crmLeads];
   if(crmActiveSegmentFilter) leads=leads.filter(l=>l.segment===crmActiveSegmentFilter);
   if(crmActiveTagFilter) leads=leads.filter(l=>(l.tags||[]).includes(crmActiveTagFilter));
 
   if(leads.length===0){
-    board.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Нет активных лидов. <span style="color:var(--accent);cursor:pointer" onclick="crmActiveTagFilter=null;crmActiveSegmentFilter=null;renderCrmKanban()">Сбросить фильтры</span></div>';
+    board.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text3);font-size:14px">
+      <div style="font-size:32px;margin-bottom:12px">🎯</div>
+      Нет лидов в воронке.<br>
+      <span style="font-size:12px">Переведите лидов из справочника в статус<br>
+      «Квалификация», «КП отправлено» или «Переговоры»</span>
+    </div>`;
     return;
   }
 
-  // Stage counts for column headers
+  // Счётчики по колонкам
   const stageCounts={};
   CRM_STAGES.forEach(s=>stageCounts[s.key]=0);
   leads.forEach(l=>{ if(stageCounts[l.stage]!==undefined) stageCounts[l.stage]++; });
@@ -19116,20 +19089,24 @@ function showOrdersTab(tab, el){
   if(tabEl) tabEl.style.display='block';
   if(tab==='sales-journal') renderSalesJournal();
   if(tab==='funnel'){
-    showLoading('Загрузка воронки...', 'Только активные лиды');
-    crmLeads = [];  // очищаем перед загрузкой
+    showLoading('Загрузка воронки...', 'Квалификация · КП · Переговоры');
+    crmLeads = [];
     sbFetch('leads',
       `select=id,name,phone,status,interest,budget,source,manager&` +
-      `status=in.(new,contact,meeting,proposal)&order=created_at.desc`
+      `status=in.(qualify,proposal,negotiation,contact,meeting)&order=created_at.desc`
     ).then(data=>{
       hideLoading();
       (data||[]).forEach(l=>{
+        // Маппинг статусов leads → CRM_STAGES
+        const stage =
+          l.status==='contact'||l.status==='meeting' ? 'qualify' :
+          l.status==='proposal'    ? 'proposal'    :
+          l.status==='negotiation' ? 'negotiation' : 'qualify';
         crmLeads.push({
           id: l.id, name: l.name, phone: l.phone||'',
-          stage: l.status==='contact'?'contacted':l.status||'new',
-          manager: l.manager||'', interest: l.interest||'',
-          budget: l.budget||0, source: l.source||'',
-          tags: [], segment: 1,
+          stage, manager: l.manager||'',
+          interest: l.interest||'', budget: l.budget||0,
+          source: l.source||'', tags: [], segment: 1,
         });
       });
       renderCrmKanban();
@@ -19439,12 +19416,14 @@ function renderClientsTab(){
 let leadsData = [];
 
 const LEAD_STATUSES = {
-  new:      {label:'🆕 Новый',              color:'var(--accent)'},
-  contact:  {label:'📞 Контакт',            color:'var(--amber)'},
-  meeting:  {label:'🤝 Встреча',            color:'#8b5cf6'},
-  proposal: {label:'📄 КП отправлено',      color:'#0ea5e9'},
-  won:      {label:'✅ Выиграли',           color:'var(--green)'},
-  lost:     {label:'❌ Проиграли',          color:'var(--red)'},
+  new:         {label:'🆕 Новый',           color:'var(--text3)'},
+  contact:     {label:'📞 Контакт',         color:'var(--accent)'},
+  meeting:     {label:'🤝 Встреча',         color:'#8b5cf6'},
+  qualify:     {label:'🔍 Квалификация',    color:'#0ea5e9'},
+  proposal:    {label:'📄 КП отправлено',   color:'#f59e0b'},
+  negotiation: {label:'🤝 Переговоры',      color:'#f97316'},
+  won:         {label:'✅ Выиграли',        color:'var(--green)'},
+  lost:        {label:'❌ Проиграли',       color:'var(--red)'},
 };
 
 const LEAD_SOURCES = {
