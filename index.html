@@ -9667,39 +9667,31 @@ function renderPersons(){
   tbody.innerHTML='';
   let legal=0, individual=0;
 
-  const ch = getChannelFilter();
   const searchEl = document.getElementById('persons-search');
   const search = (searchEl?.value||'').toLowerCase();
 
-  // Контрагенты = только прямые покупатели офиса (channel='office')
-  // Клиенты салонов — это клиенты салона, не офиса
-  let data = personsData.filter(p=>{
-    const src = (p.source||'').toLowerCase();
-    // Для дилеров/салонов — показываем их канал
-    if(ch) return src===ch;
-    // Для офиса — только office канал (прямые покупатели)
-    return src==='office' || src==='' || !p.source;
-  });
-
-  // Дополнительно — у кого есть заказы через офис
-  const officeOrders = new Set(
-    ordersData.filter(o=>o.channel==='office').map(o=>o.customer)
+  // Прямые покупатели офиса = те чьё имя стоит в заказах с channel='office'
+  const officeCustomers = new Set(
+    ordersData.filter(o=>o.channel==='office').map(o=>o.customer).filter(Boolean)
   );
-  data = data.filter(p=>officeOrders.has(p.name) || !p.source || p.source==='office');
+
+  // personsData содержит всех — берём только тех кто в officeCustomers
+  let data = personsData.filter(p=>officeCustomers.has(p.name));
 
   if(search) data = data.filter(p=>
-    (p.name||'').toLowerCase().includes(search) ||
+    (p.name||'').toLowerCase().includes(search)||
     (p.phone||'').includes(search));
+
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
   data.forEach(p=>{
     const isLegal = p.type==='company'||p.type==='Юр. лицо'||
       !!(p.name||'').match(/^(ТОО|ИП|АО|ООО|КПК)\b/i);
     if(isLegal) legal++; else individual++;
-    const typeLabel = isLegal ? 'Юр. лицо' : 'Физ. лицо';
-    const typeBadge = isLegal ? 'badge-blue' : 'badge-purple';
+    const typeLabel = isLegal?'Юр. лицо':'Физ. лицо';
+    const typeBadge = isLegal?'badge-blue':'badge-purple';
     const stat = ordersData.filter(o=>o.customer===p.name&&o.channel==='office');
     const turnover = stat.reduce((s,o)=>s+orderTotal(o),0);
-    const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
     const tr=document.createElement('tr');
     tr.innerHTML=`
       <td style="font-weight:500;cursor:pointer" onclick="openPersonModal(${p.id})">${p.name}</td>
@@ -9708,9 +9700,7 @@ function renderPersons(){
       <td style="font-family:monospace;font-size:12px">${p.phone||'—'}</td>
       <td style="text-align:right;font-family:monospace;color:var(--green);font-size:12px">${turnover>0?fmt(turnover):'—'}</td>
       <td style="text-align:right;font-size:12px">${stat.length||'—'}</td>
-      <td style="display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPersonModal(${p.id})">✏️</button>
-      </td>`;
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPersonModal(${p.id})">✏️</button></td>`;
     tbody.appendChild(tr);
   });
   setEl('person-count', data.length);
@@ -19348,12 +19338,13 @@ function showOrdersTab(tab, el){
   if(tab==='tasks')         renderTasks();
   if(tab==='report')        renderOrderReport();
   if(tab==='clients'){
-    loadCustomersFromDB().then(()=>{
-      // Считаем только клиентов с заказами
-      const withOrders = new Set(ordersData.map(o=>o.customer));
-      const count = personsData.filter(p=>withOrders.has(p.name)).length;
+    loadOrdersFromDB().then(()=>{
+      const salonClients = new Set(
+        ordersData.filter(o=>o.channel.startsWith('salon_')&&o.salonClientName)
+          .map(o=>o.salonClientName)
+      );
       const e=document.getElementById('tab-count-clients');
-      if(e) e.textContent=count;
+      if(e) e.textContent=salonClients.size;
       renderClientsTab();
     });
   }
@@ -19568,41 +19559,43 @@ function renderOrdersKanban(){
 function renderClientsTab(){
   const search = (document.getElementById('clients-search')?.value||'').toLowerCase();
   const typeF  = document.getElementById('clients-type-filter')?.value||'all';
+  const ch     = getChannelFilter();
 
-  // Строим индекс заказов по имени клиента
-  const clientOrders = {};
+  // CRM Клиенты = конечные клиенты салонов (из поля end_client в заказах)
+  // Собираем уникальных конечных клиентов
+  const clientMap = {}; // name → {orders, sum, permanent}
   ordersData.forEach(o=>{
-    if(!clientOrders[o.customer]) clientOrders[o.customer]={count:0,sum:0};
-    clientOrders[o.customer].count++;
-    clientOrders[o.customer].sum += orderTotal(o)||0;
+    const name = o.salonClientName||o.end_client||'';
+    if(!name) return;
+    // Для салонных логинов — только свои клиенты
+    if(ch && o.channel!==ch) return;
+    // Только из салонов
+    if(!o.channel.startsWith('salon_')) return;
+    if(!clientMap[name]) clientMap[name]={name, count:0, sum:0, channel:o.channel, phone:''};
+    clientMap[name].count++;
+    clientMap[name].sum += orderTotal(o)||0;
   });
 
-  // Берём только клиентов с заказами (остальные — лиды)
-  const ch = getChannelFilter();
-  let clients = personsData.filter(p=>{
-    if(ch && p.source && p.source!==ch) return false;
-    return clientOrders[p.name]; // только с заказами
-  });
+  let clients = Object.values(clientMap);
 
-  if(search) clients = clients.filter(p=>
-    p.name.toLowerCase().includes(search) ||
-    (p.phone||'').includes(search));
+  if(search) clients = clients.filter(c=>
+    c.name.toLowerCase().includes(search));
 
-  if(typeF==='permanent') clients = clients.filter(p=>(p.comment||'').includes('Постоянный'));
-  if(typeF==='new')       clients = clients.filter(p=>!(p.comment||'').includes('Постоянный'));
+  if(typeF==='permanent') clients = clients.filter(c=>c.count>=2);
+  if(typeF==='new')       clients = clients.filter(c=>c.count<2);
+
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const permanent = clients.filter(c=>c.count>=2).length;
+  const totalSum  = clients.reduce((s,c)=>s+c.sum,0);
 
   // KPI
   const kpiEl = document.getElementById('clients-kpi');
   if(kpiEl){
-    const permanent = clients.filter(p=>(p.comment||'').includes('Постоянный')).length;
-    const totalSum  = Object.values(clientOrders).reduce((s,c)=>s+c.sum,0);
-    const withOrders= Object.keys(clientOrders).length;
-
     kpiEl.innerHTML=[
-      {label:'Клиентов с заказами', value:withOrders,                          color:'var(--accent)'},
-      {label:'Постоянных',          value:permanent,                            color:'var(--green)'},
-      {label:'Без заказов (лиды)',   value:personsData.length-withOrders,        color:'var(--amber)'},
-      {label:'Общий оборот',         value:'₸'+Math.round(totalSum/1000)+'К',   color:'var(--purple)'},
+      {label:'Клиентов салонов', value:clients.length,               color:'var(--accent)'},
+      {label:'Постоянных (2+)',  value:permanent,                    color:'var(--green)'},
+      {label:'Новых',           value:clients.length-permanent,      color:'var(--amber)'},
+      {label:'Общий оборот',    value:'₸'+Math.round(totalSum/1000)+'К', color:'var(--purple)'},
     ].map(k=>`<div class="card" style="padding:14px 16px">
       <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
       <div style="font-size:20px;font-weight:700;color:${k.color}">${k.value}</div>
@@ -19615,30 +19608,24 @@ function renderClientsTab(){
   const tbody = document.getElementById('clients-tbody');
   if(!tbody) return;
 
-  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-
-  tbody.innerHTML = clients.map(p=>{
-    const stat = clientOrders[p.name]||{count:0,sum:0};
-    const isPermanent = (p.comment||'').includes('Постоянный');
-    return `<tr onclick="openPersonModal(${p.id})" style="cursor:pointer">
+  tbody.innerHTML = clients.map(c=>{
+    const salonLabel = c.channel==='salon_armada'?'Армада':'Назарбаева';
+    const isPermanent = c.count>=2;
+    return `<tr>
       <td>
-        <div style="font-weight:600">${p.name}</div>
+        <div style="font-weight:600">${c.name}</div>
         ${isPermanent?'<span class="badge badge-green" style="font-size:10px">⭐ Постоянный</span>':''}
       </td>
-      <td style="font-size:13px">${p.phone||'—'}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.idNum||'—'}</td>
-      <td style="text-align:right;font-family:monospace">${stat.count||'—'}</td>
-      <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">
-        ${stat.sum>0?fmt(stat.sum):'—'}</td>
+      <td style="font-size:13px">${c.phone||'—'}</td>
+      <td style="font-size:12px;color:var(--text3)">Салон ${salonLabel}</td>
+      <td style="text-align:right;font-family:monospace">${c.count}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">${fmt(c.sum)}</td>
       <td>
-        ${stat.count>0
-          ?'<span class="badge badge-green" style="font-size:10px">Клиент</span>'
-          :'<span class="badge" style="font-size:10px;background:var(--bg3)">Без заказов</span>'}
+        <span class="badge ${isPermanent?'badge-green':''}" style="font-size:10px">
+          ${isPermanent?'Постоянный':'Новый'}
+        </span>
       </td>
-      <td>
-        <button class="btn btn-ghost btn-sm" style="font-size:11px"
-          onclick="event.stopPropagation();openPersonModal(${p.id})">✏️</button>
-      </td>
+      <td></td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Нет клиентов</td></tr>';
 }
