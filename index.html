@@ -3319,6 +3319,17 @@ window.onerror = function(msg, src, line, col){
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
           <input type="search" id="leads-search" placeholder="🔍 Имя, телефон, интерес..."
             style="font-size:13px;flex:1;min-width:180px;max-width:260px" oninput="renderLeadsTab()">
+          <!-- Период -->
+          <select id="leads-period" onchange="setLeadsPeriod(this.value)" style="font-size:13px">
+            <option value="year" selected>Текущий год</option>
+            <option value="all">Все время</option>
+            <option value="custom">Период...</option>
+          </select>
+          <div id="leads-period-dates" style="display:none;gap:4px;align-items:center;display:flex">
+            <input type="date" id="leads-date-from" onchange="renderLeadsTab()" style="font-size:12px">
+            <span style="color:var(--text3)">—</span>
+            <input type="date" id="leads-date-to" onchange="renderLeadsTab()" style="font-size:12px">
+          </div>
           <select id="leads-status-filter" onchange="renderLeadsTab()" style="font-size:13px">
             <option value="all">Все статусы</option>
             <option value="new">🆕 Новый</option>
@@ -3339,7 +3350,6 @@ window.onerror = function(msg, src, line, col){
           </select>
           <input type="number" id="leads-budget-min" placeholder="Бюджет от ₸"
             style="font-size:13px;width:120px" oninput="renderLeadsTab()">
-          <!-- Переключатель вида -->
           <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
             <button id="leads-view-cards" onclick="setLeadsView('cards')"
               style="padding:5px 10px;font-size:13px;border:none;background:var(--accent);color:#fff;cursor:pointer">⊞ Плитка</button>
@@ -18003,16 +18013,7 @@ let segmentsCatalog=[
 ];
 let segmentSeq=8;
 
-let crmLeads=[
-  {id:crmLeadSeq++, name:'ТОО «АстанаОфис»',  phone:'+7 701 111 0001', amount:1800000, manager:'Иванов И.И.',  source:'Холодный звонок', stage:'lead',        nextDate:'2026-06-25', nextAction:'Позвонить, уточнить потребность', comment:'Крупный офисный центр, 3 этажа',             tags:['Офис','Алматы'],    segment:3},
-  {id:crmLeadSeq++, name:'ИП Байжанов',        phone:'+7 701 222 0002', amount:450000,  manager:'Петров С.А.',  source:'Рекомендация',    stage:'qualify',     nextDate:'2026-06-23', nextAction:'Отправить каталог с ценами',      comment:'Открывает кафе, нужно 12 стульев и 4 стола', tags:['Кафе','Срочно'],    segment:1},
-  {id:crmLeadSeq++, name:'ТОО «МедСервис»',    phone:'+7 701 333 0003', amount:2200000, manager:'Иванов И.И.',  source:'Выставка',        stage:'proposal',    nextDate:'2026-06-24', nextAction:'Согласовать КП с директором',     comment:'Стулья для зала ожидания, 80 шт',            tags:['Медицина','Опт'],   segment:2},
-  {id:crmLeadSeq++, name:'АО «Казтелеком»',    phone:'+7 701 444 0004', amount:5600000, manager:'Сидоров М.В.', source:'Сайт',            stage:'negotiation', nextDate:'2026-06-22', nextAction:'Встреча, обсуждение скидки',      comment:'Корпоративная закупка мебели для офиса',     tags:['VIP','Корпорация'], segment:7},
-  {id:crmLeadSeq++, name:'ТОО «АлматыГранд»',  phone:'+7 701 555 0005', amount:980000,  manager:'Козлов Д.О.',  source:'Реклама',         stage:'proposal',    nextDate:'2026-06-26', nextAction:'Дослать спецификацию',            comment:'Гостиница, кровати и тумбы для 20 номеров',  tags:['Гостиница','Алматы'],segment:3},
-  {id:crmLeadSeq++, name:'ИП Дюсупова',        phone:'+7 701 666 0006', amount:320000,  manager:'Петров С.А.',  source:'Входящий звонок', stage:'won',         nextDate:'',           nextAction:'',                                comment:'Диван и кресла для переговорной — заказ создан',tags:['Розница'],        segment:4},
-  {id:crmLeadSeq++, name:'ТОО «СтройПарк»',    phone:'+7 701 777 0007', amount:750000,  manager:'Новиков А.',   source:'Рекомендация',    stage:'lost',        nextDate:'',           nextAction:'',                                comment:'Ушли к конкурентам из-за цены',               tags:[],                   segment:6},
-  {id:crmLeadSeq++, name:'ИП Сейткали',        phone:'+7 701 888 0008', amount:610000,  manager:'Иванов И.И.',  source:'Выставка',        stage:'negotiation', nextDate:'2026-06-28', nextAction:'Согласовать сроки поставки',      comment:'',                                           tags:['Опт','Астана'],     segment:5},
-];
+let crmLeads=[];  // заполняется из Supabase при открытии воронки
 
 let editingLeadId=null;
 let crmPendingWonLead=null;
@@ -19116,22 +19117,20 @@ function showOrdersTab(tab, el){
   if(tab==='sales-journal') renderSalesJournal();
   if(tab==='funnel'){
     showLoading('Загрузка воронки...', 'Только активные лиды');
-    // Загружаем только активные лиды из Supabase (намного быстрее)
+    crmLeads = [];  // очищаем перед загрузкой
     sbFetch('leads',
       `select=id,name,phone,status,interest,budget,source,manager&` +
       `status=in.(new,contact,meeting,proposal)&order=created_at.desc`
     ).then(data=>{
       hideLoading();
-      // Мержим в crmLeads
       (data||[]).forEach(l=>{
-        if(!crmLeads.find(c=>c.name===l.name)){
-          crmLeads.push({
-            id: l.id, name: l.name, phone: l.phone||'',
-            stage: l.status==='contact'?'contacted':l.status||'new',
-            manager: l.manager||'', interest: l.interest||'',
-            budget: l.budget||0, source: l.source||'',
-          });
-        }
+        crmLeads.push({
+          id: l.id, name: l.name, phone: l.phone||'',
+          stage: l.status==='contact'?'contacted':l.status||'new',
+          manager: l.manager||'', interest: l.interest||'',
+          budget: l.budget||0, source: l.source||'',
+          tags: [], segment: 1,
+        });
       });
       renderCrmKanban();
     }).catch(()=>{ hideLoading(); renderCrmKanban(); });
@@ -19150,12 +19149,18 @@ function showOrdersTab(tab, el){
     });
   }
   if(tab==='leads'){
-    // Сначала загружаем клиентов (для определения "без заказов"), потом лиды
     const loadAll = personsData.length > 0
       ? loadLeadsFromDB()
       : loadCustomersFromDB().then(()=>loadLeadsFromDB());
     loadAll.then(()=>{
-      renderLeadsTab();
+      // Устанавливаем период по умолчанию — текущий год
+      const periodSel = document.getElementById('leads-period');
+      if(periodSel && !periodSel._initialized){
+        periodSel._initialized = true;
+        setLeadsPeriod('year');
+      } else {
+        renderLeadsTab();
+      }
       const e=document.getElementById('tab-count-leads');
       if(e) e.textContent=leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
     });
@@ -19448,7 +19453,25 @@ const LEAD_SOURCES = {
   site:'Сайт', other:'Другое',
 };
 
-let leadsViewMode = 'cards'; // 'cards' | 'table'
+function setLeadsPeriod(mode){
+  const datesEl = document.getElementById('leads-period-dates');
+  if(datesEl) datesEl.style.display = mode==='custom' ? 'flex' : 'none';
+  if(mode==='year'){
+    const y = new Date().getFullYear();
+    const fromEl = document.getElementById('leads-date-from');
+    const toEl   = document.getElementById('leads-date-to');
+    if(fromEl) fromEl.value = `${y}-01-01`;
+    if(toEl)   toEl.value   = `${y}-12-31`;
+  } else if(mode==='all'){
+    const fromEl = document.getElementById('leads-date-from');
+    const toEl   = document.getElementById('leads-date-to');
+    if(fromEl) fromEl.value = '';
+    if(toEl)   toEl.value   = '';
+  }
+  renderLeadsTab();
+}
+
+let leadsViewMode = 'cards';
 
 function setLeadsView(mode){
   leadsViewMode = mode;
@@ -19464,6 +19487,8 @@ function renderLeadsTab(){
   const statusF   = document.getElementById('leads-status-filter')?.value||'all';
   const sourceF   = document.getElementById('leads-source-filter')?.value||'all';
   const budgetMin = parseFloat(document.getElementById('leads-budget-min')?.value||0)||0;
+  const dateFrom  = document.getElementById('leads-date-from')?.value||'';
+  const dateTo    = document.getElementById('leads-date-to')?.value||'';
 
   let leads = leadsData;
   if(search)    leads = leads.filter(l=>
@@ -19474,6 +19499,20 @@ function renderLeadsTab(){
   if(statusF!=='all') leads = leads.filter(l=>l.status===statusF);
   if(sourceF!=='all') leads = leads.filter(l=>l.source===sourceF);
   if(budgetMin>0)     leads = leads.filter(l=>(l.budget||0)>=budgetMin);
+
+  // Фильтр по дате
+  if(dateFrom||dateTo){
+    leads = leads.filter(l=>{
+      if(!l.created) return !dateFrom; // без даты — показываем только если нет фильтра от
+      // Парсим дату лида (ДД.ММ.ГГГГ или YYYY-MM-DD)
+      const d = l.created.includes('.')
+        ? l.created.split('.').reverse().join('-')
+        : l.created.slice(0,10);
+      if(dateFrom && d < dateFrom) return false;
+      if(dateTo   && d > dateTo)   return false;
+      return true;
+    });
+  }
 
   // Счётчики
   const active = leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
