@@ -4834,6 +4834,20 @@ window.onerror = function(msg, src, line, col){
         <button class="btn btn-primary btn-sm" onclick="openMoneyTxModal()">+ Операция</button>
       </div>
 
+      <!-- Фильтр периода — общий для всех вкладок -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;
+        padding:8px 14px;background:var(--bg3);border-radius:8px;flex-wrap:wrap">
+        <span style="font-size:13px;color:var(--text2);font-weight:600">📅 Период:</span>
+        <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('month')"  id="mp-btn-month">Месяц</button>
+        <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('quarter')" id="mp-btn-quarter">Квартал</button>
+        <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('year')"   id="mp-btn-year">Год</button>
+        <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('all')"    id="mp-btn-all" style="background:var(--accent);color:#fff">Всё время</button>
+        <input type="date" id="mp-date-from" onchange="setMoneyPeriod('custom')" style="font-size:13px">
+        <span style="color:var(--text3)">—</span>
+        <input type="date" id="mp-date-to"   onchange="setMoneyPeriod('custom')" style="font-size:13px">
+        <span id="mp-period-label" style="font-size:12px;color:var(--text3);margin-left:4px"></span>
+      </div>
+
       <!-- KPI -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
         <div class="card" style="padding:14px 16px;cursor:pointer" onclick="showMoneyTab('cash',document.querySelector('#page-money .tab'))">
@@ -6640,6 +6654,72 @@ function showMoneyTab(tab, el){
 }
 
 // ── Касса ────────────────────────────────────────────────────────────────────
+let moneyPeriod = {from: null, to: null};
+
+function setMoneyPeriod(mode){
+  const now = new Date();
+  const y   = now.getFullYear();
+  const m   = now.getMonth();
+  const btns = ['month','quarter','year','all'];
+  btns.forEach(b=>{
+    const el=document.getElementById('mp-btn-'+b);
+    if(el) el.style.cssText='';
+  });
+  const activeEl = document.getElementById('mp-btn-'+mode);
+  if(activeEl) activeEl.style.background='var(--accent)';
+  if(activeEl) activeEl.style.color='#fff';
+
+  const fromEl = document.getElementById('mp-date-from');
+  const toEl   = document.getElementById('mp-date-to');
+
+  if(mode==='month'){
+    moneyPeriod.from = new Date(y, m, 1);
+    moneyPeriod.to   = new Date(y, m+1, 0);
+  } else if(mode==='quarter'){
+    const q = Math.floor(m/3);
+    moneyPeriod.from = new Date(y, q*3, 1);
+    moneyPeriod.to   = new Date(y, q*3+3, 0);
+  } else if(mode==='year'){
+    moneyPeriod.from = new Date(y, 0, 1);
+    moneyPeriod.to   = new Date(y, 11, 31);
+  } else if(mode==='all'){
+    moneyPeriod.from = null;
+    moneyPeriod.to   = null;
+  } else if(mode==='custom'){
+    moneyPeriod.from = fromEl?.value ? new Date(fromEl.value) : null;
+    moneyPeriod.to   = toEl?.value   ? new Date(toEl.value)   : null;
+  }
+
+  if(mode!=='custom'){
+    if(fromEl) fromEl.value = moneyPeriod.from ? moneyPeriod.from.toISOString().slice(0,10) : '';
+    if(toEl)   toEl.value   = moneyPeriod.to   ? moneyPeriod.to.toISOString().slice(0,10)   : '';
+  }
+
+  const lbl = document.getElementById('mp-period-label');
+  if(lbl && moneyPeriod.from){
+    lbl.textContent = moneyPeriod.from.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})
+      +' — '+(moneyPeriod.to?.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})||'');
+  } else if(lbl) lbl.textContent='';
+
+  // Перерендериваем активную вкладку
+  renderMoneyKPI();
+  const activeTx = document.querySelector('#page-money .money-tab[style*="block"]');
+  if(document.getElementById('money-tab-cash')?.style.display!=='none')   renderCashTx();
+  if(document.getElementById('money-tab-bank')?.style.display!=='none')   renderBankTx();
+  if(document.getElementById('money-tab-all')?.style.display!=='none')    renderAllTx();
+}
+
+function moneyFilteredTx(txs){
+  if(!moneyPeriod.from && !moneyPeriod.to) return txs;
+  return txs.filter(t=>{
+    const d = t.date ? new Date(t.date) : null;
+    if(!d) return true;
+    if(moneyPeriod.from && d < moneyPeriod.from) return false;
+    if(moneyPeriod.to   && d > moneyPeriod.to)   return false;
+    return true;
+  });
+}
+
 function renderCashTx(){
   const cashAccounts = bankAccounts.filter(a=>a.type==='cash');
 
@@ -6683,7 +6763,7 @@ function renderCashTx(){
 
   const tbody = document.getElementById('cash-tbody');
   if(!tbody) return;
-  const txs = moneyTx.filter(t=>t.accountId===cashId)
+  const txs = moneyFilteredTx(moneyTx).filter(t=>t.accountId===cashId)
     .sort((a,b)=>b.date.localeCompare(a.date));
   let running = stats.balance;
   tbody.innerHTML = txs.map(t=>{
@@ -6740,7 +6820,7 @@ function renderBankTx(){
   if(!tbody) return;
   const filterId = parseInt(document.getElementById('bank-account-filter')?.value||'0')||0;
   const bankIds  = bankAccounts.filter(a=>a.type==='bank').map(a=>a.id);
-  let txs = moneyTx.filter(t=>bankIds.includes(t.accountId));
+  let txs = moneyFilteredTx(moneyTx).filter(t=>bankIds.includes(t.accountId));
   if(filterId) txs=txs.filter(t=>t.accountId===filterId);
   txs.sort((a,b)=>b.date.localeCompare(a.date));
   const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
@@ -6815,7 +6895,7 @@ function renderAllTx(){
       const o=document.createElement('option');o.value=c.id;o.textContent=c.icon+' '+c.label;catSel.appendChild(o);
     });
   }
-  let txs=[...moneyTx].sort((a,b)=>b.date.localeCompare(a.date));
+  let txs=moneyFilteredTx([...moneyTx]).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   if(tf==='cash') txs=txs.filter(t=>bankAccounts.find(a=>a.id===t.accountId)?.type==='cash');
   if(tf==='bank') txs=txs.filter(t=>bankAccounts.find(a=>a.id===t.accountId)?.type==='bank');
   if(cf!=='all')  txs=txs.filter(t=>t.category===cf);
