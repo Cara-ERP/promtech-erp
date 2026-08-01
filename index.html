@@ -3113,7 +3113,7 @@ window.onerror = function(msg, src, line, col){
       <div class="orders-tab" id="orders-queue" style="display:none">
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>Ответственный</th><th>% оплаты</th><th>Маржа</th></tr></thead>
+            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
             <tbody id="orders-queue-tbody"></tbody>
           </table>
         </div>
@@ -3121,7 +3121,7 @@ window.onerror = function(msg, src, line, col){
       <div class="orders-tab" id="orders-progress" style="display:none">
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>Ответственный</th><th>% оплаты</th><th>Маржа</th></tr></thead>
+            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
             <tbody id="orders-progress-tbody"></tbody>
           </table>
         </div>
@@ -3129,7 +3129,7 @@ window.onerror = function(msg, src, line, col){
       <div class="orders-tab" id="orders-done" style="display:none">
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>Ответственный</th><th>% оплаты</th><th>Маржа</th></tr></thead>
+            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
             <tbody id="orders-done-tbody"></tbody>
           </table>
         </div>
@@ -3212,7 +3212,7 @@ window.onerror = function(msg, src, line, col){
         </div>
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>Ответственный</th><th>% оплаты</th><th>Маржа</th></tr></thead>
+            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
             <tbody id="orders-tbody"></tbody>
           </table>
         </div>
@@ -3926,11 +3926,11 @@ window.onerror = function(msg, src, line, col){
           <select id="co-dealer-select"><option value="">— выберите дилера —</option></select>
         </div>
 
-        <!-- Салон → Продавец → Клиент -->
+        <!-- Салон → Продавец → Конечный клиент -->
         <div id="co-row-salon" style="display:none">
           <div class="form-row cols-2">
             <div>
-              <label class="label">Салон</label>
+              <label class="label">Салон (Покупатель)</label>
               <select id="co-salon-select" onchange="onCoSalonChange()">
                 <option value="">— выберите салон —</option>
                 <option value="Армада">Салон Армада</option>
@@ -3944,11 +3944,20 @@ window.onerror = function(msg, src, line, col){
               </select>
             </div>
           </div>
-          <div class="form-row" id="co-row-salon-client" style="display:none">
-            <label class="label">Клиент продавца</label>
-            <select id="co-salon-client">
-              <option value="">— выберите клиента —</option>
-            </select>
+          <div class="form-row cols-2">
+            <div id="co-row-salon-client">
+              <label class="label">Конечный клиент <span style="color:var(--text3);font-size:11px">(необязательно)</span></label>
+              <input id="co-salon-client-name" type="text" placeholder="Имя клиента салона..."
+                list="co-salon-client-list">
+              <datalist id="co-salon-client-list"></datalist>
+            </div>
+            <div>
+              <label class="label">Телефон клиента <span style="color:var(--text3);font-size:11px">(необязательно)</span></label>
+              <input id="co-salon-client-phone" type="text" placeholder="+7 ...">
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:-8px;margin-bottom:8px">
+            💡 Покупатель в заказе = Салон. Конечный клиент — для внутреннего учёта.
           </div>
         </div>
 
@@ -19193,15 +19202,14 @@ function renderOrders(){
     const rowHtml=`
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${order.num}</td>
       <td>${customerDisplay}</td>
+      <td style="font-size:12px;color:var(--text3)">${order.salonClientName||'—'}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${fmtCurrency(total)}</td>
       <td style="font-size:12px;color:var(--text3)">${order.createdDate||'—'}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="flex:1"><div class="progress-fill ${progClass}" style="width:${avgProgress}%"></div></div><span style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text3)">${avgProgress}%</span></div></td>
       <td style="font-size:12px">${order.date}</td>
       <td><span class="badge ${badgeClass}">${statusLabel}</span></td>
       <td style="font-size:12px">${order.seller||'—'}</td>
-      <td style="font-size:12px">${order.resp}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${order.payment>=100?'var(--green)':(order.payment>0?'var(--amber)':'var(--red)')}">${order.payment}%</td>
-      <td style="white-space:nowrap">${mPctHtml} <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px;margin-left:4px" onclick="event.stopPropagation();openOrderMarginModal('${order.num}')">📊</button></td>`;
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${order.payment>=100?'var(--green)':(order.payment>0?'var(--amber)':'var(--red)')}">${order.payment}%</td>`;
 
     const tr=document.createElement('tr');
     tr.innerHTML=rowHtml;
@@ -23775,17 +23783,16 @@ function saveCustOrder(){
   } else if(type==='salon'){
     salonName=document.getElementById('co-salon-select').value;
     sellerId=parseInt(document.getElementById('co-salon-seller').value);
-    salonClientId=parseInt(document.getElementById('co-salon-client').value)||null;
     if(!salonName){err.textContent='Выберите салон';return;}
     if(!sellerId){err.textContent='Выберите продавца';return;}
     const sel=(salonsData[salonName]?.sellers||[]).find(s=>s.id===sellerId);
     if(!sel){err.textContent='Продавец не найден';return;}
     seller=sel.name;
+    // Покупатель = Салон (не конечный клиент)
     customer='Салон '+salonName;
-    if(salonClientId){
-      const cli=sel.clients.find(c=>c.id===salonClientId);
-      salonClientName=cli?cli.name:'';
-    }
+    // Конечный клиент — опционально
+    salonClientName=(document.getElementById('co-salon-client-name')?.value||'').trim();
+    salonClientId=null;
   }
 
   // Validate items
