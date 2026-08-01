@@ -19491,11 +19491,20 @@ function openLeadModal(id){
 async function loadLeadsFromDB(){
   try {
     const ch = getChannelFilter();
-    const params = ch
-      ? `select=*&channel=eq.${ch}&order=created_at.desc`
-      : 'select=*&order=created_at.desc';
-    const data = await sbFetch('leads', params);
-    leadsData = (data||[]).map(l=>({
+    const chParam = ch ? `&channel=eq.${ch}` : '';
+
+    // Загружаем все лиды с пагинацией
+    let allLeads = [], from = 0, pageSize = 1000;
+    while(true){
+      const page = await sbFetch('leads',
+        `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=${from}`);
+      if(!page || page.length === 0) break;
+      allLeads = allLeads.concat(page);
+      if(page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    leadsData = allLeads.map(l=>({
       id:       l.id,
       name:     l.name,
       phone:    l.phone||'',
@@ -19510,33 +19519,7 @@ async function loadLeadsFromDB(){
       fromLeads: true,
     }));
     console.log('✅ Лиды из таблицы leads: '+leadsData.length);
-
-    // Добавляем клиентов без заказов как лиды
-    if(personsData.length > 0){
-      const withOrders = new Set(ordersData.map(o=>o.customer));
-      const existNames  = new Set(leadsData.map(l=>l.name));
-      const noOrderCustomers = personsData.filter(p=>
-        !withOrders.has(p.name) && !existNames.has(p.name) &&
-        (!ch || !p.source || p.source===ch)
-      );
-      noOrderCustomers.forEach(p=>{
-        leadsData.push({
-          id:       'cust_'+p.id,
-          name:     p.name,
-          phone:    p.phone||'',
-          status:   'new',
-          interest: '',
-          budget:   0,
-          source:   'referral',
-          comment:  p.comment||'',
-          channel:  p.source||'office',
-          manager:  '',
-          created:  '',
-          fromCustomers: true,
-        });
-      });
-      console.log('✅ Добавлено клиентов без заказов: '+noOrderCustomers.length);
-    }
+    console.log('✅ С интересами: '+leadsData.filter(l=>l.interest).length);
 
     return true;
   } catch(e){
