@@ -2981,10 +2981,40 @@ window.onerror = function(msg, src, line, col){
       </div>
       <!-- TAB: Сверки с контрагентами -->
       <div class="cust-tab" id="cust-reconcile-counterparties" style="display:none">
-        <div style="padding:20px;color:var(--text3);text-align:center">
-          <div style="font-size:32px;margin-bottom:12px">📊</div>
-          <div style="font-size:15px;font-weight:600;margin-bottom:8px">Сверки с контрагентами</div>
-          <div style="font-size:13px">Раздел в разработке. Здесь будут акты сверки с юридическими лицами.</div>
+        <!-- Выбор типа сверки -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <select id="rec-type" onchange="renderCounterpartyReconcile()" style="font-size:13px">
+            <option value="counterparty">🏢 С контрагентом</option>
+            <option value="dealer">🚚 С дилером</option>
+            <option value="salon">🏬 С салоном</option>
+          </select>
+          <select id="rec-party" onchange="renderCounterpartyReconcile()" style="font-size:13px;min-width:220px">
+            <option value="">— выберите —</option>
+          </select>
+          <input type="date" id="rec-date-from" onchange="renderCounterpartyReconcile()" style="font-size:13px">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="rec-date-to" onchange="renderCounterpartyReconcile()" style="font-size:13px">
+          <button class="btn btn-ghost btn-sm" onclick="printReconcile()">🖨 Распечатать</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportReconcileExcel()">📥 Excel</button>
+        </div>
+
+        <!-- KPI -->
+        <div id="rec-kpi" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+
+        <!-- Таблица сверки -->
+        <div class="card" style="padding:0" id="rec-table-wrap">
+          <table class="data-table" id="rec-table">
+            <thead><tr>
+              <th>Дата</th>
+              <th>Документ / Заказ</th>
+              <th>Операция</th>
+              <th style="text-align:right">Дебет (долг)</th>
+              <th style="text-align:right">Кредит (оплата)</th>
+              <th style="text-align:right">Сальдо</th>
+            </tr></thead>
+            <tbody id="rec-tbody"></tbody>
+            <tfoot id="rec-tfoot"></tfoot>
+          </table>
         </div>
       </div>
     </div>
@@ -9954,7 +9984,158 @@ function renderSalonsTab(){
 }
 
 function renderCounterpartyReconcile(){
-  // Заглушка — будет развита позже
+  const type    = document.getElementById('rec-type')?.value||'counterparty';
+  const partyEl = document.getElementById('rec-party');
+  const dateFrom= document.getElementById('rec-date-from')?.value||'';
+  const dateTo  = document.getElementById('rec-date-to')?.value||'';
+  const fmt     = n=>'₸'+Math.round(Math.abs(n)).toLocaleString('ru-RU');
+
+  // Заполняем список контрагентов по типу
+  if(partyEl){
+    const cur = partyEl.value;
+    partyEl.innerHTML='<option value="">— выберите —</option>';
+
+    if(type==='counterparty'){
+      // Прямые покупатели офиса
+      const officeOrders = new Set(ordersData.filter(o=>o.channel==='office').map(o=>o.customer));
+      [...officeOrders].sort().forEach(name=>{
+        partyEl.innerHTML+=`<option value="${name}" ${cur===name?'selected':''}>${name}</option>`;
+      });
+    } else if(type==='dealer'){
+      dealersData.forEach(d=>{
+        partyEl.innerHTML+=`<option value="${d.channel}" ${cur===d.channel?'selected':''}>${d.name}</option>`;
+      });
+    } else if(type==='salon'){
+      [
+        {v:'salon_armada',     l:'Салон Армада'},
+        {v:'salon_nazarbayeva',l:'Салон Назарбаева'},
+      ].forEach(s=>{
+        partyEl.innerHTML+=`<option value="${s.v}" ${cur===s.v?'selected':''}>${s.l}</option>`;
+      });
+    }
+    if(!partyEl.value && cur) partyEl.value = cur;
+  }
+
+  const party = partyEl?.value||'';
+  const tbody = document.getElementById('rec-tbody');
+  const tfoot = document.getElementById('rec-tfoot');
+  const kpiEl = document.getElementById('rec-kpi');
+
+  if(!party){
+    if(tbody) tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">Выберите контрагента</td></tr>';
+    if(kpiEl) kpiEl.innerHTML='';
+    return;
+  }
+
+  // Собираем строки сверки из ordersData
+  let orders = [];
+  if(type==='counterparty'){
+    orders = ordersData.filter(o=>o.customer===party && o.channel==='office');
+  } else {
+    orders = ordersData.filter(o=>o.channel===party);
+  }
+
+  // Фильтр по дате
+  if(dateFrom||dateTo){
+    orders = orders.filter(o=>{
+      const d = parseDMY(o.date||o.createdDate||'')||'';
+      if(dateFrom && d && d<dateFrom) return false;
+      if(dateTo   && d && d>dateTo)   return false;
+      return true;
+    });
+  }
+
+  // Строим строки сверки
+  let rows = [];
+  let balance = 0;
+  orders.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+
+  orders.forEach(o=>{
+    const total = orderTotal(o);
+    const paid  = total * Math.min(o.payment||0, 100) / 100;
+    const debt  = total - paid;
+
+    // Строка отгрузки (дебет)
+    balance += total;
+    rows.push({
+      date:    o.date||o.createdDate||'—',
+      doc:     o.num,
+      op:      'Отгрузка / Реализация',
+      debit:   total,
+      credit:  0,
+      balance: balance,
+    });
+
+    // Строка оплаты (кредит) если есть
+    if(paid > 0){
+      balance -= paid;
+      rows.push({
+        date:   o.date||'—',
+        doc:    o.num,
+        op:     'Оплата',
+        debit:  0,
+        credit: paid,
+        balance: balance,
+      });
+    }
+  });
+
+  // KPI
+  const totalDebit  = rows.reduce((s,r)=>s+r.debit, 0);
+  const totalCredit = rows.reduce((s,r)=>s+r.credit, 0);
+  const finalBalance = totalDebit - totalCredit;
+
+  if(kpiEl) kpiEl.innerHTML=[
+    {label:'Отгружено',  value:fmt(totalDebit),   color:'var(--accent)'},
+    {label:'Оплачено',   value:fmt(totalCredit),  color:'var(--green)'},
+    {label:'Долг',       value:fmt(Math.max(0,finalBalance)), color:finalBalance>0?'var(--red)':'var(--green)'},
+    {label:'Заказов',    value:orders.length,     color:'var(--text2)'},
+  ].map(k=>`<div class="card" style="padding:12px">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
+    <div style="font-size:18px;font-weight:700;color:${k.color}">${k.value}</div>
+  </div>`).join('');
+
+  if(!tbody) return;
+
+  if(!rows.length){
+    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text3)">Нет операций за период</td></tr>';
+    if(tfoot) tfoot.innerHTML='';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r=>`<tr>
+    <td style="font-size:12px;white-space:nowrap">${r.date}</td>
+    <td style="font-family:monospace;font-size:12px;color:var(--accent)">${r.doc}</td>
+    <td style="font-size:13px">${r.op}</td>
+    <td style="text-align:right;font-family:monospace;color:${r.debit>0?'var(--red)':'var(--text3)'}">${r.debit>0?fmt(r.debit):'—'}</td>
+    <td style="text-align:right;font-family:monospace;color:${r.credit>0?'var(--green)':'var(--text3)'}">${r.credit>0?fmt(r.credit):'—'}</td>
+    <td style="text-align:right;font-family:monospace;font-weight:600;color:${r.balance>0?'var(--red)':r.balance<0?'var(--green)':'var(--text3)'}">${r.balance===0?'0':fmt(r.balance)}</td>
+  </tr>`).join('');
+
+  if(tfoot) tfoot.innerHTML=`<tr style="background:var(--bg3);font-weight:700">
+    <td colspan="3" style="padding:8px 12px">Итого:</td>
+    <td style="text-align:right;font-family:monospace;color:var(--red)">${fmt(totalDebit)}</td>
+    <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(totalCredit)}</td>
+    <td style="text-align:right;font-family:monospace;color:${finalBalance>0?'var(--red)':'var(--green)'}">${fmt(finalBalance)} ${finalBalance>0?'(долг)':'(переплата)'}</td>
+  </tr>`;
+}
+
+function printReconcile(){
+  window.print();
+}
+
+function exportReconcileExcel(){
+  if(typeof XLSX==='undefined'){ alert('Excel загружается...'); return; }
+  const rows = [...document.querySelectorAll('#rec-tbody tr')].map(tr=>
+    [...tr.querySelectorAll('td')].map(td=>td.textContent.trim())
+  );
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['Дата','Документ','Операция','Дебет','Кредит','Сальдо'],
+    ...rows
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Сверка');
+  XLSX.writeFile(wb, 'Сверка_'+new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')+'.xlsx');
 }
 
 function renderDealers(){
