@@ -4037,7 +4037,8 @@ window.onerror = function(msg, src, line, col){
               <th>Дата</th>
               <th>Вид оплаты</th>
               <th style="text-align:right">Сумма</th>
-              <th>Комментарий</th>
+              <th>Описание / Контрагент</th>
+              <th>Счёт</th>
             </tr></thead>
             <tbody id="eo-payments-tbody"></tbody>
           </table>
@@ -23419,17 +23420,22 @@ function renderOrderModalInfo(){
     &nbsp;·&nbsp; Канал: ${order.channel||'—'}
     &nbsp;·&nbsp; Дата: ${order.date||order.createdDate||'—'}`;
 
-  // KPI
+  // KPI — 6 карточек в 3 колонки
   const sumEl = document.getElementById('eo-info-summary');
-  if(sumEl) sumEl.innerHTML = [
-    {label:'Сумма заказа', value:fmt(total), color:'var(--accent)'},
-    {label:'Оплачено',     value:fmt(paid)+' ('+Math.round(order.payment||0)+'%)', color:'var(--green)'},
-    {label:'Остаток',      value:fmt(total-paid), color:total-paid>0?'var(--red)':'var(--green)'},
-    {label:'Статус',       value:STATUS_LABELS[order.status]||order.status, color:'var(--text2)'},
-  ].map(k=>`<div class="card" style="padding:12px">
-    <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
-    <div style="font-size:16px;font-weight:700;color:${k.color}">${k.value}</div>
-  </div>`).join('');
+  if(sumEl){
+    sumEl.style.gridTemplateColumns='repeat(3,1fr)';
+    sumEl.innerHTML = [
+      {label:'Сумма заказа',    value:fmt(total),                           color:'var(--accent)'},
+      {label:'Дата заказа',     value:order.createdDate||'—',               color:'var(--text2)'},
+      {label:'Дата реализации', value:order.date||'—',                      color:'var(--text2)'},
+      {label:'Оплачено',        value:fmt(paid),                            color:'var(--green)'},
+      {label:'Остаток',         value:fmt(Math.max(0,total-paid)),          color:total-paid>0?'var(--red)':'var(--green)'},
+      {label:'Статус',          value:STATUS_LABELS[order.status]||'—',     color:'var(--text2)'},
+    ].map(k=>`<div class="card" style="padding:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
+      <div style="font-size:15px;font-weight:700;color:${k.color}">${k.value}</div>
+    </div>`).join('');
+  }
 
   // Позиции
   const tbody = document.getElementById('eo-items-tbody');
@@ -23471,44 +23477,59 @@ function renderOrderModalPayments(){
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const total = orderTotal(order);
 
-  // Реальные платежи из moneyTx по номеру заказа
-  const payments = (moneyTx||[]).filter(t=>
-    (t.orderNum===orderNum||t.order_num===orderNum) && t.flow==='income'
-  );
-  const paid = payments.length
-    ? payments.reduce((s,t)=>s+(t.amount||0), 0)
-    : total * Math.min(order.payment||0, 100) / 100;
-  const debt = Math.max(0, total - paid);
-  const pct  = total>0 ? Math.round(paid/total*100) : 0;
-
-  const sumEl = document.getElementById('eo-payments-summary');
-  if(sumEl) sumEl.innerHTML = [
-    {label:'К оплате',  value:fmt(total),              color:'var(--accent)'},
-    {label:'Оплачено',  value:fmt(paid)+' ('+pct+'%)', color:'var(--green)'},
-    {label:'Остаток',   value:fmt(debt),                color:debt>0?'var(--red)':'var(--green)'},
-  ].map(k=>`<div class="card" style="padding:12px">
-    <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
-    <div style="font-size:16px;font-weight:700;color:${k.color}">${k.value}</div>
-  </div>`).join('');
-
   const tbody = document.getElementById('eo-payments-tbody');
-  if(!tbody) return;
+  const sumEl = document.getElementById('eo-payments-summary');
+  if(tbody) tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">⏳ Загрузка...</td></tr>';
 
-  if(payments.length){
-    tbody.innerHTML = payments.map(p=>`<tr>
-      <td style="font-size:12px">${p.date||'—'}</td>
-      <td><span class="badge" style="font-size:10px">${p.category||p.desc||'Оплата'}</span></td>
-      <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">${fmt(p.amount||0)}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.desc||p.description||'—'}</td>
-    </tr>`).join('');
-  } else {
-    const payPct = Math.min(order.payment||0, 100);
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">
-      ${payPct>0
-        ? 'Детальная история платежей не найдена.<br>% оплаты в заказе: <b>'+payPct+'%</b>'
-        : 'Платежи не зафиксированы'}
-    </td></tr>`;
-  }
+  // Загружаем платежи напрямую из Supabase
+  sbFetch('money_tx', `select=*&order_num=eq.${encodeURIComponent(orderNum)}&flow=eq.income&order=date`)
+    .then(payments=>{
+      payments = payments||[];
+      const paid = payments.length
+        ? payments.reduce((s,t)=>s+(t.amount||0), 0)
+        : 0;
+      const debt = Math.max(0, total - paid);
+      const pct  = total>0 ? Math.round(paid/total*100) : 0;
+
+      if(sumEl) sumEl.innerHTML = [
+        {label:'К оплате',  value:fmt(total),               color:'var(--accent)'},
+        {label:'Оплачено',  value:fmt(paid)+' ('+pct+'%)',  color:'var(--green)'},
+        {label:'Остаток',   value:fmt(debt),                 color:debt>0?'var(--red)':'var(--green)'},
+      ].map(k=>`<div class="card" style="padding:12px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
+        <div style="font-size:16px;font-weight:700;color:${k.color}">${k.value}</div>
+      </div>`).join('');
+
+      if(!tbody) return;
+
+      if(payments.length){
+        tbody.innerHTML = payments.map(p=>{
+          const cat = p.category==='order_payment'?'Оплата заказа':
+                      p.category==='advance'?'Аванс':
+                      p.category==='final'?'Окончательный расчёт':
+                      p.category||'Оплата';
+          return `<tr>
+            <td style="font-size:12px;white-space:nowrap">${p.date||'—'}</td>
+            <td><span class="badge badge-green" style="font-size:10px">${cat}</span></td>
+            <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">${fmt(p.amount||0)}</td>
+            <td style="font-size:12px;color:var(--text3)">${p.description||p.counterparty||'—'}</td>
+            <td style="font-size:11px;color:var(--text3)">${p.account_id||'—'}</td>
+          </tr>`;
+        }).join('');
+      } else {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">
+          Платежи по этому заказу не найдены в базе
+        </td></tr>`;
+      }
+
+      // Обновляем % оплаты в заказе если он неверный
+      if(total>0 && Math.abs(pct - (order.payment||0)) > 5){
+        order.payment = pct;
+      }
+    })
+    .catch(()=>{
+      if(tbody) tbody.innerHTML='<tr><td colspan="5" style="color:var(--red);padding:16px">Ошибка загрузки</td></tr>';
+    });
 }
 
 function renderOrderModalProduction(){
