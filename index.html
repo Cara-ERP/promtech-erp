@@ -2855,23 +2855,32 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" id="cust-tab-reconcile" onclick="showCustTab('reconcile-counterparties',this)">📊 Сверки</div>
       </div>
 
-      <!-- TAB: Persons directory (физ./юр. лица) -->
+      <!-- TAB: Контрагенты (прямые покупатели офиса) -->
       <div class="cust-tab active" id="cust-persons">
-        <div class="section-header" style="margin-bottom:14px">
-          <div style="font-size:13px;color:var(--text3)">Все физические и юридические лица — единая база контрагентов. Клиенты, дилеры и салоны выбирают контрагентов отсюда.</div>
-          <div style="display:flex;gap:8px">
-            <input type="text" placeholder="Поиск..." style="width:180px;font-size:13px" oninput="filterTable('persons-tbody',this.value)">
-            <button class="btn btn-primary btn-sm" onclick="openPersonModal(null)">+ Новое лицо</button>
+        <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+          <div style="font-size:13px;color:var(--text3);flex:1">
+            Прямые покупатели офиса — физ. и юр. лица купившие напрямую у PromTech
           </div>
+          <input type="search" id="persons-search" placeholder="🔍 Поиск..."
+            style="font-size:13px;width:200px" oninput="renderPersons()">
+          <button class="btn btn-primary btn-sm" onclick="openPersonModal(null)">+ Новый контрагент</button>
         </div>
-        <div style="display:flex;gap:12px;margin-bottom:20px">
-          <div class="kpi" style="flex:1"><div class="kpi-label">Всего лиц</div><div class="kpi-value" id="person-count" style="font-size:20px">0</div></div>
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          <div class="kpi" style="flex:1"><div class="kpi-label">Прямых покупателей</div><div class="kpi-value" id="person-count" style="font-size:20px">0</div></div>
           <div class="kpi" style="flex:1"><div class="kpi-label">Юр. лица</div><div class="kpi-value" id="person-legal" style="font-size:20px">0</div></div>
           <div class="kpi" style="flex:1"><div class="kpi-label">Физ. лица</div><div class="kpi-value" id="person-individual" style="font-size:20px">0</div></div>
         </div>
-        <div class="card">
+        <div class="card" style="padding:0">
           <table class="data-table">
-            <thead><tr><th>Название / ФИО</th><th>Тип</th><th>ИИН / БИН</th><th>Телефон</th><th>Заведён (источник)</th><th></th></tr></thead>
+            <thead><tr>
+              <th>Название / ФИО</th>
+              <th>Тип</th>
+              <th>ИИН / БИН</th>
+              <th>Телефон</th>
+              <th style="text-align:right">Оборот</th>
+              <th style="text-align:right">Заказов</th>
+              <th></th>
+            </tr></thead>
             <tbody id="persons-tbody"></tbody>
           </table>
         </div>
@@ -9616,25 +9625,47 @@ function renderPersons(){
   tbody.innerHTML='';
   let legal=0, individual=0;
 
-  // Фильтруем — в Контрагентах показываем юр.лица и всех
   const ch = getChannelFilter();
-  let data = personsData;
-  if(ch) data = data.filter(p=>!p.source||p.source===ch);
+  const searchEl = document.getElementById('persons-search');
+  const search = (searchEl?.value||'').toLowerCase();
+
+  // Контрагенты = только прямые покупатели офиса (channel='office')
+  // Клиенты салонов — это клиенты салона, не офиса
+  let data = personsData.filter(p=>{
+    const src = (p.source||'').toLowerCase();
+    // Для дилеров/салонов — показываем их канал
+    if(ch) return src===ch;
+    // Для офиса — только office канал (прямые покупатели)
+    return src==='office' || src==='' || !p.source;
+  });
+
+  // Дополнительно — у кого есть заказы через офис
+  const officeOrders = new Set(
+    ordersData.filter(o=>o.channel==='office').map(o=>o.customer)
+  );
+  data = data.filter(p=>officeOrders.has(p.name) || !p.source || p.source==='office');
+
+  if(search) data = data.filter(p=>
+    (p.name||'').toLowerCase().includes(search) ||
+    (p.phone||'').includes(search));
 
   data.forEach(p=>{
-    // Нормализуем тип
     const isLegal = p.type==='company'||p.type==='Юр. лицо'||
-      (p.name||'').match(/^(ТОО|ИП|АО|ООО|КПК)\b/i);
+      !!(p.name||'').match(/^(ТОО|ИП|АО|ООО|КПК)\b/i);
     if(isLegal) legal++; else individual++;
     const typeLabel = isLegal ? 'Юр. лицо' : 'Физ. лицо';
     const typeBadge = isLegal ? 'badge-blue' : 'badge-purple';
+    const stat = ordersData.filter(o=>o.customer===p.name&&o.channel==='office');
+    const turnover = stat.reduce((s,o)=>s+orderTotal(o),0);
+    const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
     const tr=document.createElement('tr');
     tr.innerHTML=`
       <td style="font-weight:500;cursor:pointer" onclick="openPersonModal(${p.id})">${p.name}</td>
       <td><span class="badge ${typeBadge}">${typeLabel}</span></td>
       <td style="font-family:monospace;font-size:12px">${p.idNum||'—'}</td>
       <td style="font-family:monospace;font-size:12px">${p.phone||'—'}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.source||'office'}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--green);font-size:12px">${turnover>0?fmt(turnover):'—'}</td>
+      <td style="text-align:right;font-size:12px">${stat.length||'—'}</td>
       <td style="display:flex;gap:6px">
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPersonModal(${p.id})">✏️</button>
       </td>`;
