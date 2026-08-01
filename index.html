@@ -242,6 +242,7 @@ select option{background:var(--bg3)}
 .cust-tab{display:block}
 
 /* ORDERS JOURNAL */
+.omt-tab{animation:fadeIn .15s ease}
 .orders-tab{display:none}
 .order-item-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px;padding:10px;background:var(--bg3);border-radius:8px}
 .order-item-row.edit-mode{grid-template-columns:1.6fr .8fr .8fr .8fr .8fr 1fr auto}
@@ -3991,22 +3992,99 @@ window.onerror = function(msg, src, line, col){
 
     <!-- MODAL: Edit Order -->
     <div class="modal-overlay" id="editOrderModal">
-      <div class="modal" style="max-width:700px">
+      <div class="modal" style="max-width:780px">
         <div class="modal-header">
           <div class="modal-title">Заказ <span id="eo-num-label" style="color:var(--accent);font-family:'IBM Plex Mono',monospace"></span></div>
-          <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 10px" onclick="openOrderMarginModal(document.getElementById('eo-num-label').textContent)">📊 Маржинальность</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 10px;color:var(--green);border-color:rgba(61,214,140,.3)" onclick="generateInvoice(document.getElementById('eo-num-label').textContent)">🖨 Накладная</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 10px;color:#a78bfa;border-color:rgba(167,139,250,.3)" onclick="generateContract(document.getElementById('eo-num-label').textContent)">📄 Договор</button>
           <button class="modal-close" onclick="closeModal('editOrderModal')">✕</button>
         </div>
         <div id="editorder-form-error" style="color:var(--red);font-size:13px;margin-bottom:8px;min-height:18px"></div>
 
-        <div style="font-size:12px;color:var(--text3);margin-bottom:12px" id="eo-customer-label"></div>
-
-        <div class="form-row cols-2">
-          <div><label class="label">Дата возникновения</label><input id="eo-created-date" type="date"></div>
-          <div><label class="label">Срок выполнения</label><input id="eo-date" type="date"></div>
+        <!-- Вкладки модалки -->
+        <div class="tabs" id="order-modal-tabs" style="margin-bottom:16px;border-bottom:1px solid var(--border)">
+          <div class="tab active" onclick="showOrderModalTab('info',this)">📋 Состав</div>
+          <div class="tab" onclick="showOrderModalTab('payments',this)">💳 Платежи</div>
+          <div class="tab" onclick="showOrderModalTab('production',this)">🏭 Производство</div>
+          <div class="tab" onclick="showOrderModalTab('docs',this)">📄 Документы</div>
+          <div class="tab" onclick="showOrderModalTab('edit',this)">✏️ Редактировать</div>
         </div>
+
+        <!-- TAB: Состав -->
+        <div id="omt-info" class="omt-tab">
+          <div id="eo-info-customer" style="font-size:13px;color:var(--text2);margin-bottom:12px"></div>
+          <div id="eo-info-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px"></div>
+          <table class="data-table" id="eo-items-table">
+            <thead><tr>
+              <th>Товар / позиция</th>
+              <th style="text-align:right">Кол-во</th>
+              <th style="text-align:right">Цена</th>
+              <th style="text-align:right">Сумма</th>
+              <th>Статус</th>
+              <th>Прогресс</th>
+            </tr></thead>
+            <tbody id="eo-items-tbody"></tbody>
+            <tfoot id="eo-items-tfoot"></tfoot>
+          </table>
+        </div>
+
+        <!-- TAB: Платежи -->
+        <div id="omt-payments" class="omt-tab" style="display:none">
+          <div id="eo-payments-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px"></div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="btn btn-primary btn-sm" onclick="openAddPaymentModal()">+ Добавить платёж</button>
+          </div>
+          <table class="data-table">
+            <thead><tr>
+              <th>Дата</th>
+              <th>Вид оплаты</th>
+              <th style="text-align:right">Сумма</th>
+              <th>Комментарий</th>
+            </tr></thead>
+            <tbody id="eo-payments-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- TAB: Производство -->
+        <div id="omt-production" class="omt-tab" style="display:none">
+          <div id="eo-production-body"></div>
+        </div>
+
+        <!-- TAB: Документы -->
+        <div id="omt-docs" class="omt-tab" style="display:none">
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:8px">
+            <div class="card" style="padding:16px;text-align:center;cursor:pointer"
+              onclick="generateInvoice(document.getElementById('eo-num-label').textContent)">
+              <div style="font-size:28px;margin-bottom:8px">🖨</div>
+              <div style="font-weight:600;margin-bottom:4px">Накладная</div>
+              <div style="font-size:12px;color:var(--text3)">Товарная накладная на отгрузку</div>
+            </div>
+            <div class="card" style="padding:16px;text-align:center;cursor:pointer"
+              onclick="generateInvoicePayment(document.getElementById('eo-num-label').textContent)">
+              <div style="font-size:28px;margin-bottom:8px">📄</div>
+              <div style="font-weight:600;margin-bottom:4px">Счёт на оплату</div>
+              <div style="font-size:12px;color:var(--text3)">Счёт для безналичной оплаты</div>
+            </div>
+            <div class="card" style="padding:16px;text-align:center;cursor:pointer"
+              onclick="generateContract(document.getElementById('eo-num-label').textContent)">
+              <div style="font-size:28px;margin-bottom:8px">📝</div>
+              <div style="font-weight:600;margin-bottom:4px">Договор</div>
+              <div style="font-size:12px;color:var(--text3)">Договор купли-продажи</div>
+            </div>
+            <div class="card" style="padding:16px;text-align:center;cursor:pointer"
+              onclick="generateAct(document.getElementById('eo-num-label').textContent)">
+              <div style="font-size:28px;margin-bottom:8px">✅</div>
+              <div style="font-weight:600;margin-bottom:4px">Акт выполненных работ</div>
+              <div style="font-size:12px;color:var(--text3)">Подтверждение выполнения заказа</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: Редактировать -->
+        <div id="omt-edit" class="omt-tab" style="display:none">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:12px" id="eo-customer-label"></div>
+          <div class="form-row cols-2">
+            <div><label class="label">Дата возникновения</label><input id="eo-created-date" type="date"></div>
+            <div><label class="label">Срок выполнения</label><input id="eo-date" type="date"></div>
+          </div>
         <div class="form-row cols-2">
           <div><label class="label">Дата доставки</label><input id="eo-delivery-date" type="date"></div>
           <div><label class="label">% оплаты заказа</label><input id="eo-payment" type="number" min="0" max="100"></div>
@@ -4043,8 +4121,10 @@ window.onerror = function(msg, src, line, col){
             <button class="btn btn-primary" onclick="saveEditedOrder()">Сохранить изменения</button>
           </div>
         </div>
-      </div>
-    </div>
+        </div><!-- /omt-edit -->
+
+      </div><!-- /modal -->
+    </div><!-- /editOrderModal -->
 
     <!-- FINANCE PAGE PLACEHOLDER -->
     <div class="page" id="page-finance">
@@ -23313,12 +23393,174 @@ function saveCustOrder(){
 
 let editingOrderNum=null;
 
+function showOrderModalTab(tab, el){
+  document.querySelectorAll('#order-modal-tabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.querySelectorAll('.omt-tab').forEach(t=>t.style.display='none');
+  const tabEl = document.getElementById('omt-'+tab);
+  if(tabEl) tabEl.style.display='block';
+  if(tab==='info')       renderOrderModalInfo();
+  if(tab==='payments')   renderOrderModalPayments();
+  if(tab==='production') renderOrderModalProduction();
+}
+
+function renderOrderModalInfo(){
+  const order = ordersData.find(o=>o.num===_editingOrderNum);
+  if(!order) return;
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const total = orderTotal(order);
+  const paid  = total * (order.payment||0) / 100;
+
+  // Шапка
+  const custEl = document.getElementById('eo-info-customer');
+  if(custEl) custEl.innerHTML = `
+    <b>${order.customer}</b> &nbsp;·&nbsp; ${order.num}
+    &nbsp;·&nbsp; Канал: ${order.channel||'—'}
+    &nbsp;·&nbsp; Дата: ${order.date||order.createdDate||'—'}`;
+
+  // KPI
+  const sumEl = document.getElementById('eo-info-summary');
+  if(sumEl) sumEl.innerHTML = [
+    {label:'Сумма заказа', value:fmt(total), color:'var(--accent)'},
+    {label:'Оплачено',     value:fmt(paid)+' ('+Math.round(order.payment||0)+'%)', color:'var(--green)'},
+    {label:'Остаток',      value:fmt(total-paid), color:total-paid>0?'var(--red)':'var(--green)'},
+    {label:'Статус',       value:STATUS_LABELS[order.status]||order.status, color:'var(--text2)'},
+  ].map(k=>`<div class="card" style="padding:12px">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
+    <div style="font-size:16px;font-weight:700;color:${k.color}">${k.value}</div>
+  </div>`).join('');
+
+  // Позиции
+  const tbody = document.getElementById('eo-items-tbody');
+  const tfoot = document.getElementById('eo-items-tfoot');
+  if(!tbody) return;
+  tbody.innerHTML = (order.items||[]).map(it=>{
+    const itTotal = (it.qty||1)*(it.price||0);
+    const badge = STATUS_BADGE[it.status]||'badge-red';
+    const label = STATUS_LABELS[it.status]||it.status||'—';
+    const prog  = it.progress||0;
+    return `<tr>
+      <td style="font-weight:500">${it.name||'—'}</td>
+      <td style="text-align:right;font-family:monospace">${it.qty||1} ${it.unit||'шт'}</td>
+      <td style="text-align:right;font-family:monospace">${fmt(it.price||0)}</td>
+      <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(itTotal)}</td>
+      <td><span class="badge ${badge}" style="font-size:10px">${label}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="progress" style="flex:1;min-width:60px">
+            <div class="progress-fill ${PROGRESS_CLASS[it.status]||''}" style="width:${prog}%"></div>
+          </div>
+          <span style="font-size:11px;color:var(--text3)">${prog}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Нет позиций</td></tr>';
+
+  if(tfoot) tfoot.innerHTML = `<tr style="font-weight:700;background:var(--bg3)">
+    <td>Итого</td><td></td><td></td>
+    <td style="text-align:right;font-family:monospace">${fmt(total)}</td>
+    <td colspan="2"></td>
+  </tr>`;
+}
+
+function renderOrderModalPayments(){
+  const order = ordersData.find(o=>o.num===_editingOrderNum);
+  if(!order) return;
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const total = orderTotal(order);
+  const paid  = total * (order.payment||0) / 100;
+  const debt  = total - paid;
+
+  // KPI
+  const sumEl = document.getElementById('eo-payments-summary');
+  if(sumEl) sumEl.innerHTML = [
+    {label:'К оплате',  value:fmt(total),           color:'var(--accent)'},
+    {label:'Оплачено',  value:fmt(paid),             color:'var(--green)'},
+    {label:'Остаток',   value:fmt(debt),             color:debt>0?'var(--red)':'var(--green)'},
+  ].map(k=>`<div class="card" style="padding:12px">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
+    <div style="font-size:16px;font-weight:700;color:${k.color}">${k.value}</div>
+  </div>`).join('');
+
+  // История платежей из payment_history
+  const tbody = document.getElementById('eo-payments-tbody');
+  if(!tbody) return;
+  const history = (order.paymentHistory||[]);
+  if(history.length){
+    tbody.innerHTML = history.map(p=>`<tr>
+      <td style="font-size:12px">${p.date||'—'}</td>
+      <td><span class="badge" style="font-size:10px">${p.method||'Наличные'}</span></td>
+      <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">${fmt(p.amount||0)}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.comment||'—'}</td>
+    </tr>`).join('');
+  } else {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">
+      Платежи не зафиксированы. % оплаты: ${order.payment||0}%
+    </td></tr>`;
+  }
+}
+
+function renderOrderModalProduction(){
+  const order = ordersData.find(o=>o.num===_editingOrderNum);
+  if(!order) return;
+  const body = document.getElementById('eo-production-body');
+  if(!body) return;
+
+  // Сдельные операции по этому заказу
+  const ops = wageItems ? wageItems.filter(w=>w.order_num===order.num) : [];
+
+  if(ops.length){
+    body.innerHTML = `<table class="data-table">
+      <thead><tr>
+        <th>Сотрудник</th><th>Операция</th>
+        <th style="text-align:right">Кол-во</th>
+        <th style="text-align:right">Ставка</th>
+        <th style="text-align:right">Сумма</th>
+        <th>Дата</th>
+      </tr></thead>
+      <tbody>${ops.map(w=>`<tr>
+        <td style="font-weight:500">${w.emp_name||'—'}</td>
+        <td>${w.op||'—'}</td>
+        <td style="text-align:right">${w.qty||1}</td>
+        <td style="text-align:right">₸${(w.rate||0).toLocaleString('ru-RU')}</td>
+        <td style="text-align:right;color:var(--green);font-weight:600">₸${((w.qty||1)*(w.rate||0)).toLocaleString('ru-RU')}</td>
+        <td style="font-size:12px;color:var(--text3)">${w.date||'—'}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:700;background:var(--bg3)">
+        <td colspan="4">Итого трудозатрат:</td>
+        <td style="text-align:right">₸${ops.reduce((s,w)=>s+(w.qty||1)*(w.rate||0),0).toLocaleString('ru-RU')}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>`;
+  } else {
+    body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3)">
+      <div style="font-size:28px;margin-bottom:8px">🏭</div>
+      По этому заказу нет зафиксированных производственных операций
+    </div>`;
+  }
+}
+
+function generateInvoicePayment(orderNum){
+  // Счёт на оплату — используем существующую функцию или заглушка
+  alert('Счёт на оплату для '+orderNum+' — в разработке');
+}
+
+function generateAct(orderNum){
+  alert('Акт выполненных работ для '+orderNum+' — в разработке');
+}
+
 function openEditOrderModal(orderNum, targetItemIdx){
   const order=ordersData.find(o=>o.num===orderNum);
   if(!order) return;
   editingOrderNum=orderNum;
+  window._editingOrderNum=orderNum;
 
   document.getElementById('eo-num-label').textContent=order.num;
+
+  // Открываем на вкладке Состав по умолчанию
+  const firstTab = document.querySelector('#order-modal-tabs .tab');
+  showOrderModalTab('info', firstTab);
+
   document.getElementById('eo-customer-label').textContent='Покупатель: '+resolveCustomerName(order)+(order.seller&&order.seller!=='—'?' · Продавец: '+order.seller:'');
   document.getElementById('eo-created-date').value=isoFromDisplayDate(order.createdDate||order.date);
   document.getElementById('eo-date').value=isoFromDisplayDate(order.date);
