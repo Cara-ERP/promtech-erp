@@ -243,6 +243,8 @@ select option{background:var(--bg3)}
 
 /* ORDERS JOURNAL */
 .omt-tab{animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
 .orders-tab{display:none}
 .order-item-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px;padding:10px;background:var(--bg3);border-radius:8px}
 .order-item-row.edit-mode{grid-template-columns:1.6fr .8fr .8fr .8fr .8fr 1fr auto}
@@ -823,8 +825,10 @@ async function loadMoneyFromDB(){
 // Загрузить клиентов из Supabase
 async function loadCustomersFromDB(){
   try {
+    showLoading('Загрузка покупателей...', 'Подключение к базе данных');
     let allData = [], from = 0, pageSize = 1000;
     while(true){
+      updateLoading(Math.min(from/50, 85), `Загружено: ${from} записей...`);
       const page = await sbFetch('customers',
         `select=*&order=name&limit=${pageSize}&offset=${from}`);
       if(!page || page.length === 0) break;
@@ -833,6 +837,7 @@ async function loadCustomersFromDB(){
       from += pageSize;
     }
     if(allData.length > 0){
+      updateLoading(90, `Обработка ${allData.length} записей...`);
       personsData = [];
       allData.forEach(c=>{
         personsData.push({
@@ -850,8 +855,10 @@ async function loadCustomersFromDB(){
       });
       console.log('✅ Клиенты загружены из Supabase: '+allData.length);
     }
+    hideLoading();
     return true;
   } catch(e){
+    hideLoading();
     console.warn('⚠️ Ошибка загрузки клиентов:', e.message);
     return false;
   }
@@ -1049,6 +1056,9 @@ function renderWhRemains(){ renderWarehouse(); }
 // Загрузить заказы из Supabase
 async function loadOrdersFromDB(){
   try {
+    showLoading('Загрузка заказов...', 'Получение данных из базы');
+    updateLoading(10, 'Загрузка заказов, позиций и платежей...');
+
     // Грузим заказы + позиции + историю оплат параллельно
     const [orders, items, payments] = await Promise.all([
       sbFetch('orders', 'select=*&order=created_at.desc'),
@@ -1057,9 +1067,11 @@ async function loadOrdersFromDB(){
     ]);
 
     if(!orders || orders.length === 0){
+      hideLoading();
       console.log('ℹ️ Supabase пуст — используем локальные данные');
       return false;
     }
+    updateLoading(60, `Обработка ${orders.length} заказов...`);
 
     // Группируем позиции по номеру заказа
     const itemsByOrder = {};
@@ -1125,9 +1137,11 @@ async function loadOrdersFromDB(){
     if(maxNum >= orderCounter) orderCounter = maxNum + 1;
 
     console.log(`✅ Загружено из Supabase: ${ordersData.length} заказов, ${(items||[]).length} позиций`);
+    hideLoading();
     return true;
 
   } catch(e) {
+    hideLoading();
     console.warn('⚠️ Supabase недоступен, локальные данные:', e.message);
     return false;
   }
@@ -1472,7 +1486,27 @@ window.onerror = function(msg, src, line, col){
 };
 </script>
 
-<!-- ===== LOGIN SCREEN ===== -->
+<!-- LOADING OVERLAY -->
+<div id="loading-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
+  z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+  <div style="background:var(--bg2);border-radius:16px;padding:32px 40px;
+    text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4);min-width:280px">
+    <div id="loading-spinner" style="width:48px;height:48px;border:4px solid var(--border);
+      border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;
+      margin:0 auto 16px"></div>
+    <div id="loading-title" style="font-size:15px;font-weight:600;color:var(--text1);margin-bottom:6px">
+      Загрузка данных...
+    </div>
+    <div id="loading-sub" style="font-size:12px;color:var(--text3);margin-bottom:14px"></div>
+    <div style="background:var(--bg3);border-radius:8px;height:6px;overflow:hidden">
+      <div id="loading-bar" style="height:100%;width:0%;background:var(--accent);
+        border-radius:8px;transition:width .3s ease"></div>
+    </div>
+    <div id="loading-pct" style="font-size:11px;color:var(--text3);margin-top:6px">0%</div>
+  </div>
+</div>
+
+
 <div id="login-screen">
   <div class="login-box">
     <div class="login-logo">🪑 PromTech ERP</div>
@@ -19488,14 +19522,45 @@ function openLeadModal(id){
   showModal('leadModal');
 }
 
+// ════════════════════════════════════════════════════════
+// ИНДИКАТОР ЗАГРУЗКИ
+// ════════════════════════════════════════════════════════
+function showLoading(title='Загрузка данных...', sub=''){
+  const el = document.getElementById('loading-overlay');
+  if(!el) return;
+  el.style.display='flex';
+  document.getElementById('loading-title').textContent=title;
+  document.getElementById('loading-sub').textContent=sub;
+  document.getElementById('loading-bar').style.width='0%';
+  document.getElementById('loading-pct').textContent='0%';
+}
+
+function updateLoading(pct, sub=''){
+  const bar = document.getElementById('loading-bar');
+  const pctEl = document.getElementById('loading-pct');
+  const subEl = document.getElementById('loading-sub');
+  if(bar) bar.style.width=pct+'%';
+  if(pctEl) pctEl.textContent=Math.round(pct)+'%';
+  if(subEl && sub) subEl.textContent=sub;
+}
+
+function hideLoading(){
+  const el = document.getElementById('loading-overlay');
+  if(!el) return;
+  updateLoading(100);
+  setTimeout(()=>{ el.style.display='none'; }, 300);
+}
+
 async function loadLeadsFromDB(){
   try {
+    showLoading('Загрузка лидов...', 'Подключение к базе данных');
     const ch = getChannelFilter();
     const chParam = ch ? `&channel=eq.${ch}` : '';
 
     // Загружаем все лиды с пагинацией
     let allLeads = [], from = 0, pageSize = 1000;
     while(true){
+      updateLoading(Math.min(from/50, 80), `Загружено: ${from} записей...`);
       const page = await sbFetch('leads',
         `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=${from}`);
       if(!page || page.length === 0) break;
@@ -19504,6 +19569,7 @@ async function loadLeadsFromDB(){
       from += pageSize;
     }
 
+    updateLoading(85, `Обработка ${allLeads.length} лидов...`);
     leadsData = allLeads.map(l=>({
       id:       l.id,
       name:     l.name,
@@ -19518,11 +19584,13 @@ async function loadLeadsFromDB(){
       created:  l.created_at?new Date(l.created_at).toLocaleDateString('ru-RU'):'',
       fromLeads: true,
     }));
-    console.log('✅ Лиды из таблицы leads: '+leadsData.length);
-    console.log('✅ С интересами: '+leadsData.filter(l=>l.interest).length);
 
+    updateLoading(95, `Загружено лидов: ${leadsData.length}`);
+    console.log('✅ Лиды: '+leadsData.length+', с интересами: '+leadsData.filter(l=>l.interest).length);
+    hideLoading();
     return true;
   } catch(e){
+    hideLoading();
     console.warn('⚠️ Ошибка загрузки лидов:', e.message);
     return false;
   }
