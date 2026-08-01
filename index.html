@@ -10792,7 +10792,8 @@ function renderMarginKpi(orders){
 function renderMarginReport(){
   const statusFilter=document.getElementById('margin-status-filter')?.value||'all';
   const search=(document.getElementById('margin-search')?.value||'').toLowerCase();
-  let orders=ordersData.filter(o=>{
+  // Применяем глобальный фильтр периода
+  let orders=plFilteredOrders().filter(o=>{
     if(statusFilter!=='all' && o.status!==statusFilter) return false;
     return true;
   });
@@ -12815,8 +12816,12 @@ function setOSVMonth(offset){
 }
 
 function buildOSV(){
-  const dateFrom = document.getElementById('osv-date-from')?.value||'2026-07-01';
-  const dateTo   = document.getElementById('osv-date-to')?.value||'2026-07-31';
+  const dateFrom = financePeriod.from
+    ? financePeriod.from.toISOString().slice(0,10)
+    : (document.getElementById('osv-date-from')?.value||'2026-01-01');
+  const dateTo   = financePeriod.to
+    ? financePeriod.to.toISOString().slice(0,10)
+    : (document.getElementById('osv-date-to')?.value||'2026-12-31');
 
   // ── План счетов (управленческий) ──────────────────────────────
   const ACCOUNTS = {
@@ -13173,8 +13178,13 @@ function setCFSMonth(offset){
 }
 
 function buildCFS(){
-  const dateFrom = document.getElementById('cfs-date-from')?.value||'2026-07-01';
-  const dateTo   = document.getElementById('cfs-date-to')?.value||'2026-07-31';
+  // Используем глобальный фильтр периода финансов
+  const dateFrom = financePeriod.from
+    ? financePeriod.from.toISOString().slice(0,10)
+    : (document.getElementById('cfs-date-from')?.value||'2026-01-01');
+  const dateTo   = financePeriod.to
+    ? financePeriod.to.toISOString().slice(0,10)
+    : (document.getElementById('cfs-date-to')?.value||'2026-12-31');
 
   const periodTx = moneyTx.filter(t=>t.date>=dateFrom && t.date<=dateTo);
 
