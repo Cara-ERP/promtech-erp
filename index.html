@@ -242,6 +242,7 @@ select option{background:var(--bg3)}
 .cust-tab{display:block}
 
 /* ORDERS JOURNAL */
+.pl-row-drillable:hover{background:var(--bg3)!important}
 .omt-tab{animation:fadeIn .15s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -4276,6 +4277,34 @@ window.onerror = function(msg, src, line, col){
 
     <!-- FINANCE PAGE PLACEHOLDER -->
     <div class="page" id="page-finance">
+
+    <!-- DRILL-DOWN MODAL -->
+    <div class="modal-overlay" id="drilldownModal">
+      <div class="modal" style="max-width:820px;max-height:85vh;display:flex;flex-direction:column">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="dd-title">Детализация</div>
+            <div style="font-size:12px;color:var(--text3)" id="dd-subtitle"></div>
+          </div>
+          <button class="modal-close" onclick="closeModal('drilldownModal')">✕</button>
+        </div>
+        <!-- KPI -->
+        <div id="dd-kpi" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px"></div>
+        <!-- Фильтр -->
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <input type="search" id="dd-search" placeholder="🔍 Поиск..." style="font-size:13px;flex:1" oninput="filterDrilldown()">
+          <button class="btn btn-ghost btn-sm" onclick="exportDrilldownExcel()">📥 Excel</button>
+        </div>
+        <!-- Таблица -->
+        <div style="overflow-y:auto;flex:1">
+          <table class="data-table" id="dd-table">
+            <thead id="dd-thead"></thead>
+            <tbody id="dd-tbody"></tbody>
+            <tfoot id="dd-tfoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
       <div class="section-header">
         <div>
           <div class="section-title">Финансы</div>
@@ -4532,12 +4561,8 @@ window.onerror = function(msg, src, line, col){
       <!-- ДДС — Движение денежных средств -->
       <div id="finance-cfs" style="display:none">
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <div style="display:flex;gap:8px;align-items:center">
-            <label class="label" style="margin:0">с</label>
-            <input type="date" id="cfs-date-from" value="2026-07-01" onchange="renderCFS()" style="font-size:13px">
-            <label class="label" style="margin:0">по</label>
-            <input type="date" id="cfs-date-to" value="2026-07-31" onchange="renderCFS()" style="font-size:13px">
-            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="setCFSMonth(0)">Текущий месяц</button>
+          <div style="font-size:12px;color:var(--text3)">
+            📅 Период задаётся глобальным фильтром выше
           </div>
           <div style="flex:1"></div>
           <button class="btn btn-ghost btn-sm" onclick="exportCFSExcel()">📥 Excel</button>
@@ -4567,14 +4592,8 @@ window.onerror = function(msg, src, line, col){
 
       <!-- ОСВ — Оборотно-сальдовая ведомость -->
       <div id="finance-osv" style="display:none">
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <div style="display:flex;gap:8px;align-items:center">
-            <label class="label" style="margin:0">с</label>
-            <input type="date" id="osv-date-from" value="2026-07-01" onchange="renderOSV()" style="font-size:13px">
-            <label class="label" style="margin:0">по</label>
-            <input type="date" id="osv-date-to" value="2026-07-31" onchange="renderOSV()" style="font-size:13px">
-            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="setOSVMonth(0)">Текущий месяц</button>
-          </div>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+          <div style="font-size:12px;color:var(--text3)">📅 Период задаётся глобальным фильтром выше</div>
           <div style="flex:1"></div>
           <button class="btn btn-ghost btn-sm" onclick="exportOSVExcel()">📥 Excel</button>
         </div>
@@ -4583,13 +4602,8 @@ window.onerror = function(msg, src, line, col){
 
       <!-- P&L ПО ВИДАМ ДЕЯТЕЛЬНОСТИ -->
       <div id="finance-activity" style="display:none">
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <div style="display:flex;gap:8px;align-items:center">
-            <label class="label" style="margin:0">с</label>
-            <input type="date" id="act-date-from" value="2026-07-01" onchange="renderActivityPL()" style="font-size:13px">
-            <label class="label" style="margin:0">по</label>
-            <input type="date" id="act-date-to" value="2026-07-31" onchange="renderActivityPL()" style="font-size:13px">
-          </div>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+          <div style="font-size:12px;color:var(--text3)">📅 Период задаётся глобальным фильтром выше</div>
           <div style="flex:1"></div>
           <button class="btn btn-ghost btn-sm" onclick="renderActivityPL()">🔄 Пересчитать</button>
           <button class="btn btn-ghost btn-sm" onclick="exportActivityExcel()">📥 Excel</button>
@@ -7889,14 +7903,15 @@ function renderChannelPL(){
     ...g, channels: SALES_CHANNELS.filter(c=>c.group===g.id)
   }));
 
-  const row = (label, obj, color='', bold=false)=>{
+  const row = (label, obj, color='', bold=false, ddFn='')=>{
     const cells = SALES_CHANNELS.map(c=>{
       const v=obj[c.id]||0;
       return `<td style="${td};color:${color||'inherit'};font-weight:${bold?700:400}">${v>0.5?fmt(v):'—'}</td>`;
     }).join('');
     const t=tot(obj);
-    return `<tr style="${bold?'background:var(--bg2)':''}">
-      <td style="padding:7px 12px;font-weight:${bold?700:400};padding-left:${bold?'12px':'24px'};color:${bold?'inherit':'var(--text2)'}">${label}</td>
+    const click = ddFn ? `onclick="${ddFn}" style="cursor:pointer" title="Нажмите для детализации"` : '';
+    return `<tr ${click} class="${ddFn?'pl-row-drillable':''}" ${bold?'style="background:var(--bg2)"':''}>
+      <td style="padding:7px 12px;font-weight:${bold?700:400};padding-left:${bold?'12px':'24px'};color:${bold?'inherit':'var(--text2)'}">${label}${ddFn?' <span style="font-size:10px;color:var(--accent)">🔍</span>':''}</td>
       ${cells}
       <td style="${td};font-weight:${bold?700:400};color:${color||'inherit'}">${t>0.5?fmt(t):'—'}</td>
     </tr>`;
@@ -7938,10 +7953,10 @@ function renderChannelPL(){
     </thead>
     <tbody>
       ${sep('① ВЫРУЧКА')}
-      ${row('Выручка от продаж', pl.revenue, 'var(--green)', true)}
+      ${row('Выручка от продаж', pl.revenue, 'var(--green)', true, 'ddPLRevenue()')}
       ${row('Количество заказов (шт)', pl.orderCount, 'var(--text3)')}
       ${sep('② ПРОИЗВОДСТВЕННАЯ СЕБЕСТОИМОСТЬ')}
-      ${row('Произв. себестоимость (расп. по выручке)', pl.prodCost, 'var(--amber)')}
+      ${row('Произв. себестоимость (расп. по выручке)', pl.prodCost, 'var(--amber)', false, "ddPLExpense('production','Производственная себестоимость')")}
       ${marginRow('Валовая прибыль', pl.margin1)}
       ${sep('③ ПРЯМЫЕ РАСХОДЫ КАНАЛА')}
       ${SALES_CHANNELS.map(ch=>{
@@ -7949,7 +7964,7 @@ function renderChannelPL(){
         return costs.map(c=>{
           const amt = c.name.includes('Комиссия') ? pl.revenue[ch.id]*0.10 : c.amount;
           const obj = {}; SALES_CHANNELS.forEach(x=>{ obj[x.id]=0; }); obj[ch.id]=amt;
-          return row(c.name, obj, 'var(--red)');
+          return row(c.name, obj, 'var(--red)', false, `ddPLExpense('other_out','${c.name}')`);
         }).join('');
       }).join('')}
       ${marginRow('Прибыль после прямых расходов', pl.margin2)}
@@ -10820,10 +10835,10 @@ function renderMarginReport(){
       ? `<span title="${m.unmatched} материал(а) не найдено на складе — цена не учтена" style="color:var(--amber);font-size:11px;cursor:help">⚠ ${m.unmatched} не найд.</span>`
       : '';
     const hasTc=item.techCard&&item.techCard.length>0;
-    return `<tr>
+    return `<tr style="cursor:pointer" onclick="openMarginDetail('${order.num}',${idx})" title="Детализация маржи">
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent);font-size:12px">${order.num}</td>
       <td>
-        <div style="font-size:13px">${item.name}</div>
+        <div style="font-size:13px">${item.name} <span style="font-size:10px;color:var(--accent)">🔍</span></div>
         ${item.category?`<div style="font-size:11px;color:var(--text3)">${item.category}</div>`:''}
         ${unmatchedWarn}
       </td>
@@ -10840,7 +10855,7 @@ function renderMarginReport(){
       <td style="font-family:'IBM Plex Mono',monospace">${fmtCurrency(m.totalMaterialCost+m.totalWageCost)}</td>
       <td style="font-family:'IBM Plex Mono',monospace;color:${m.totalMargin>=0?'var(--green)':'var(--red)'}">${fmtCurrency(m.totalMargin)}</td>
       <td><span class="${marginPctClass(m.marginPct)}">${m.marginPct}%</span></td>
-      <td>${(m.totalWageCost>0||m.totalMaterialCost>0)?`<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="openMarginDetail('${order.num}',${idx})">🔍 Детали</button>`:'—'}</td>
+      <td onclick="event.stopPropagation()">${(m.totalWageCost>0||m.totalMaterialCost>0)?`<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="openMarginDetail('${order.num}',${idx})">🔍 Детали</button>`:'—'}</td>
     </tr>`;
   }).join('');
 }
@@ -12482,8 +12497,12 @@ let wsAllocData = [
 const ACT_KEYS = ['chair','table','sofa','bed','cabinet'];
 
 function buildActivityPL(){
-  const dateFrom = document.getElementById('act-date-from')?.value||'2026-07-01';
-  const dateTo   = document.getElementById('act-date-to')?.value||'2026-07-31';
+  const dateFrom = financePeriod.from
+    ? financePeriod.from.toISOString().slice(0,10)
+    : '2026-01-01';
+  const dateTo   = financePeriod.to
+    ? financePeriod.to.toISOString().slice(0,10)
+    : '2026-12-31';
 
   // 1. Выручка по виду деятельности (из заказов за период)
   const revenue = {};
@@ -13098,9 +13117,10 @@ function renderOSV(){
     <tbody>`;
 
   osv.rows.forEach(r=>{
-    html+=`<tr style="border-top:1px solid var(--border)">
+    const ddCall=`ddOSVAccount('${r.code}','${r.name}')`;
+    html+=`<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="${ddCall}" title="Нажмите для детализации">
       <td style="padding:7px 10px;color:var(--text3);font-size:11px;font-family:monospace">${r.code}</td>
-      <td style="padding:7px 12px;font-weight:500">${r.name}</td>
+      <td style="padding:7px 12px;font-weight:500">${r.name} <span style="font-size:10px;color:var(--accent)">🔍</span></td>
       <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--green)">${fmt(r.openDt)}</td>
       <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--red)">${fmt(r.openKt)}</td>
       <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--green)">${fmt(r.dtOb)}</td>
@@ -13292,16 +13312,20 @@ function renderCFS(){
   Object.values(cfs.sections).forEach(sec=>{
     if(sec.secIn===0&&sec.secOut===0) return;
     const nc=sec.secNet>=0?'var(--green)':'var(--red)';
-    html+=`<tr style="background:var(--bg2);border-top:2px solid var(--border)">
-      <td style="padding:10px 16px;font-weight:700;color:${sec.color}">${sec.label}</td>
+    const ddCall=`ddCFSSection(${JSON.stringify(sec.inCats)},${JSON.stringify(sec.outCats)},'${sec.label.replace(/'/g,"\\'")}')`;
+    html+=`<tr style="background:var(--bg2);border-top:2px solid var(--border);cursor:pointer" onclick="${ddCall}" title="Нажмите для детализации">
+      <td style="padding:10px 16px;font-weight:700;color:${sec.color}">${sec.label} <span style="font-size:10px;color:var(--accent)">🔍</span></td>
       <td style="padding:10px 16px;text-align:right;font-family:monospace;color:var(--green);font-weight:600">${sec.secIn?fmt(sec.secIn):''}</td>
       <td style="padding:10px 16px;text-align:right;font-family:monospace;color:var(--red);font-weight:600">${sec.secOut?'−'+fmt(sec.secOut):''}</td>
       <td style="padding:10px 16px;text-align:right;font-family:monospace;font-weight:700;color:${nc}">${sec.secNet>=0?'+':''}${fmt(sec.secNet)}</td>
     </tr>`;
     Object.values(sec.rows).forEach(row=>{
       if(row.in===0&&row.out===0) return;
-      html+=`<tr style="border-top:1px solid var(--border)">
-        <td style="padding:7px 16px 7px 32px;color:var(--text2)">${row.label}</td>
+      const cats = [...(row.inCats||[]),...(row.outCats||[])];
+      const ddRow = cats.length
+        ? `ddCFSSection(${JSON.stringify(row.inCats||[])},${JSON.stringify(row.outCats||[])},'${row.label.replace(/'/g,"\\'")}')` : '';
+      html+=`<tr style="border-top:1px solid var(--border);${ddRow?'cursor:pointer':''}" ${ddRow?`onclick="${ddRow}" title="Детализация"`:''}">
+        <td style="padding:7px 16px 7px 32px;color:var(--text2)">${row.label}${ddRow?' <span style="font-size:10px;color:var(--accent)">🔍</span>':''}</td>
         <td style="padding:7px 16px;text-align:right;font-family:monospace;color:var(--green)">${row.in?fmt(row.in):'—'}</td>
         <td style="padding:7px 16px;text-align:right;font-family:monospace;color:var(--red)">${row.out?'−'+fmt(row.out):'—'}</td>
         <td style="padding:7px 16px;text-align:right;font-family:monospace;color:var(--text3)">${fmt(row.in-row.out)}</td>
@@ -19846,6 +19870,211 @@ function clearCache(){
   // Перезагружаем текущую страницу
   const activeNav = document.querySelector('.nav-item.active');
   if(activeNav) activeNav.click();
+}
+
+// ════════════════════════════════════════════════════════════════
+// DRILL-DOWN — детализация строк финансовых отчётов
+// ════════════════════════════════════════════════════════════════
+let _ddRows = [];   // текущие строки drill-down
+let _ddCols = [];   // текущие колонки
+
+function openDrilldown(title, subtitle, rows, cols){
+  _ddRows = rows;
+  _ddCols = cols;
+  document.getElementById('dd-title').textContent    = title;
+  document.getElementById('dd-subtitle').textContent = subtitle;
+  document.getElementById('dd-search').value         = '';
+
+  // KPI
+  const numCols = cols.filter(c=>c.num);
+  const kpiEl   = document.getElementById('dd-kpi');
+  if(numCols.length){
+    kpiEl.style.display = 'grid';
+    kpiEl.innerHTML = numCols.map(c=>{
+      const total = rows.reduce((s,r)=>s+(parseFloat(r[c.key])||0),0);
+      return `<div class="card" style="padding:10px 14px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${c.label}</div>
+        <div style="font-size:16px;font-weight:700;color:${c.color||'var(--accent)'}">${fmtCurrency(total)}</div>
+      </div>`;
+    }).join('');
+  } else {
+    kpiEl.style.display = 'none';
+  }
+
+  renderDrilldownTable(rows);
+  showModal('drilldownModal');
+}
+
+function renderDrilldownTable(rows){
+  const thead = document.getElementById('dd-thead');
+  const tbody  = document.getElementById('dd-tbody');
+  const tfoot  = document.getElementById('dd-tfoot');
+  if(!thead||!tbody) return;
+
+  thead.innerHTML = '<tr>'+_ddCols.map(c=>
+    `<th style="text-align:${c.num?'right':'left'}">${c.label}</th>`
+  ).join('')+'</tr>';
+
+  tbody.innerHTML = rows.map(r=>`<tr style="cursor:${r._onclick?'pointer':''}"
+    onclick="${r._onclick||''}">${_ddCols.map(c=>{
+      const v = r[c.key];
+      const isNum = c.num && v!==undefined && v!==null && v!=='—';
+      const val   = isNum ? fmtCurrency(parseFloat(v)||0) : (v||'—');
+      const color = isNum && c.color ? `color:${c.color}` : '';
+      return `<td style="text-align:${c.num?'right':'left'};${color};font-size:12px${c.mono?';font-family:monospace':''}">${val}</td>`;
+    }).join('')}</tr>`
+  ).join('') || `<tr><td colspan="${_ddCols.length}" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за период</td></tr>`;
+
+  // Итоги по числовым колонкам
+  const numCols = _ddCols.filter(c=>c.num);
+  if(numCols.length && rows.length){
+    tfoot.innerHTML = '<tr style="background:var(--bg3);font-weight:700">'+
+      _ddCols.map(c=>{
+        if(!c.num) return `<td style="padding:8px 12px">Итого:</td>`;
+        const total = rows.reduce((s,r)=>s+(parseFloat(r[c.key])||0),0);
+        return `<td style="text-align:right;padding:8px 12px;font-family:monospace;color:${c.color||'inherit'}">${fmtCurrency(total)}</td>`;
+      }).join('')+'</tr>';
+  } else {
+    tfoot.innerHTML='';
+  }
+}
+
+function filterDrilldown(){
+  const search=(document.getElementById('dd-search')?.value||'').toLowerCase();
+  if(!search){ renderDrilldownTable(_ddRows); return; }
+  const filtered=_ddRows.filter(r=>
+    _ddCols.some(c=>String(r[c.key]||'').toLowerCase().includes(search))
+  );
+  renderDrilldownTable(filtered);
+}
+
+function exportDrilldownExcel(){
+  if(typeof XLSX==='undefined'){ alert('Excel загружается...'); return; }
+  const title  = document.getElementById('dd-title')?.textContent||'Детализация';
+  const headers= _ddCols.map(c=>c.label);
+  const body   = _ddRows.map(r=>_ddCols.map(c=>r[c.key]||''));
+  const ws = XLSX.utils.aoa_to_sheet([headers,...body]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, title.slice(0,30));
+  XLSX.writeFile(wb, title.replace(/[^\w\s]/gi,'')+'_drill.xlsx');
+}
+
+// ── Drill-down для P&L ──────────────────────────────────────────
+function ddPLRevenue(){
+  const orders = plFilteredOrders();
+  const rows   = orders.map(o=>({
+    date:     o.date||o.createdDate||'—',
+    num:      o.num,
+    customer: o.customer,
+    endClient:o.salonClientName||'—',
+    channel:  channelLabel(o.channel),
+    amount:   orderTotal(o),
+    payment:  o.payment+'%',
+    _onclick: `openEditOrderModal('${o.num}')`
+  }));
+  openDrilldown('Выручка от продаж', periodLabel()+' · '+orders.length+' заказов', rows, [
+    {key:'date',     label:'Дата',              num:false},
+    {key:'num',      label:'Заказ',             num:false, mono:true},
+    {key:'customer', label:'Покупатель',        num:false},
+    {key:'endClient',label:'Конечный клиент',   num:false},
+    {key:'channel',  label:'Канал',             num:false},
+    {key:'amount',   label:'Сумма',             num:true,  color:'var(--accent)'},
+    {key:'payment',  label:'% оплаты',          num:false},
+  ]);
+}
+
+function ddPLExpense(category, title){
+  const txs  = plFilteredTx().filter(t=>t.category===category && t.flow==='expense');
+  const rows = txs.map(t=>({
+    date:   t.date||'—',
+    desc:   t.desc||t.description||'—',
+    amount: t.amount,
+    acc:    bankAccounts.find(a=>a.id===t.accountId)?.name||t.accountId||'—',
+  }));
+  openDrilldown(title, periodLabel()+' · '+txs.length+' операций', rows, [
+    {key:'date',   label:'Дата',       num:false},
+    {key:'desc',   label:'Описание',   num:false},
+    {key:'acc',    label:'Счёт',       num:false},
+    {key:'amount', label:'Сумма',      num:true, color:'var(--red)'},
+  ]);
+}
+
+function ddCFSSection(inCats, outCats, label){
+  const from = financePeriod.from?.toISOString().slice(0,10)||'';
+  const to   = financePeriod.to?.toISOString().slice(0,10)||'';
+  const txs  = moneyTx.filter(t=>{
+    if(from && t.date < from) return false;
+    if(to   && t.date > to)   return false;
+    return inCats.includes(t.category)||outCats.includes(t.category);
+  });
+  const rows = txs.map(t=>({
+    date:    t.date||'—',
+    desc:    t.desc||t.description||'—',
+    cat:     txCatLabel(t.category),
+    flow:    t.flow==='income'?'Поступление':'Выплата',
+    amount:  t.flow==='income'? t.amount : -t.amount,
+  }));
+  openDrilldown('ДДС: '+label, periodLabel()+' · '+txs.length+' транзакций', rows, [
+    {key:'date',   label:'Дата',         num:false},
+    {key:'desc',   label:'Описание',     num:false},
+    {key:'cat',    label:'Категория',    num:false},
+    {key:'flow',   label:'Вид',          num:false},
+    {key:'amount', label:'Сумма',        num:true,  color:'var(--accent)'},
+  ]);
+}
+
+function ddMarginItem(orderNum, itemIdx){
+  const order = ordersData.find(o=>o.num===orderNum);
+  if(!order) return;
+  const item  = order.items[itemIdx];
+  if(!item)   return;
+  const m     = calcItemMargin(item, order);
+  const rows  = [
+    {label:'Выручка',        amount: m.revenue},
+    {label:'Себестоимость',  amount: m.cost},
+    {label:'Маржа',          amount: m.margin},
+    {label:'Маржинальность', amount: m.marginPct+'%'},
+  ];
+  openDrilldown(`Маржа: ${item.name}`, `Заказ ${orderNum}`, rows, [
+    {key:'label',  label:'Показатель', num:false},
+    {key:'amount', label:'Значение',   num:false},
+  ]);
+}
+
+function ddOSVAccount(acc, accName){
+  const from = financePeriod.from?.toISOString().slice(0,10)||'';
+  const to   = financePeriod.to?.toISOString().slice(0,10)||'';
+  // Показываем транзакции которые относятся к счёту
+  const rows = [];
+  const accMap = {'50':'cash','51':'bank','60':'supplier','62':'order_payment','70':'salary','68':'tax','71':'advance_out'};
+  const cats   = Object.entries(accMap).filter(([a])=>a===acc).map(([,c])=>c);
+  const txs    = moneyTx.filter(t=>{
+    if(from && t.date < from) return false;
+    if(to   && t.date > to)   return false;
+    if(cats.length && !cats.includes(t.category)) return false;
+    return true;
+  });
+  txs.forEach(t=>{
+    rows.push({
+      date:   t.date||'—',
+      desc:   t.desc||t.description||'—',
+      debit:  t.flow==='income' ? t.amount : 0,
+      credit: t.flow==='expense'? t.amount : 0,
+    });
+  });
+  openDrilldown(`ОСВ: Счёт ${acc} — ${accName}`, periodLabel()+' · '+rows.length+' проводок', rows, [
+    {key:'date',   label:'Дата',   num:false},
+    {key:'desc',   label:'Опер.',  num:false},
+    {key:'debit',  label:'Дт',     num:true,  color:'var(--accent)'},
+    {key:'credit', label:'Кт',     num:true,  color:'var(--red)'},
+  ]);
+}
+
+function periodLabel(){
+  if(!financePeriod.from) return 'Все время';
+  const f = financePeriod.from.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const t = financePeriod.to?.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})||'';
+  return `${f} — ${t}`;
 }
 
 function showLoading(title='Загрузка данных...', sub=''){
