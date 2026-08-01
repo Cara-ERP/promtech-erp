@@ -6702,7 +6702,7 @@ function setMoneyPeriod(mode){
   } else if(lbl) lbl.textContent='';
 
   // Перерендериваем активную вкладку
-  renderMoneyKPI();
+  renderMoneyKPIs();
   const activeTx = document.querySelector('#page-money .money-tab[style*="block"]');
   if(document.getElementById('money-tab-cash')?.style.display!=='none')   renderCashTx();
   if(document.getElementById('money-tab-bank')?.style.display!=='none')   renderBankTx();
