@@ -23409,7 +23409,8 @@ function renderOrderModalInfo(){
   if(!order) return;
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const total = orderTotal(order);
-  const paid  = total * (order.payment||0) / 100;
+  const payments = (moneyTx||[]).filter(t=>(t.orderNum===order.num||t.order_num===order.num)&&t.flow==='income');
+  const paid  = payments.length ? payments.reduce((s,t)=>s+(t.amount||0),0) : total * Math.min(order.payment||0,100) / 100;
 
   // Шапка
   const custEl = document.getElementById('eo-info-customer');
@@ -23464,38 +23465,48 @@ function renderOrderModalInfo(){
 }
 
 function renderOrderModalPayments(){
-  const order = ordersData.find(o=>o.num===_editingOrderNum);
+  const orderNum = window._editingOrderNum||editingOrderNum;
+  const order = ordersData.find(o=>o.num===orderNum);
   if(!order) return;
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const total = orderTotal(order);
-  const paid  = total * (order.payment||0) / 100;
-  const debt  = total - paid;
 
-  // KPI
+  // Реальные платежи из moneyTx по номеру заказа
+  const payments = (moneyTx||[]).filter(t=>
+    (t.orderNum===orderNum||t.order_num===orderNum) && t.flow==='income'
+  );
+  const paid = payments.length
+    ? payments.reduce((s,t)=>s+(t.amount||0), 0)
+    : total * Math.min(order.payment||0, 100) / 100;
+  const debt = Math.max(0, total - paid);
+  const pct  = total>0 ? Math.round(paid/total*100) : 0;
+
   const sumEl = document.getElementById('eo-payments-summary');
   if(sumEl) sumEl.innerHTML = [
-    {label:'К оплате',  value:fmt(total),           color:'var(--accent)'},
-    {label:'Оплачено',  value:fmt(paid),             color:'var(--green)'},
-    {label:'Остаток',   value:fmt(debt),             color:debt>0?'var(--red)':'var(--green)'},
+    {label:'К оплате',  value:fmt(total),              color:'var(--accent)'},
+    {label:'Оплачено',  value:fmt(paid)+' ('+pct+'%)', color:'var(--green)'},
+    {label:'Остаток',   value:fmt(debt),                color:debt>0?'var(--red)':'var(--green)'},
   ].map(k=>`<div class="card" style="padding:12px">
     <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
     <div style="font-size:16px;font-weight:700;color:${k.color}">${k.value}</div>
   </div>`).join('');
 
-  // История платежей из payment_history
   const tbody = document.getElementById('eo-payments-tbody');
   if(!tbody) return;
-  const history = (order.paymentHistory||[]);
-  if(history.length){
-    tbody.innerHTML = history.map(p=>`<tr>
+
+  if(payments.length){
+    tbody.innerHTML = payments.map(p=>`<tr>
       <td style="font-size:12px">${p.date||'—'}</td>
-      <td><span class="badge" style="font-size:10px">${p.method||'Наличные'}</span></td>
+      <td><span class="badge" style="font-size:10px">${p.category||p.desc||'Оплата'}</span></td>
       <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">${fmt(p.amount||0)}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.comment||'—'}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.desc||p.description||'—'}</td>
     </tr>`).join('');
   } else {
+    const payPct = Math.min(order.payment||0, 100);
     tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">
-      Платежи не зафиксированы. % оплаты: ${order.payment||0}%
+      ${payPct>0
+        ? 'Детальная история платежей не найдена.<br>% оплаты в заказе: <b>'+payPct+'%</b>'
+        : 'Платежи не зафиксированы'}
     </td></tr>`;
   }
 }
