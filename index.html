@@ -697,6 +697,7 @@ async function loadStaffFromDB(){
 
 // Загрузить поставщиков из Supabase
 async function loadSuppliersFromDB(){
+  if(_cacheLoaded.suppliers && suppliersData.length > 0){ console.log("📦 Поставщики из кеша"); return true; }
   try {
     const data = await sbFetch('suppliers','select=*&order=name');
     if(data && data.length>0){
@@ -722,6 +723,7 @@ async function loadSuppliersFromDB(){
 
 // Загрузить склад из Supabase
 async function loadWarehouseFromDB(){
+  if(_cacheLoaded.warehouse && warehouseData.length > 0){ console.log("📦 Склад из кеша"); return true; }
   try {
     // Supabase лимит 1000 строк — загружаем постранично
     let allData = [];
@@ -824,6 +826,10 @@ async function loadMoneyFromDB(){
 
 // Загрузить клиентов из Supabase
 async function loadCustomersFromDB(){
+  if(_cacheLoaded.customers && personsData.length > 0){
+    console.log('📦 Клиенты из кеша: '+personsData.length);
+    return true;
+  }
   try {
     showLoading('Загрузка покупателей...', 'Подключение к базе данных');
     let allData = [], from = 0, pageSize = 1000;
@@ -855,6 +861,7 @@ async function loadCustomersFromDB(){
       });
       console.log('✅ Клиенты загружены из Supabase: '+allData.length);
     }
+    _cacheLoaded.customers = true;
     hideLoading();
     return true;
   } catch(e){
@@ -868,6 +875,14 @@ async function loadCustomersFromDB(){
 // КАТАЛОГ ПРОДУКЦИИ
 // ════════════════════════════════════════════════════════════════
 let catalogData = [];
+let _cacheLoaded = {
+  orders:    false,
+  customers: false,
+  leads:     false,
+  catalog:   false,
+  warehouse: false,
+  suppliers: false,
+};
 let catalogLoaded = false;
 
 async function loadCatalogFromDB(){
@@ -1055,6 +1070,10 @@ function renderWhRemains(){ renderWarehouse(); }
 
 // Загрузить заказы из Supabase
 async function loadOrdersFromDB(){
+  if(_cacheLoaded.orders && ordersData.length > 0){
+    console.log('📦 Заказы из кеша: '+ordersData.length);
+    return true;
+  }
   try {
     showLoading('Загрузка заказов...', 'Получение данных из базы');
     updateLoading(10, 'Загрузка заказов, позиций и платежей...');
@@ -1137,6 +1156,7 @@ async function loadOrdersFromDB(){
     if(maxNum >= orderCounter) orderCounter = maxNum + 1;
 
     console.log(`✅ Загружено из Supabase: ${ordersData.length} заказов, ${(items||[]).length} позиций`);
+    _cacheLoaded.orders = true;
     hideLoading();
     return true;
 
@@ -1780,6 +1800,7 @@ window.onerror = function(msg, src, line, col){
         <div class="notif-dot"></div>
       </div>
       <button class="btn btn-primary btn-sm" id="topbar-prod-order-btn" onclick="showModal('newOrderModal')">+ Новый произв. заказ</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearCache()" title="Обновить данные из базы" style="font-size:16px;padding:4px 8px">🔄</button>
     </div>
   </div>
 
@@ -19525,6 +19546,16 @@ function openLeadModal(id){
 // ════════════════════════════════════════════════════════
 // ИНДИКАТОР ЗАГРУЗКИ
 // ════════════════════════════════════════════════════════
+function clearCache(){
+  Object.keys(_cacheLoaded).forEach(k=>_cacheLoaded[k]=false);
+  ordersData=[]; personsData=[]; leadsData=[];
+  catalogData=[]; warehouseData=[]; suppliersData=[];
+  console.log('🔄 Кеш сброшен');
+  // Перезагружаем текущую страницу
+  const activeNav = document.querySelector('.nav-item.active');
+  if(activeNav) activeNav.click();
+}
+
 function showLoading(title='Загрузка данных...', sub=''){
   const el = document.getElementById('loading-overlay');
   if(!el) return;
@@ -19552,6 +19583,10 @@ function hideLoading(){
 }
 
 async function loadLeadsFromDB(){
+  if(_cacheLoaded.leads && leadsData.length > 0){
+    console.log('📦 Лиды из кеша: '+leadsData.length);
+    return true;
+  }
   try {
     showLoading('Загрузка лидов...', 'Подключение к базе данных');
     const ch = getChannelFilter();
@@ -19587,6 +19622,7 @@ async function loadLeadsFromDB(){
 
     updateLoading(95, `Загружено лидов: ${leadsData.length}`);
     console.log('✅ Лиды: '+leadsData.length+', с интересами: '+leadsData.filter(l=>l.interest).length);
+    _cacheLoaded.leads = true;
     hideLoading();
     return true;
   } catch(e){
