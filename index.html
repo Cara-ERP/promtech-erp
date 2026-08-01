@@ -19065,7 +19065,11 @@ function showOrdersTab(tab, el){
     });
   }
   if(tab==='leads'){
-    loadLeadsFromDB().then(()=>{
+    // Сначала загружаем клиентов (для определения "без заказов"), потом лиды
+    const loadAll = personsData.length > 0
+      ? loadLeadsFromDB()
+      : loadCustomersFromDB().then(()=>loadLeadsFromDB());
+    loadAll.then(()=>{
       renderLeadsTab();
       const e=document.getElementById('tab-count-leads');
       if(e) e.textContent=leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
@@ -19491,24 +19495,49 @@ async function loadLeadsFromDB(){
       ? `select=*&channel=eq.${ch}&order=created_at.desc`
       : 'select=*&order=created_at.desc';
     const data = await sbFetch('leads', params);
-    if(data && data.length > 0){
-      leadsData = data.map(l=>({
-        id:       l.id,
-        name:     l.name,
-        phone:    l.phone||'',
-        status:   l.status||'new',
-        interest: l.interest||'',
-        budget:   l.budget||0,
-        source:   l.source||'',
-        comment:  l.comment||'',
-        channel:  l.channel||'office',
-        manager:  l.manager||'',
-        created:  l.created_at?new Date(l.created_at).toLocaleDateString('ru-RU'):'',
-      }));
-      console.log('✅ Лиды загружены: '+data.length);
-    } else {
-      leadsData = [];
+    leadsData = (data||[]).map(l=>({
+      id:       l.id,
+      name:     l.name,
+      phone:    l.phone||'',
+      status:   l.status||'new',
+      interest: l.interest||'',
+      budget:   l.budget||0,
+      source:   l.source||'',
+      comment:  l.comment||'',
+      channel:  l.channel||'office',
+      manager:  l.manager||'',
+      created:  l.created_at?new Date(l.created_at).toLocaleDateString('ru-RU'):'',
+      fromLeads: true,
+    }));
+    console.log('✅ Лиды из таблицы leads: '+leadsData.length);
+
+    // Добавляем клиентов без заказов как лиды
+    if(personsData.length > 0){
+      const withOrders = new Set(ordersData.map(o=>o.customer));
+      const existNames  = new Set(leadsData.map(l=>l.name));
+      const noOrderCustomers = personsData.filter(p=>
+        !withOrders.has(p.name) && !existNames.has(p.name) &&
+        (!ch || !p.source || p.source===ch)
+      );
+      noOrderCustomers.forEach(p=>{
+        leadsData.push({
+          id:       'cust_'+p.id,
+          name:     p.name,
+          phone:    p.phone||'',
+          status:   'new',
+          interest: '',
+          budget:   0,
+          source:   'referral',
+          comment:  p.comment||'',
+          channel:  p.source||'office',
+          manager:  '',
+          created:  '',
+          fromCustomers: true,
+        });
+      });
+      console.log('✅ Добавлено клиентов без заказов: '+noOrderCustomers.length);
     }
+
     return true;
   } catch(e){
     console.warn('⚠️ Ошибка загрузки лидов:', e.message);
