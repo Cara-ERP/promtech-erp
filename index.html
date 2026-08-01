@@ -3096,11 +3096,6 @@ window.onerror = function(msg, src, line, col){
             style="font-size:13px" title="Дата по">
           <select id="ord-year" onchange="setOrderYear(this.value)" style="font-size:13px">
             <option value="">Все годы</option>
-            <option value="2002">2002</option>
-            <option value="2023">2023</option>
-            <option value="2024">2024</option>
-            <option value="2025">2025</option>
-            <option value="2026">2026</option>
           </select>
           <select id="ord-status-filter" onchange="renderOrders()" style="font-size:13px">
             <option value="">Все статусы</option>
@@ -3108,10 +3103,16 @@ window.onerror = function(msg, src, line, col){
             <option value="progress">В работе</option>
             <option value="done">Завершено</option>
           </select>
+          <select id="ord-seller-filter" onchange="renderOrders()" style="font-size:13px">
+            <option value="">Все продавцы</option>
+          </select>
+          <select id="ord-resp-filter" onchange="renderOrders()" style="font-size:13px">
+            <option value="">Все ответственные</option>
+          </select>
           <input type="number" id="ord-amount-min" placeholder="Сумма от ₸"
-            style="font-size:13px;width:120px" oninput="renderOrders()">
+            style="font-size:13px;width:110px" oninput="renderOrders()">
           <input type="number" id="ord-amount-max" placeholder="до ₸"
-            style="font-size:13px;width:120px" oninput="renderOrders()">
+            style="font-size:13px;width:100px" oninput="renderOrders()">
           <button class="btn btn-ghost btn-sm" onclick="clearOrderFilters()">✕ Сбросить</button>
           <span id="ord-filter-count" style="font-size:12px;color:var(--text3)"></span>
         </div>
@@ -3132,12 +3133,12 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-primary btn-sm" onclick="openNewCustOrderModal()">+ Новый заказ покупателя</button>
         </div>
       </div>
-      <div class="tabs">
+      <div class="tabs" style="align-items:center">
         <div class="tab active" id="crm-tab-clients" onclick="showOrdersTab('clients',this)">👥 Клиенты (<span id="tab-count-clients">0</span>)</div>
         <div class="tab" id="crm-tab-leads" onclick="showOrdersTab('leads',this)">🎯 Лиды (<span id="tab-count-leads">0</span>)</div>
-        <div class="tab" data-tab="funnel" onclick="showOrdersTab('funnel',this)">🎯 Воронка лидов</div>
-        <div class="tab" data-tab="orders-kanban" onclick="showOrdersTab('orders-kanban',this)">📊 Воронка заказов</div>
-        <div class="tab" data-tab="tasks" onclick="showOrdersTab('tasks',this)">✅ Задачи <span class="kanban-count" id="tasks-open-count">0</span></div>
+        <div class="tab" onclick="showOrdersTab('funnel',this)">🎯 Воронка лидов</div>
+        <div class="tab" onclick="showOrdersTab('orders-kanban',this)">📊 Воронка заказов</div>
+        <div class="tab" onclick="showOrdersTab('tasks',this)">✅ Задачи (<span id="tasks-open-count">0</span>)</div>
       </div>
 
       <!-- TAB: Margin report -->
@@ -3261,8 +3262,8 @@ window.onerror = function(msg, src, line, col){
       <!-- TAB: Лиды -->
       <div class="orders-tab" id="orders-leads" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-          <input type="search" id="leads-search" placeholder="🔍 Поиск..."
-            style="font-size:13px;flex:1;max-width:280px" oninput="renderLeadsTab()">
+          <input type="search" id="leads-search" placeholder="🔍 Имя, телефон, интерес..."
+            style="font-size:13px;flex:1;min-width:180px;max-width:260px" oninput="renderLeadsTab()">
           <select id="leads-status-filter" onchange="renderLeadsTab()" style="font-size:13px">
             <option value="all">Все статусы</option>
             <option value="new">🆕 Новый</option>
@@ -3272,7 +3273,26 @@ window.onerror = function(msg, src, line, col){
             <option value="won">✅ Выиграли</option>
             <option value="lost">❌ Проиграли</option>
           </select>
+          <select id="leads-source-filter" onchange="renderLeadsTab()" style="font-size:13px">
+            <option value="all">Все источники</option>
+            <option value="instagram">Instagram</option>
+            <option value="referral">Рекомендация</option>
+            <option value="walk-in">Зашёл сам</option>
+            <option value="call">Звонок</option>
+            <option value="site">Сайт</option>
+            <option value="other">Другое</option>
+          </select>
+          <input type="number" id="leads-budget-min" placeholder="Бюджет от ₸"
+            style="font-size:13px;width:120px" oninput="renderLeadsTab()">
+          <!-- Переключатель вида -->
+          <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <button id="leads-view-cards" onclick="setLeadsView('cards')"
+              style="padding:5px 10px;font-size:13px;border:none;background:var(--accent);color:#fff;cursor:pointer">⊞ Плитка</button>
+            <button id="leads-view-table" onclick="setLeadsView('table')"
+              style="padding:5px 10px;font-size:13px;border:none;background:var(--bg2);color:var(--text2);cursor:pointer">☰ Таблица</button>
+          </div>
           <button class="btn btn-primary btn-sm" onclick="openLeadModal(null)">+ Новый лид</button>
+          <span id="leads-count-label" style="font-size:12px;color:var(--text3)"></span>
         </div>
         <div id="leads-body"></div>
       </div>
@@ -7997,7 +8017,7 @@ function showPage(id, el){
   }
   if(id==='sales'){
     loadOrdersFromDB().then(()=>{
-      // Заполняем список годов из реальных данных
+      // Заполняем список годов
       const years = new Set();
       ordersData.forEach(o=>{
         const d = o.date||o.createdDate||'';
@@ -8010,6 +8030,20 @@ function showPage(id, el){
         [...years].sort().reverse().forEach(y=>{
           yearSel.innerHTML+=`<option value="${y}">${y}</option>`;
         });
+      }
+      // Заполняем продавцов
+      const sellers = [...new Set(ordersData.map(o=>o.seller).filter(Boolean))].sort();
+      const sellerSel = document.getElementById('ord-seller-filter');
+      if(sellerSel){
+        sellerSel.innerHTML='<option value="">Все продавцы</option>';
+        sellers.forEach(s=>sellerSel.innerHTML+=`<option value="${s}">${s}</option>`);
+      }
+      // Заполняем ответственных
+      const resps = [...new Set(ordersData.map(o=>o.resp).filter(Boolean))].sort();
+      const respSel = document.getElementById('ord-resp-filter');
+      if(respSel){
+        respSel.innerHTML='<option value="">Все ответственные</option>';
+        resps.forEach(r=>respSel.innerHTML+=`<option value="${r}">${r}</option>`);
       }
       renderOrdersList();
       updateOrderTabCounts();
@@ -18786,10 +18820,8 @@ function setOrderYear(year){
 function clearOrderFilters(){
   ['ord-search','ord-date-from','ord-date-to','ord-amount-min','ord-amount-max']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
-  const yr = document.getElementById('ord-year');
-  if(yr) yr.value='';
-  const sf = document.getElementById('ord-status-filter');
-  if(sf) sf.value='';
+  ['ord-year','ord-status-filter','ord-seller-filter','ord-resp-filter']
+    .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   renderOrders();
 }
 
@@ -18809,6 +18841,8 @@ function renderOrders(){
   const dateFrom  = document.getElementById('ord-date-from')?.value||'';
   const dateTo    = document.getElementById('ord-date-to')?.value||'';
   const statusF   = document.getElementById('ord-status-filter')?.value||'';
+  const sellerF   = document.getElementById('ord-seller-filter')?.value||'';
+  const respF     = document.getElementById('ord-resp-filter')?.value||'';
   const amountMin = parseFloat(document.getElementById('ord-amount-min')?.value||0)||0;
   const amountMax = parseFloat(document.getElementById('ord-amount-max')?.value||0)||0;
   const chFilter  = getChannelFilter();
@@ -18819,16 +18853,16 @@ function renderOrders(){
   let visibleOrders = ordersData.filter(order=>{
     if(chFilter && order.channel!==chFilter) return false;
     if(statusF && order.status!==statusF) return false;
+    if(sellerF && order.seller!==sellerF) return false;
+    if(respF   && order.resp!==respF)     return false;
     if(search){
-      const hay = (order.customer||'').toLowerCase()+(order.num||'').toLowerCase()+(order.seller||'').toLowerCase();
+      const hay = (order.customer||'').toLowerCase()+(order.num||'').toLowerCase()+(order.seller||'').toLowerCase()+(order.resp||'').toLowerCase();
       if(!hay.includes(search)) return false;
     }
-    // Фильтр по дате
     const d = order.date||order.createdDate||'';
     const iso = parseDMY(d)||d;
     if(dateFrom && iso && iso < dateFrom) return false;
     if(dateTo   && iso && iso > dateTo)   return false;
-    // Фильтр по сумме
     if(amountMin>0 || amountMax>0){
       const total = orderTotal(order);
       if(amountMin>0 && total<amountMin) return false;
@@ -18840,7 +18874,7 @@ function renderOrders(){
   // Счётчик фильтра
   const countEl = document.getElementById('ord-filter-count');
   if(countEl){
-    const hasFilter = search||dateFrom||dateTo||statusF||amountMin||amountMax;
+    const hasFilter = search||dateFrom||dateTo||statusF||sellerF||respF||amountMin||amountMax;
     countEl.textContent = hasFilter
       ? `Найдено: ${visibleOrders.length} из ${ordersData.filter(o=>!chFilter||o.channel===chFilter).length}`
       : '';
@@ -19311,61 +19345,115 @@ const LEAD_SOURCES = {
   site:'Сайт', other:'Другое',
 };
 
+let leadsViewMode = 'cards'; // 'cards' | 'table'
+
+function setLeadsView(mode){
+  leadsViewMode = mode;
+  const btnCards = document.getElementById('leads-view-cards');
+  const btnTable = document.getElementById('leads-view-table');
+  if(btnCards){ btnCards.style.background = mode==='cards'?'var(--accent)':'var(--bg2)'; btnCards.style.color = mode==='cards'?'#fff':'var(--text2)'; }
+  if(btnTable){ btnTable.style.background = mode==='table'?'var(--accent)':'var(--bg2)'; btnTable.style.color = mode==='table'?'#fff':'var(--text2)'; }
+  renderLeadsTab();
+}
+
 function renderLeadsTab(){
-  const search = (document.getElementById('leads-search')?.value||'').toLowerCase();
-  const statusF = document.getElementById('leads-status-filter')?.value||'all';
+  const search    = (document.getElementById('leads-search')?.value||'').toLowerCase();
+  const statusF   = document.getElementById('leads-status-filter')?.value||'all';
+  const sourceF   = document.getElementById('leads-source-filter')?.value||'all';
+  const budgetMin = parseFloat(document.getElementById('leads-budget-min')?.value||0)||0;
 
   let leads = leadsData;
-  if(search) leads = leads.filter(l=>
-    l.name.toLowerCase().includes(search)||
+  if(search)    leads = leads.filter(l=>
+    (l.name||'').toLowerCase().includes(search)||
     (l.phone||'').includes(search)||
-    (l.interest||'').toLowerCase().includes(search));
+    (l.interest||'').toLowerCase().includes(search)||
+    (l.comment||'').toLowerCase().includes(search));
   if(statusF!=='all') leads = leads.filter(l=>l.status===statusF);
+  if(sourceF!=='all') leads = leads.filter(l=>l.source===sourceF);
+  if(budgetMin>0)     leads = leads.filter(l=>(l.budget||0)>=budgetMin);
+
+  // Счётчики
+  const active = leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
+  const setC=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  setC('tab-count-leads', active);
+  const lbl = document.getElementById('leads-count-label');
+  if(lbl) lbl.textContent = `Показано: ${leads.length} из ${leadsData.length}`;
 
   const body = document.getElementById('leads-body');
   if(!body) return;
 
-  const countEl = document.getElementById('tab-count-leads');
-  if(countEl) countEl.textContent = leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
-
   if(!leads.length){
     body.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text3)">
-      ${leadsData.length===0
-        ?'Лидов пока нет. Нажмите «+ Новый лид» чтобы добавить.'
-        :'Ничего не найдено'}
+      ${leadsData.length===0?'Лидов пока нет. Нажмите «+ Новый лид».':'Ничего не найдено по фильтрам.'}
     </div>`;
     return;
   }
 
   const fmt = n=>n?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
 
-  body.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">
-    ${leads.map(l=>{
-      const st = LEAD_STATUSES[l.status]||LEAD_STATUSES.new;
-      return `<div class="card" style="padding:0;overflow:hidden">
-        <div style="padding:12px 14px;border-bottom:1px solid var(--border);
-          display:flex;justify-content:space-between;align-items:center">
-          <div style="font-weight:600">${l.name}</div>
-          <span style="font-size:11px;padding:2px 8px;border-radius:10px;
-            background:${st.color}22;color:${st.color}">${st.label}</span>
-        </div>
-        <div style="padding:12px 14px;font-size:13px">
-          ${l.phone?`<div style="margin-bottom:4px">📞 ${l.phone}</div>`:''}
-          ${l.interest?`<div style="margin-bottom:4px;color:var(--text2)">💡 ${l.interest}</div>`:''}
-          ${l.budget?`<div style="margin-bottom:4px;color:var(--green)">💰 ${fmt(l.budget)}</div>`:''}
-          ${l.source?`<div style="font-size:11px;color:var(--text3)">Источник: ${LEAD_SOURCES[l.source]||l.source}</div>`:''}
-          ${l.comment?`<div style="font-size:12px;color:var(--text3);margin-top:4px">${l.comment}</div>`:''}
-        </div>
-        <div style="padding:8px 14px;border-top:1px solid var(--border);
-          display:flex;gap:6px;justify-content:flex-end">
-          <button class="btn btn-ghost btn-sm" onclick="openLeadModal('${l.id}')">✏️ Изменить</button>
-          ${l.status!=='won'&&l.status!=='lost'
-            ?`<button class="btn btn-primary btn-sm" onclick="convertLeadToClient('${l.id}')">→ Клиент</button>`
-            :''}
-        </div>
-      </div>`;
-    }).join('')}
-  </div>`;
+  if(leadsViewMode==='table'){
+    // Табличный вид
+    body.innerHTML=`<div class="card" style="padding:0">
+      <table class="data-table">
+        <thead><tr>
+          <th>Имя</th>
+          <th>Телефон</th>
+          <th>Статус</th>
+          <th>Интерес</th>
+          <th style="text-align:right">Бюджет</th>
+          <th>Источник</th>
+          <th>Дата</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${leads.map(l=>{
+          const st = LEAD_STATUSES[l.status]||LEAD_STATUSES.new;
+          return `<tr>
+            <td style="font-weight:600">${l.name}</td>
+            <td style="font-family:monospace;font-size:12px">${l.phone||'—'}</td>
+            <td><span style="font-size:11px;padding:2px 8px;border-radius:10px;
+              background:${st.color}22;color:${st.color}">${st.label}</span></td>
+            <td style="font-size:13px;color:var(--text2)">${l.interest||'—'}</td>
+            <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(l.budget)}</td>
+            <td style="font-size:12px;color:var(--text3)">${LEAD_SOURCES[l.source]||l.source||'—'}</td>
+            <td style="font-size:12px;color:var(--text3)">${l.created||'—'}</td>
+            <td style="display:flex;gap:4px">
+              <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openLeadModal('${l.id}')">✏️</button>
+              ${l.status!=='won'&&l.status!=='lost'
+                ?`<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="convertLeadToClient('${l.id}')">→</button>`:''}
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
+  } else {
+    // Карточки
+    body.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px">
+      ${leads.map(l=>{
+        const st = LEAD_STATUSES[l.status]||LEAD_STATUSES.new;
+        return `<div class="card" style="padding:0;overflow:hidden">
+          <div style="padding:12px 14px;border-bottom:1px solid var(--border);
+            display:flex;justify-content:space-between;align-items:center">
+            <div style="font-weight:600">${l.name}</div>
+            <span style="font-size:11px;padding:2px 8px;border-radius:10px;
+              background:${st.color}22;color:${st.color}">${st.label}</span>
+          </div>
+          <div style="padding:12px 14px;font-size:13px">
+            ${l.phone?`<div style="margin-bottom:4px">📞 ${l.phone}</div>`:''}
+            ${l.interest?`<div style="margin-bottom:4px;color:var(--text2)">💡 ${l.interest}</div>`:''}
+            ${l.budget?`<div style="margin-bottom:4px;color:var(--green)">💰 ${fmt(l.budget)}</div>`:''}
+            ${l.source?`<div style="font-size:11px;color:var(--text3)">📍 ${LEAD_SOURCES[l.source]||l.source}</div>`:''}
+            ${l.comment?`<div style="font-size:12px;color:var(--text3);margin-top:4px">💬 ${l.comment}</div>`:''}
+          </div>
+          <div style="padding:8px 14px;border-top:1px solid var(--border);
+            display:flex;gap:6px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" onclick="openLeadModal('${l.id}')">✏️ Изменить</button>
+            ${l.status!=='won'&&l.status!=='lost'
+              ?`<button class="btn btn-primary btn-sm" onclick="convertLeadToClient('${l.id}')">→ Клиент</button>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
 }
 
 function openLeadModal(id){
