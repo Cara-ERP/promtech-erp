@@ -1090,6 +1090,15 @@ async function loadOrdersFromDB(){
       });
     });
 
+    // Вспомогательная функция нормализации даты → ДД.ММ.ГГГГ
+    const normDate = d => {
+      if(!d) return '';
+      // ISO формат YYYY-MM-DD → ДД.ММ.ГГГГ
+      const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if(m) return `${m[3]}.${m[2]}.${m[1]}`;
+      return String(d);
+    };
+
     // Собираем полные объекты заказов
     ordersData = orders.map(o=>({
       num:           o.num,
@@ -1097,9 +1106,9 @@ async function loadOrdersFromDB(){
       customer:      o.customer||'',
       seller:        o.seller||'',
       resp:          o.seller||'',
-      createdDate:   o.created_date||'',
-      date:          o.date||'',
-      deliveryDate:  o.delivery_date||'',
+      createdDate:   normDate(o.created_date),
+      date:          normDate(o.date),
+      deliveryDate:  normDate(o.delivery_date),
       payment:       o.payment||0,
       status:        o.status||'queue',
       comment:       o.comment||'',
