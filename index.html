@@ -7180,12 +7180,14 @@ function openMoneyTxModal(type, flow, editId){
     if(tx?.orderNum) setTimeout(onTxOrderSelect, 100);
   }
 
-  // Set flow через кнопки
+  // Set flow и категорию ДО updateTxForm
   const initFlow = tx?.flow || flow || 'income';
   document.getElementById('tx-flow').value = initFlow;
+  // Сначала устанавливаем категорию
+  if(tx) document.getElementById('tx-category').value = tx.category||'';
+  if(tx) document.getElementById('tx-account').value  = tx.accountId||'';
+  // Теперь вызываем setTxFlow (внутри updateTxForm читает категорию)
   setTxFlow(initFlow);
-  if(tx) document.getElementById('tx-account').value=tx.accountId;
-  if(tx) document.getElementById('tx-category').value=tx.category;
 
   showModal('moneyTxModal');
 }
