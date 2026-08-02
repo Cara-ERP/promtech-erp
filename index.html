@@ -7003,7 +7003,10 @@ function setTxFlow(flow){
 }
 
 function openMoneyTxModal(type, flow, editId){
-  const tx = editId ? moneyTx.find(t=>t.id===editId) : null;
+  // Ищем по sbId (UUID из Supabase) или по локальному id
+  const tx = editId
+    ? moneyTx.find(t=>t.sbId===editId || t.id===editId || String(t.id)===String(editId))
+    : null;
   document.getElementById('tx-edit-id').value=editId||'';
   document.getElementById('tx-delete-btn').style.display=tx?'':'none';
   document.getElementById('tx-date').value=tx?.date||new Date().toISOString().slice(0,10);
