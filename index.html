@@ -11697,27 +11697,42 @@ function renderFCPlanTable(){
 
 async function saveAllFixedCosts(){
   showLoading('Сохранение...', `${fcPlanData.length} статей за ${fcCurrentPeriod}`);
+  try {
+    // Удаляем старые записи за этот период и вставляем новые (upsert через delete+insert)
+    await fetch(`${_SB_URL}/rest/v1/fixed_costs?period=eq.${fcCurrentPeriod}`, {
+      method: 'DELETE',
+      headers: {'apikey':_SB_KEY,'Authorization':'Bearer '+_SB_KEY,'Content-Type':'application/json'}
+    });
 
-  for(const row of fcPlanData){
-    const payload = {
+    const payload = fcPlanData.map(row=>({
       name:     row.name,
       category: row.category,
       period:   fcCurrentPeriod,
       plan:     row.plan||0,
       approved: row.approved||false,
-    };
-    if(row.id){
-      await sbPatch('fixed_costs', `id=eq.${row.id}`, payload)
-        .catch(e=>console.warn('patch error:', e));
-    } else {
-      const res = await sbInsert('fixed_costs', payload);
-      if(res && res[0]) row.id = res[0].id;
-    }
-  }
+    }));
 
+    const res = await fetch(`${_SB_URL}/rest/v1/fixed_costs`, {
+      method: 'POST',
+      headers: {
+        'apikey':_SB_KEY,
+        'Authorization':'Bearer '+_SB_KEY,
+        'Content-Type':'application/json',
+        'Prefer':'return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+    const saved = await res.json();
+    if(Array.isArray(saved)){
+      saved.forEach((r,i)=>{ if(fcPlanData[i]) fcPlanData[i].id = r.id; });
+    }
+    console.log('✅ Постоянные затраты сохранены:', payload.length);
+  } catch(e){
+    console.warn('⚠️ Ошибка сохранения:', e.message);
+    alert('Ошибка сохранения: ' + e.message);
+  }
   hideLoading();
   renderFCPlanTable();
-  console.log('✅ Постоянные затраты сохранены');
 }
 
 function renderBEP(){
