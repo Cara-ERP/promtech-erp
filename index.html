@@ -4531,25 +4531,9 @@ window.onerror = function(msg, src, line, col){
 
       <!-- TAB: Точка безубыточности -->
       <div id="finance-bep" style="display:none">
-        <div id="bep-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px"></div>
-        <div class="card" style="margin-bottom:20px" id="bep-chart-card">
-          <div class="card-header">
-            <span class="card-title">График точки безубыточности</span>
-            <div style="display:flex;gap:8px;align-items:center">
-              <label class="label" style="margin:0;white-space:nowrap">Период:</label>
-              <select id="bep-period" onchange="renderBEP()" style="font-size:13px;width:auto">
-                <option value="month">Месяц</option>
-                <option value="quarter">Квартал</option>
-                <option value="year">Год</option>
-              </select>
-            </div>
-          </div>
-          <canvas id="bep-canvas" height="220" style="width:100%;display:block"></canvas>
-          <div style="font-size:11.5px;color:var(--text3);margin-top:8px;text-align:center" id="bep-chart-hint"></div>
-        </div>
 
-        <!-- Постоянные затраты — план/факт по месяцам -->
-        <div class="card" style="margin-bottom:20px">
+        <!-- Таблица 1: план/факт по месяцам -->
+        <div class="card" style="margin-bottom:16px">
           <div class="card-header">
             <span class="card-title">📋 Постоянные затраты — план и факт</span>
             <div style="display:flex;gap:8px;align-items:center">
@@ -4576,27 +4560,26 @@ window.onerror = function(msg, src, line, col){
           </table>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <!-- Таблица 2 + разбивка -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
           <div class="card">
             <div class="card-header">
               <span class="card-title">📊 Структура постоянных затрат</span>
-              <span style="font-size:11px;color:var(--text3)">Только проведённые ☑</span>
+              <span style="font-size:11px;color:var(--text3)">☑ Проведённые</span>
             </div>
             <table class="data-table" id="fixed-costs-table">
               <thead><tr>
                 <th>Статья затрат</th>
                 <th>Категория</th>
-                <th style="text-align:right">В месяц (₸)</th>
-                <th style="text-align:right">В год (₸)</th>
+                <th style="text-align:right">В месяц</th>
+                <th style="text-align:right">В год</th>
               </tr></thead>
               <tbody id="fixed-costs-tbody"></tbody>
-              <tfoot>
-                <tr style="background:var(--bg3);font-weight:600">
-                  <td colspan="2">Итого постоянных затрат/мес</td>
-                  <td id="fc-total-month" style="font-family:'IBM Plex Mono',monospace;color:var(--red);text-align:right"></td>
-                  <td id="fc-total-year"  style="font-family:'IBM Plex Mono',monospace;color:var(--red);text-align:right"></td>
-                </tr>
-              </tfoot>
+              <tfoot><tr style="background:var(--bg3);font-weight:600">
+                <td colspan="2">Итого/мес</td>
+                <td id="fc-total-month" style="font-family:monospace;color:var(--red);text-align:right"></td>
+                <td id="fc-total-year"  style="font-family:monospace;color:var(--red);text-align:right"></td>
+              </tr></tfoot>
             </table>
           </div>
           <div class="card">
@@ -4604,7 +4587,26 @@ window.onerror = function(msg, src, line, col){
             <div id="fc-breakdown" style="display:flex;flex-direction:column;gap:8px;padding:4px 0"></div>
           </div>
         </div>
-      </div>
+
+        <!-- KPI и график ТБУ -->
+        <div id="bep-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
+        <div class="card" id="bep-chart-card">
+          <div class="card-header">
+            <span class="card-title">График точки безубыточности</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <label class="label" style="margin:0;white-space:nowrap">Период:</label>
+              <select id="bep-period" onchange="renderBEP()" style="font-size:13px;width:auto">
+                <option value="month">Месяц</option>
+                <option value="quarter">Квартал</option>
+                <option value="year">Год</option>
+              </select>
+            </div>
+          </div>
+          <canvas id="bep-canvas" height="220" style="width:100%;display:block"></canvas>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:8px;text-align:center" id="bep-chart-hint"></div>
+        </div>
+
+      </div><!-- end finance-bep -->
 
       <!-- ДДС — Движение денежных средств -->
       <div id="finance-cfs" style="display:none">
@@ -11629,8 +11631,10 @@ async function loadFixedCostsPeriod(){
   }
 
   hideLoading();
-  renderFCPlanTable();
-  return true; // для .then() цепочки
+  renderFCPlanTable();  // → внутри вызывает renderFixedCostsTable + renderFCBreakdown
+  renderBEPKpi();       // KPI и график тоже обновляем после загрузки
+  renderBEPChart();
+  return true;
 }
 
 function getFCFact(category, period){
@@ -11701,7 +11705,7 @@ function renderFCPlanTable(){
       </td>
       <td style="text-align:center">
         <input type="checkbox" ${row.approved?'checked':''}
-          onchange="fcPlanData[${i}].approved=this.checked;renderFixedCostsTable();renderFCBreakdown();fcAutoSave(true)"
+          onchange="fcPlanData[${i}].approved=this.checked;renderFixedCostsTable();renderFCBreakdown();fcAutoSave(true);if(this.checked)document.getElementById('fixed-costs-table')?.scrollIntoView({behavior:'smooth',block:'nearest'})"
           style="width:16px;height:16px;cursor:pointer">
       </td>
       <td>
@@ -13148,7 +13152,7 @@ function showFinanceTab(tab, el){
   if(tab==='margin')    renderMarginReport();
   if(tab==='bep'){
     initFCMonthSelect();
-    loadMoneyFromDB().then(()=>loadFixedCostsPeriod().then(()=>renderBEP()));
+    loadMoneyFromDB().then(()=>loadFixedCostsPeriod());
   }
   if(tab==='cfs')       renderCFS();
   if(tab==='osv')       renderOSV();
