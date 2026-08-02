@@ -7217,12 +7217,8 @@ function updateTxForm(){
   }
 
   document.getElementById('tx-account2-row').style.display = isTransfer?'':'none';
-  // Заказ показываем всегда (приход, расход, перевод могут быть связаны)
-  // но не для авансов сотрудников
-  const orderRow = document.getElementById('tx-order-row');
-  if(orderRow) orderRow.style.display = needEmp?'none':'';
 
-  // Категории
+  // Категории — определяем до needEmp
   const catSel = document.getElementById('tx-category');
   if(catSel){
     const cats = isTransfer?TX_INCOME_CATS:(flow==='income'?TX_INCOME_CATS:TX_EXPENSE_CATS);
@@ -7231,10 +7227,14 @@ function updateTxForm(){
     if(curVal && cats.find(c=>c.id===curVal)) catSel.value=curVal;
   }
 
-  const newCat = document.getElementById('tx-category')?.value;
+  const newCat      = document.getElementById('tx-category')?.value;
   const isAdvOut    = newCat==='advance_out';
   const isAdvReturn = newCat==='advance_return';
   const needEmp     = isAdvOut || isAdvReturn;
+
+  // Заказ — показываем для всех кроме авансов
+  const orderRow = document.getElementById('tx-order-row');
+  if(orderRow) orderRow.style.display = needEmp?'none':'';
 
   const advRow = document.getElementById('tx-advance-emp-row');
   const advReturnRow = document.getElementById('tx-advance-report-row');
