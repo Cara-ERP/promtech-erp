@@ -11630,7 +11630,7 @@ async function loadFixedCostsPeriod(){
 
   hideLoading();
   renderFCPlanTable();
-  // Таблица 2 обновится внутри renderFCPlanTable
+  return true; // для .then() цепочки
 }
 
 function getFCFact(category, period){
@@ -11803,10 +11803,13 @@ function getApprovedFixedCosts(){
 }
 
 function renderBEP(){
-  renderFixedCostsTable();
-  renderFCBreakdown();
   renderBEPKpi();
   renderBEPChart();
+  // Таблица затрат и разбивка обновляются из renderFCPlanTable
+  if(fcPlanData.length > 0){
+    renderFixedCostsTable();
+    renderFCBreakdown();
+  }
 }
 
 function renderFixedCostsTable(){
@@ -13144,9 +13147,8 @@ function showFinanceTab(tab, el){
   if(tab==='purchases') renderPurchases();
   if(tab==='margin')    renderMarginReport();
   if(tab==='bep'){
-    renderBEP();
     initFCMonthSelect();
-    loadMoneyFromDB().then(()=>loadFixedCostsPeriod());
+    loadMoneyFromDB().then(()=>loadFixedCostsPeriod().then(()=>renderBEP()));
   }
   if(tab==='cfs')       renderCFS();
   if(tab==='osv')       renderOSV();
