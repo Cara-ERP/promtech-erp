@@ -4555,7 +4555,6 @@ window.onerror = function(msg, src, line, col){
             <div style="display:flex;gap:8px;align-items:center">
               <select id="fc-month-select" onchange="loadFixedCostsPeriod()" style="font-size:13px"></select>
               <button class="btn btn-primary btn-sm" onclick="addFixedCostRow()">+ Статья</button>
-              <button class="btn btn-ghost btn-sm" onclick="saveAllFixedCosts()">💾 Сохранить все</button>
             </div>
           </div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:10px" id="fc-period-hint">
@@ -11655,16 +11654,17 @@ function renderFCPlanTable(){
     return `<tr style="${row.approved?'opacity:0.8':''}">
       <td>
         <input class="fc-name-input" value="${row.name}"
-          onchange="fcPlanData[${i}].name=this.value"
+          onchange="fcPlanData[${i}].name=this.value;fcAutoSave()"
           style="width:100%;background:transparent;border:none;border-bottom:1px solid var(--border);font-size:13px;padding:2px 4px">
       </td>
       <td>
-        <select onchange="fcPlanData[${i}].category=this.value;renderFCPlanTable()"
+        <select onchange="fcPlanData[${i}].category=this.value;renderFCPlanTable();fcAutoSave()"
           style="font-size:12px;width:100%">${catOptions}</select>
       </td>
       <td style="text-align:right">
         <input type="number" value="${row.plan||0}"
-          onchange="fcPlanData[${i}].plan=parseFloat(this.value)||0"
+          onchange="fcPlanData[${i}].plan=parseFloat(this.value)||0;fcAutoSave()"
+          oninput="fcPlanData[${i}].plan=parseFloat(this.value)||0;fcAutoSave()"
           style="width:110px;text-align:right;font-family:monospace;font-size:13px;background:transparent;border:none;border-bottom:1px solid var(--border)">
       </td>
       <td style="text-align:right;font-family:monospace;color:var(--text2)">${fmt(fact)}</td>
@@ -11673,7 +11673,7 @@ function renderFCPlanTable(){
       </td>
       <td style="text-align:center">
         <input type="checkbox" ${row.approved?'checked':''}
-          onchange="fcPlanData[${i}].approved=this.checked"
+          onchange="fcPlanData[${i}].approved=this.checked;fcAutoSave(true)"
           style="width:16px;height:16px;cursor:pointer">
       </td>
       <td>
@@ -11695,13 +11695,25 @@ function renderFCPlanTable(){
   </tr>`;
 }
 
+let _fcSaveTimer = null;
+
+function fcAutoSave(immediate=false){
+  clearTimeout(_fcSaveTimer);
+  if(immediate){
+    saveAllFixedCosts();
+  } else {
+    _fcSaveTimer = setTimeout(saveAllFixedCosts, 1000);
+  }
+}
+
 async function saveAllFixedCosts(){
-  showLoading('Сохранение...', `${fcPlanData.length} статей за ${fcCurrentPeriod}`);
+  const hint = document.getElementById('fc-period-hint');
+  if(hint) hint.innerHTML = '⏳ Сохранение...';
   try {
-    // Удаляем старые записи за этот период и вставляем новые (upsert через delete+insert)
+    // DELETE старых + INSERT новых одним batch
     await fetch(`${_SB_URL}/rest/v1/fixed_costs?period=eq.${fcCurrentPeriod}`, {
       method: 'DELETE',
-      headers: {'apikey':_SB_KEY,'Authorization':'Bearer '+_SB_KEY,'Content-Type':'application/json'}
+      headers: {'apikey':_SB_KEY,'Authorization':'Bearer '+_SB_KEY}
     });
 
     const payload = fcPlanData.map(row=>({
@@ -11712,27 +11724,27 @@ async function saveAllFixedCosts(){
       approved: row.approved||false,
     }));
 
-    const res = await fetch(`${_SB_URL}/rest/v1/fixed_costs`, {
-      method: 'POST',
-      headers: {
-        'apikey':_SB_KEY,
-        'Authorization':'Bearer '+_SB_KEY,
-        'Content-Type':'application/json',
-        'Prefer':'return=representation',
-      },
-      body: JSON.stringify(payload),
-    });
-    const saved = await res.json();
-    if(Array.isArray(saved)){
-      saved.forEach((r,i)=>{ if(fcPlanData[i]) fcPlanData[i].id = r.id; });
+    if(payload.length){
+      const res = await fetch(`${_SB_URL}/rest/v1/fixed_costs`, {
+        method: 'POST',
+        headers: {
+          'apikey':_SB_KEY,
+          'Authorization':'Bearer '+_SB_KEY,
+          'Content-Type':'application/json',
+          'Prefer':'return=representation',
+        },
+        body: JSON.stringify(payload),
+      });
+      const saved = await res.json();
+      if(Array.isArray(saved)){
+        saved.forEach((r,i)=>{ if(fcPlanData[i]) fcPlanData[i].id = r.id; });
+      }
     }
-    console.log('✅ Постоянные затраты сохранены:', payload.length);
+    if(hint) hint.innerHTML = `✅ Сохранено в ${new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})} · Факт берётся из журнала операций за выбранный месяц`;
   } catch(e){
+    if(hint) hint.innerHTML = '❌ Ошибка сохранения: ' + e.message;
     console.warn('⚠️ Ошибка сохранения:', e.message);
-    alert('Ошибка сохранения: ' + e.message);
   }
-  hideLoading();
-  renderFCPlanTable();
 }
 
 function renderBEP(){
