@@ -4577,15 +4577,31 @@ window.onerror = function(msg, src, line, col){
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-                  <td id="fc-total-year" style="font-family:'IBM Plex Mono',monospace;color:var(--red)"></td>
-                  <td></td>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📊 Структура постоянных затрат</span>
+              <span style="font-size:11px;color:var(--text3)">Только проведённые ☑</span>
+            </div>
+            <table class="data-table" id="fixed-costs-table">
+              <thead><tr>
+                <th>Статья затрат</th>
+                <th>Категория</th>
+                <th style="text-align:right">В месяц (₸)</th>
+                <th style="text-align:right">В год (₸)</th>
+              </tr></thead>
+              <tbody id="fixed-costs-tbody"></tbody>
+              <tfoot>
+                <tr style="background:var(--bg3);font-weight:600">
+                  <td colspan="2">Итого постоянных затрат/мес</td>
+                  <td id="fc-total-month" style="font-family:'IBM Plex Mono',monospace;color:var(--red);text-align:right"></td>
+                  <td id="fc-total-year"  style="font-family:'IBM Plex Mono',monospace;color:var(--red);text-align:right"></td>
                 </tr>
               </tfoot>
             </table>
           </div>
           <div class="card">
-            <div class="card-header"><span class="card-title">Структура постоянных затрат</span></div>
-            <div id="fc-breakdown" style="display:flex;flex-direction:column;gap:8px"></div>
+            <div class="card-header"><span class="card-title">📈 Разбивка по категориям</span></div>
+            <div id="fc-breakdown" style="display:flex;flex-direction:column;gap:8px;padding:4px 0"></div>
           </div>
         </div>
       </div>
