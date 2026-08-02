@@ -6615,27 +6615,34 @@ function calcAccountBalance(accountId){
   return balance;
 }
 
-function calcAccountStats(accountId){
-  const txs = moneyTx.filter(t=>t.accountId===accountId);
+function calcAccountStats(accountId, filtered){
+  const src = filtered !== undefined ? filtered : moneyTx;
+  const txs = src.filter(t=>t.accountId===accountId);
   const income  = txs.filter(t=>t.flow==='income') .reduce((s,t)=>s+t.amount,0);
   const expense = txs.filter(t=>t.flow==='expense').reduce((s,t)=>s+t.amount,0);
   const acc = bankAccounts.find(a=>a.id===accountId);
-  return {income, expense, balance: (acc?.balance||0)+income-expense};
+  // Если период задан — показываем оборот, иначе — текущий остаток
+  const balance = (moneyPeriod.from || moneyPeriod.to)
+    ? income - expense
+    : (acc?.balance||0) + income - expense;
+  return {income, expense, balance};
 }
 
 function renderMoneyKPIs(){
+  const filtered = moneyFilteredTx(moneyTx);
   const cashAccs = bankAccounts.filter(a=>a.type==='cash');
   const bankAccs = bankAccounts.filter(a=>a.type==='bank');
-  const cashBal  = cashAccs.reduce((s,a)=>s+calcAccountStats(a.id).balance,0);
-  const bankBal  = bankAccs.reduce((s,a)=>s+calcAccountStats(a.id).balance,0);
-  const totalBal = cashBal+bankBal;
+  const cashBal  = cashAccs.reduce((s,a)=>s+calcAccountStats(a.id, filtered).balance, 0);
+  const bankBal  = bankAccs.reduce((s,a)=>s+calcAccountStats(a.id, filtered).balance, 0);
+  const totalBal = cashBal + bankBal;
   const advDebt  = advanceReports.filter(a=>a.status!=='closed')
-    .reduce((s,a)=>s+Math.max(0,a.issued-a.spent),0);
+    .reduce((s,a)=>s+Math.max(0,a.issued-a.spent), 0);
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const set = (id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-  set('money-kpi-cash',    fmt(cashBal)+` (${cashAccs.length} касс)`);
-  set('money-kpi-bank',    fmt(bankBal));
-  set('money-kpi-total',   fmt(totalBal));
+  const periodHint = (moneyPeriod.from||moneyPeriod.to) ? ' (оборот)' : '';
+  set('money-kpi-cash',    fmt(cashBal)+` (${cashAccs.length} касс)${periodHint}`);
+  set('money-kpi-bank',    fmt(bankBal)+periodHint);
+  set('money-kpi-total',   fmt(totalBal)+periodHint);
   set('money-kpi-advances',fmt(advDebt));
 }
 
@@ -6726,9 +6733,10 @@ function renderCashTx(){
   // Сводные карточки по всем кассам
   const grid = document.getElementById('cash-summary-grid');
   if(grid){
+    const filtered = moneyFilteredTx(moneyTx);
     const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
     grid.innerHTML = cashAccounts.map(acc=>{
-      const stats = calcAccountStats(acc.id);
+      const stats = calcAccountStats(acc.id, filtered);
       return `<div class="card" style="padding:12px 14px;cursor:pointer;
         border-left:3px solid var(--accent)"
         onclick="document.getElementById('cash-account-select').value=${acc.id};renderCashTx()">
@@ -10210,14 +10218,21 @@ function renderCounterpartyReconcile(){
     return;
   }
 
-  tbody.innerHTML = rows.map(r=>`<tr>
-    <td style="font-size:12px;white-space:nowrap">${r.date}</td>
-    <td style="font-family:monospace;font-size:12px;color:var(--accent)">${r.doc}</td>
-    <td style="font-size:13px">${r.op}</td>
-    <td style="text-align:right;font-family:monospace;color:${r.debit>0?'var(--red)':'var(--text3)'}">${r.debit>0?fmt(r.debit):'—'}</td>
-    <td style="text-align:right;font-family:monospace;color:${r.credit>0?'var(--green)':'var(--text3)'}">${r.credit>0?fmt(r.credit):'—'}</td>
-    <td style="text-align:right;font-family:monospace;font-weight:600;color:${r.balance>0?'var(--red)':r.balance<0?'var(--green)':'var(--text3)'}">${r.balance===0?'0':fmt(r.balance)}</td>
-  </tr>`).join('');
+  tbody.innerHTML = rows.map(r=>{
+    const isShipment = r.debit > 0;
+    const onclick = isShipment
+      ? `openEditOrderModal('${r.doc}')`
+      : `openRecDrillTx('${r.doc}')`;
+    const hint = isShipment ? '🔍 Открыть заказ' : '🔍 Показать платежи';
+    return `<tr style="cursor:pointer" onclick="${onclick}" title="${hint}">
+      <td style="font-size:12px;white-space:nowrap">${r.date}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--accent)">${r.doc} <span style="font-size:10px;color:var(--text3)">🔍</span></td>
+      <td style="font-size:13px">${r.op}</td>
+      <td style="text-align:right;font-family:monospace;color:${r.debit>0?'var(--red)':'var(--text3)'}">${r.debit>0?fmt(r.debit):'—'}</td>
+      <td style="text-align:right;font-family:monospace;color:${r.credit>0?'var(--green)':'var(--text3)'}">${r.credit>0?fmt(r.credit):'—'}</td>
+      <td style="text-align:right;font-family:monospace;font-weight:600;color:${r.balance>0?'var(--red)':r.balance<0?'var(--green)':'var(--text3)'}">${r.balance===0?'0':fmt(r.balance)}</td>
+    </tr>`;
+  }).join('');
 
   if(tfoot) tfoot.innerHTML=`<tr style="background:var(--bg3);font-weight:700">
     <td colspan="3" style="padding:8px 12px">Итого:</td>
@@ -10225,6 +10240,35 @@ function renderCounterpartyReconcile(){
     <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(totalCredit)}</td>
     <td style="text-align:right;font-family:monospace;color:${finalBalance>0?'var(--red)':'var(--green)'}">${fmt(finalBalance)} ${finalBalance>0?'(долг)':'(переплата)'}</td>
   </tr>`;
+}
+
+function openRecDrillTx(orderNum){
+  const order = ordersData.find(o=>o.num===orderNum);
+  const fmt   = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const total = order ? orderTotal(order) : 0;
+
+  // Загружаем платежи из Supabase
+  sbFetch('money_tx', `select=*&order_num=eq.${encodeURIComponent(orderNum)}&flow=eq.income&order=date`)
+    .then(txs=>{
+      const rows = (txs||[]).map(t=>({
+        date:   t.date||'—',
+        cat:    t.category==='order_payment'?'Оплата заказа':t.category||'—',
+        desc:   t.description||'—',
+        amount: t.amount||0,
+      }));
+      const paid = rows.reduce((s,r)=>s+r.amount, 0);
+      openDrilldown(
+        `Платежи по ${orderNum}`,
+        `Сумма заказа: ${fmt(total)} · Оплачено: ${fmt(paid)} · Остаток: ${fmt(Math.max(0,total-paid))}`,
+        rows,
+        [
+          {key:'date',   label:'Дата',      num:false},
+          {key:'cat',    label:'Вид',       num:false},
+          {key:'desc',   label:'Описание',  num:false},
+          {key:'amount', label:'Сумма',     num:true, color:'var(--green)'},
+        ]
+      );
+    });
 }
 
 function printReconcile(){
