@@ -806,7 +806,7 @@ async function loadMoneyFromDB(){
             id:          txSeq++,
             sbId:        t.id,
             date:        t.date||'',
-            accountId:   parseInt(t.account_id)||1,
+            accountId:   t.account_id||'6dfefc6b-586c-4bb7-8134-1dd537573d15',
             flow:        t.flow||'income',
             category:    t.category||'other_in',
             amount:      t.amount||0,
@@ -1253,19 +1253,19 @@ async function updateOrderInDB(num, fields){
   buyer:      {name:'Куланбаев Арман',   initials:'КА', color:'#f59e0b', label:'Закупщик',
     pages:['dashboard','purchases','suppliers','warehouse','mycabinet']},
   salon_armada:     {name:'Салон Армада',    initials:'АР', color:'#8b5cf6', label:'Салон Армада',
-    channel:'salon_armada', cashAccountId:2, isManager:false,
+    channel:'salon_armada', cashAccountId:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', isManager:false,
     pages:['catalog','sales','customers','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
   salon_nazarbayeva:{name:'Салон Назарбаева',initials:'НЗ', color:'#ec4899', label:'Салон Назарбаева',
-    channel:'salon_nazarbayeva', cashAccountId:3, isManager:false,
+    channel:'salon_nazarbayeva', cashAccountId:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', isManager:false,
     pages:['catalog','sales','customers','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
   salon_armada_mgr:     {name:'Сукачева Ольга', initials:'СО', color:'#8b5cf6', label:'Нач. салонов Армада/Назарбаева',
-    channel:'salon_armada', cashAccountId:2, isManager:true,
+    channel:'salon_armada', cashAccountId:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', isManager:true,
     pages:['catalog','sales','customers','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
   salon_nazarbayeva_mgr:{name:'Сукачева Ольга', initials:'СО', color:'#ec4899', label:'Нач. салона Назарбаева',
-    channel:'salon_nazarbayeva', cashAccountId:3, isManager:true,
+    channel:'salon_nazarbayeva', cashAccountId:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', isManager:true,
     pages:['catalog','sales','customers','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
   dealer_astana:  {name:'Дилер Астана',  initials:'АС', color:'#06b6d4', label:'Дилер — Астана',
@@ -5010,75 +5010,96 @@ window.onerror = function(msg, src, line, col){
 
     <!-- MODAL: Денежная операция -->
     <div class="modal-overlay" id="moneyTxModal">
-      <div class="modal" style="max-width:500px">
+      <div class="modal" style="max-width:520px">
         <div class="modal-header">
-          <span class="modal-title" id="money-tx-title">Новая операция</span>
+          <div>
+            <span class="modal-title" id="money-tx-title">Новая операция</span>
+            <div style="font-size:11px;color:var(--text3)" id="tx-doc-label"></div>
+          </div>
           <button class="modal-close" onclick="closeModal('moneyTxModal')">✕</button>
         </div>
+
+        <!-- Тип операции — крупные кнопки -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">
+          <button id="tx-btn-income"   onclick="setTxFlow('income')"
+            style="padding:10px;border-radius:8px;border:2px solid var(--green);background:var(--green);color:#fff;font-size:13px;font-weight:600;cursor:pointer">
+            📥 Приход
+          </button>
+          <button id="tx-btn-expense"  onclick="setTxFlow('expense')"
+            style="padding:10px;border-radius:8px;border:2px solid var(--border);background:var(--bg2);color:var(--text2);font-size:13px;cursor:pointer">
+            📤 Расход
+          </button>
+          <button id="tx-btn-transfer" onclick="setTxFlow('transfer')"
+            style="padding:10px;border-radius:8px;border:2px solid var(--border);background:var(--bg2);color:var(--text2);font-size:13px;cursor:pointer">
+            ↔️ Перевод
+          </button>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 4px">
           <div class="form-row">
             <label class="label">Дата</label>
             <input id="tx-date" type="date">
           </div>
           <div class="form-row">
-            <label class="label">Тип операции</label>
-            <select id="tx-flow" onchange="updateTxForm()" style="font-size:13px">
-              <option value="income">📥 Приход</option>
-              <option value="expense">📤 Расход</option>
-              <option value="transfer">↔️ Перевод между счетами</option>
-            </select>
+            <label class="label">Сумма (₸)</label>
+            <input id="tx-amount" type="number" min="0" placeholder="0" style="font-size:15px;font-weight:600">
           </div>
           <div class="form-row" id="tx-account-row">
-            <label class="label">Счёт / Касса</label>
-            <select id="tx-account" style="font-size:13px"></select>
+            <label class="label" id="tx-account-label">Счёт / Касса</label>
+            <select id="tx-account" style="font-size:13px" onchange="updateTxForm()"></select>
           </div>
           <div class="form-row" id="tx-account2-row" style="display:none">
             <label class="label">На счёт</label>
             <select id="tx-account2" style="font-size:13px"></select>
           </div>
-          <div class="form-row">
+          <div class="form-row" style="grid-column:1/-1">
             <label class="label">Категория</label>
             <select id="tx-category" style="font-size:13px" onchange="updateTxForm()"></select>
           </div>
-          <div class="form-row">
-            <label class="label">Сумма (₸)</label>
-            <input id="tx-amount" type="number" min="0" placeholder="0">
-          </div>
-          <div class="form-row" style="grid-column:1/-1">
-            <label class="label">Описание</label>
-            <input id="tx-desc" type="text" placeholder="Назначение платежа...">
-          </div>
-          <div class="form-row" id="tx-order-row">
-            <label class="label">Заказ (если оплата от клиента)</label>
+          <div class="form-row" id="tx-order-row" style="grid-column:1/-1">
+            <label class="label">Заказ</label>
             <select id="tx-order" style="font-size:13px">
               <option value="">— не привязан —</option>
             </select>
           </div>
           <div class="form-row" id="tx-advance-emp-row" style="display:none;grid-column:1/-1">
-            <label class="label">Сотрудник *</label>
+            <label class="label">Сотрудник</label>
             <select id="tx-advance-emp" style="font-size:13px"
               onchange="updateTxCounterparty();updateAdvanceReturnList()">
               <option value="">— выберите сотрудника —</option>
             </select>
           </div>
           <div class="form-row" id="tx-advance-report-row" style="display:none;grid-column:1/-1">
-            <label class="label">Авансовый отчёт (незакрытый)</label>
+            <label class="label">Авансовый отчёт</label>
             <select id="tx-advance-report-select" style="font-size:13px"
               onchange="fillAdvanceReturnAmount()">
               <option value="">— выберите отчёт —</option>
             </select>
           </div>
-          <div class="form-row" id="tx-supplier-row">
+          <div class="form-row" id="tx-supplier-row" style="grid-column:1/-1">
             <label class="label">Контрагент</label>
-            <input id="tx-counterparty" type="text" placeholder="Клиент, поставщик...">
+            <input id="tx-counterparty" type="text" placeholder="Клиент, поставщик, сотрудник...">
+          </div>
+          <div class="form-row" style="grid-column:1/-1">
+            <label class="label">Описание / Назначение</label>
+            <input id="tx-desc" type="text" placeholder="Назначение платежа...">
           </div>
         </div>
+
+        <input type="hidden" id="tx-flow" value="income">
         <input type="hidden" id="tx-edit-id">
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+
+        <!-- Документ -->
+        <div style="margin-top:12px;padding:10px 12px;background:var(--bg3);border-radius:8px;
+          font-size:12px;color:var(--text3)" id="tx-doc-info"></div>
+
+        <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px">
           <button class="btn btn-ghost btn-sm" id="tx-delete-btn" onclick="deleteMoneyTx()"
-            style="margin-right:auto;color:var(--red);display:none">🗑 Удалить</button>
-          <button class="btn btn-ghost" onclick="closeModal('moneyTxModal')">Отмена</button>
-          <button class="btn btn-primary" onclick="saveMoneyTx()">Сохранить</button>
+            style="color:var(--red);display:none">🗑 Удалить</button>
+          <div style="display:flex;gap:8px;margin-left:auto">
+            <button class="btn btn-ghost" onclick="closeModal('moneyTxModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveMoneyTx()" id="tx-save-btn">💾 Сохранить</button>
+          </div>
         </div>
       </div>
     </div>
@@ -6457,34 +6478,34 @@ window.onerror = function(msg, src, line, col, err){
 // ── Банковские счета ─────────────────────────────────────────────────────────
 let baSeq = 1;
 let bankAccounts = [
-  // Кассы
-  {id:baSeq++, name:'Основная касса',          bank:'',                    iin:'', bik:'', balance:850000,  currency:'KZT', type:'cash', icon:'💵'},
-  {id:baSeq++, name:'Касса салона Армада',      bank:'ТРЦ Армада',          iin:'', bik:'', balance:320000,  currency:'KZT', type:'cash', icon:'🏬'},
-  {id:baSeq++, name:'Касса салона Назарбаева',  bank:'ул. Назарбаева',      iin:'', bik:'', balance:185000,  currency:'KZT', type:'cash', icon:'🏪'},
-  {id:baSeq++, name:'Касса для зарплаты',       bank:'',                    iin:'', bik:'', balance:2100000, currency:'KZT', type:'cash', icon:'👷'},
-  // Расчётные счета
-  {id:baSeq++, name:'Народный Банк — осн.',     bank:'АО «Халык Банк»',     iin:'KZ486017131000005619', bik:'HSBKKZKX', balance:3200000, currency:'KZT', type:'bank', icon:'🏦'},
-  {id:baSeq++, name:'Kaspi Business',           bank:'АО «Kaspi Bank»',     iin:'KZ859261901111002JJ', bik:'CASPKZKA', balance:580000,  currency:'KZT', type:'bank', icon:'🟠'},
-  {id:baSeq++, name:'Сбер (поставщики RU)',     bank:'ПАО «Сбербанк»',      iin:'', bik:'SABRRUMM',          balance:120000,  currency:'RUB', type:'bank', icon:'🇷🇺'},
+  {id:'6dfefc6b-586c-4bb7-8134-1dd537573d15', name:'Касса офис',       bank:'', iin:'', bik:'', balance:850000,  currency:'KZT', type:'cash', icon:'💵'},
+  {id:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', name:'Касса Армада',     bank:'ТРЦ Армада',     iin:'', bik:'', balance:320000,  currency:'KZT', type:'cash', icon:'🏬'},
+  {id:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', name:'Касса Назарбаева', bank:'ул. Назарбаева', iin:'', bik:'', balance:185000,  currency:'KZT', type:'cash', icon:'🏪'},
+  {id:'0265fb65-7812-4bee-b794-71306246edb7', name:'Расчётный счёт',   bank:'АО «Халык Банк»',iin:'KZ486017131000005619', bik:'HSBKKZKX', balance:3200000, currency:'KZT', type:'bank', icon:'🏦'},
 ];
 
 // Категории операций
 const TX_INCOME_CATS = [
-  {id:'order_payment',  label:'Оплата от клиента',      icon:'📦'},
-  {id:'advance_return', label:'Возврат аванса от сотрудника', icon:'👤'},
-  {id:'loan_in',        label:'Поступление займа',       icon:'🏦'},
-  {id:'return',         label:'Возврат от поставщика',   icon:'↩️'},
-  {id:'other_in',       label:'Прочий приход',           icon:'➕'},
+  {id:'order_payment',   label:'От покупателя',              icon:'📦'},
+  {id:'supplier_return', label:'Возврат от поставщика',      icon:'🔄'},
+  {id:'advance_return',  label:'Возврат от подотчётника',    icon:'👤'},
+  {id:'transfer_in',     label:'С другого счёта',            icon:'↔️'},
+  {id:'tax_return',      label:'Возврат налога',             icon:'🏛'},
+  {id:'deposit_in',      label:'Вклад / депозит',            icon:'🏦'},
+  {id:'loan_in',         label:'Кредит / займ',              icon:'💳'},
+  {id:'other_in',        label:'Прочее поступление',         icon:'➕'},
 ];
 const TX_EXPENSE_CATS = [
-  {id:'supplier',       label:'Оплата поставщику',     icon:'🛒'},
-  {id:'salary',         label:'Выплата зарплаты',      icon:'👷'},
-  {id:'tax',            label:'Налоги и взносы',        icon:'🏛'},
-  {id:'rent',           label:'Аренда',                icon:'🏢'},
-  {id:'utility',        label:'Коммунальные услуги',   icon:'💡'},
-  {id:'transport',      label:'Транспорт/доставка',    icon:'🚚'},
-  {id:'advance_out',    label:'Выдача аванса',         icon:'👤'},
-  {id:'other_out',      label:'Прочий расход',         icon:'➖'},
+  {id:'supplier',        label:'Поставщику',                 icon:'🏭'},
+  {id:'salary',          label:'Заработная плата',           icon:'👷'},
+  {id:'advance_out',     label:'Подотчётнику',               icon:'👤'},
+  {id:'tax',             label:'Налоги и сборы',             icon:'🏛'},
+  {id:'expense',         label:'Расходы (аренда/утилиты)',   icon:'🧾'},
+  {id:'transfer_out',    label:'На другой счёт',             icon:'↔️'},
+  {id:'customer_return', label:'Возврат покупателю',         icon:'↩️'},
+  {id:'loan_out',        label:'Выдача в долг',              icon:'🤝'},
+  {id:'deposit_out',     label:'На депозит',                 icon:'🏦'},
+  {id:'other_out',       label:'Прочее списание',            icon:'➖'},
 ];
 
 function txCatLabel(catId){
@@ -6925,6 +6946,29 @@ function renderAllTx(){
 }
 
 // ── Форма операции ────────────────────────────────────────────────────────────
+function setTxFlow(flow){
+  // Обновляем кнопки
+  const colors = {income:'var(--green)', expense:'var(--red)', transfer:'var(--accent)'};
+  ['income','expense','transfer'].forEach(f=>{
+    const btn = document.getElementById('tx-btn-'+f);
+    if(!btn) return;
+    if(f===flow){
+      btn.style.background = colors[f];
+      btn.style.borderColor = colors[f];
+      btn.style.color = '#fff';
+    } else {
+      btn.style.background = 'var(--bg2)';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color = 'var(--text2)';
+    }
+  });
+  // Сохраняем значение
+  const flowEl = document.getElementById('tx-flow');
+  if(flowEl) flowEl.value = flow;
+  // Обновляем форму
+  updateTxForm();
+}
+
 function openMoneyTxModal(type, flow, editId){
   const tx = editId ? moneyTx.find(t=>t.id===editId) : null;
   document.getElementById('tx-edit-id').value=editId||'';
@@ -6945,14 +6989,13 @@ function openMoneyTxModal(type, flow, editId){
   ordSel.innerHTML='<option value="">— не привязан —</option>'+
     ordersData.filter(o=>o.status!=='done').map(o=>`<option value="${o.num}" ${tx?.orderNum===o.num?'selected':''}>${o.num} — ${resolveCustomerName(o)}</option>`).join('');
 
-  // Set flow
-  const flowSel=document.getElementById('tx-flow');
-  if(tx) flowSel.value=tx.flow; else if(flow) flowSel.value=flow;
+  // Set flow через кнопки
+  const initFlow = tx?.flow || flow || 'income';
+  document.getElementById('tx-flow').value = initFlow;
+  setTxFlow(initFlow);
   if(tx) document.getElementById('tx-account').value=tx.accountId;
-  updateTxForm();
   if(tx) document.getElementById('tx-category').value=tx.category;
 
-  document.getElementById('money-tx-title').textContent=tx?'Редактировать операцию':'Новая операция';
   showModal('moneyTxModal');
 }
 
@@ -6960,24 +7003,45 @@ function updateTxForm(){
   const flow = document.getElementById('tx-flow')?.value;
   const isTransfer = flow==='transfer';
 
+  // Заголовок и подпись документа — зависит от счёта и типа операции
+  const titleEl = document.getElementById('money-tx-title');
+  const docInfo = document.getElementById('tx-doc-info');
+  const accId   = document.getElementById('tx-account')?.value;
+  const acc     = bankAccounts.find(a=>a.id===accId);
+  const isCash  = !acc || acc.type==='cash';
+
+  if(flow==='income'){
+    if(titleEl) titleEl.textContent = isCash ? '📥 Приходный кассовый ордер (ПКО)' : '📥 Платёжное поручение (входящее)';
+    if(docInfo) docInfo.textContent = isCash
+      ? '📄 Касса: оформляется ПКО с подписью кассира и получателя'
+      : '📄 Банк: входящее платёжное поручение от плательщика';
+  } else if(flow==='expense'){
+    if(titleEl) titleEl.textContent = isCash ? '📤 Расходный кассовый ордер (РКО)' : '📤 Платёжное поручение (исходящее)';
+    if(docInfo) docInfo.textContent = isCash
+      ? '📄 Касса: оформляется РКО с подписью директора и кассира'
+      : '📄 Банк: исходящее платёжное поручение в банк';
+  } else {
+    if(titleEl) titleEl.textContent = '↔️ Перевод между счетами';
+    if(docInfo) docInfo.textContent = '📄 Внутреннее перемещение средств между счетами';
+  }
+
   document.getElementById('tx-account2-row').style.display = isTransfer?'':'none';
   document.getElementById('tx-order-row').style.display    = flow==='income'?'':'none';
 
   // Категории
   const catSel = document.getElementById('tx-category');
   if(catSel){
-    const cats = flow==='income'?TX_INCOME_CATS:TX_EXPENSE_CATS;
+    const cats = isTransfer?TX_INCOME_CATS:(flow==='income'?TX_INCOME_CATS:TX_EXPENSE_CATS);
     const curVal = catSel.value;
     catSel.innerHTML = cats.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
     if(curVal && cats.find(c=>c.id===curVal)) catSel.value=curVal;
   }
 
   const newCat = document.getElementById('tx-category')?.value;
-  const isAdvOut = newCat==='advance_out';
+  const isAdvOut    = newCat==='advance_out';
   const isAdvReturn = newCat==='advance_return';
-  const needEmp = isAdvOut || isAdvReturn;
+  const needEmp     = isAdvOut || isAdvReturn;
 
-  // Строка выбора сотрудника/аванса
   const advRow = document.getElementById('tx-advance-emp-row');
   const advReturnRow = document.getElementById('tx-advance-report-row');
 
@@ -6989,14 +7053,10 @@ function updateTxForm(){
         employeesData.map(e=>`<option value="${e.name}">${e.name} — ${e.pos}</option>`).join('');
     }
   }
-
-  // При возврате — показываем список открытых авансов
   if(advReturnRow){
     advReturnRow.style.display = isAdvReturn?'':'none';
     if(isAdvReturn) updateAdvanceReturnList();
   }
-
-  // Контрагент скрываем если выбран сотрудник
   const ctpRow = document.getElementById('tx-supplier-row');
   if(ctpRow) ctpRow.style.display = needEmp?'none':'';
 }
