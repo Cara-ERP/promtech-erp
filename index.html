@@ -6478,10 +6478,10 @@ window.onerror = function(msg, src, line, col, err){
 // ── Банковские счета ─────────────────────────────────────────────────────────
 let baSeq = 1;
 let bankAccounts = [
-  {id:'6dfefc6b-586c-4bb7-8134-1dd537573d15', name:'Касса офис',       bank:'', iin:'', bik:'', balance:850000,  currency:'KZT', type:'cash', icon:'💵'},
-  {id:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', name:'Касса Армада',     bank:'ТРЦ Армада',     iin:'', bik:'', balance:320000,  currency:'KZT', type:'cash', icon:'🏬'},
-  {id:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', name:'Касса Назарбаева', bank:'ул. Назарбаева', iin:'', bik:'', balance:185000,  currency:'KZT', type:'cash', icon:'🏪'},
-  {id:'0265fb65-7812-4bee-b794-71306246edb7', name:'Расчётный счёт',   bank:'АО «Халык Банк»',iin:'KZ486017131000005619', bik:'HSBKKZKX', balance:3200000, currency:'KZT', type:'bank', icon:'🏦'},
+  {id:'6dfefc6b-586c-4bb7-8134-1dd537573d15', name:'Касса офис',       bank:'',               iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'💵'},
+  {id:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', name:'Касса Армада',     bank:'ТРЦ Армада',     iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'🏬'},
+  {id:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', name:'Касса Назарбаева', bank:'ул. Назарбаева', iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'🏪'},
+  {id:'0265fb65-7812-4bee-b794-71306246edb7', name:'Расчётный счёт',   bank:'АО «Халык Банк»',iin:'KZ486017131000005619', bik:'HSBKKZKX', balance:0, currency:'KZT', type:'bank', icon:'🏦'},
 ];
 
 // Категории операций
@@ -6637,15 +6637,17 @@ function calcAccountBalance(accountId){
 }
 
 function calcAccountStats(accountId, filtered){
-  const src = filtered !== undefined ? filtered : moneyTx;
-  const txs = src.filter(t=>t.accountId===accountId);
-  const income  = txs.filter(t=>t.flow==='income') .reduce((s,t)=>s+t.amount,0);
-  const expense = txs.filter(t=>t.flow==='expense').reduce((s,t)=>s+t.amount,0);
-  const acc = bankAccounts.find(a=>a.id===accountId);
-  // Если период задан — показываем оборот, иначе — текущий остаток
-  const balance = (moneyPeriod.from || moneyPeriod.to)
-    ? income - expense
-    : (acc?.balance||0) + income - expense;
+  const src  = filtered !== undefined ? filtered : moneyTx;
+  const txs  = src.filter(t=>t.accountId===accountId);
+  const income  = txs.filter(t=>t.flow==='income') .reduce((s,t)=>s+(t.amount||0),0);
+  const expense = txs.filter(t=>t.flow==='expense').reduce((s,t)=>s+(t.amount||0),0);
+  // Баланс = все поступления − все выплаты (из всех транзакций, без фильтра периода)
+  const allTxs  = moneyTx.filter(t=>t.accountId===accountId);
+  const allIn   = allTxs.filter(t=>t.flow==='income') .reduce((s,t)=>s+(t.amount||0),0);
+  const allOut  = allTxs.filter(t=>t.flow==='expense').reduce((s,t)=>s+(t.amount||0),0);
+  const balance = (moneyPeriod.from||moneyPeriod.to)
+    ? income - expense      // за период — оборот
+    : allIn  - allOut;      // без периода — текущий остаток
   return {income, expense, balance};
 }
 
@@ -13108,11 +13110,18 @@ function buildOSV(){
     }
   });
 
-  // Начальные остатки касс и РС (до всех транзакций)
+  // Начальные остатки касс и РС — из транзакций ДО начала периода
   bankAccounts.forEach(acc=>{
     const cashAcc = acc.type==='cash'?'50':'51';
-    if(acc.balance>0) ledger[cashAcc].openDt += acc.balance;
-    else if(acc.balance<0) ledger[cashAcc].openKt += Math.abs(acc.balance);
+    // Транзакции до начала периода
+    const beforeTxs = dateFrom
+      ? moneyTx.filter(t=>t.accountId===acc.id && (t.date||'') < dateFrom)
+      : [];
+    const openIn  = beforeTxs.filter(t=>t.flow==='income') .reduce((s,t)=>s+(t.amount||0),0);
+    const openOut = beforeTxs.filter(t=>t.flow==='expense').reduce((s,t)=>s+(t.amount||0),0);
+    const openBal = openIn - openOut;
+    if(openBal>0) ledger[cashAcc].openDt += openBal;
+    else if(openBal<0) ledger[cashAcc].openKt += Math.abs(openBal);
   });
 
   // ── 2. ВЫРУЧКА из заказов: Дт62 / Кт90.1 ─────────────────────
