@@ -11701,7 +11701,7 @@ function renderFCPlanTable(){
       </td>
       <td style="text-align:center">
         <input type="checkbox" ${row.approved?'checked':''}
-          onchange="fcPlanData[${i}].approved=this.checked;fcAutoSave(true)"
+          onchange="fcPlanData[${i}].approved=this.checked;renderFixedCostsTable();renderFCBreakdown();fcAutoSave(true)"
           style="width:16px;height:16px;cursor:pointer">
       </td>
       <td>
