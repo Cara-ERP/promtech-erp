@@ -5078,10 +5078,21 @@ window.onerror = function(msg, src, line, col){
             <select id="tx-category" style="font-size:13px" onchange="updateTxForm()"></select>
           </div>
           <div class="form-row" id="tx-order-row" style="grid-column:1/-1">
-            <label class="label">Заказ</label>
-            <select id="tx-order" style="font-size:13px">
-              <option value="">— не привязан —</option>
-            </select>
+            <label class="label">Связанный заказ <span style="color:var(--text3);font-size:11px">(если есть)</span></label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="tx-order" style="font-size:13px;flex:1" onchange="onTxOrderSelect()">
+                <option value="">— не привязан —</option>
+              </select>
+              <span id="tx-order-link" style="display:none">
+                <button class="btn btn-ghost btn-sm" style="font-size:11px;white-space:nowrap"
+                  onclick="openEditOrderModal(document.getElementById('tx-order').value)">
+                  🔍 Открыть
+                </button>
+              </span>
+            </div>
+            <div id="tx-order-info" style="display:none;margin-top:6px;padding:8px 10px;
+              background:var(--bg3);border-radius:6px;font-size:12px;color:var(--text2)">
+            </div>
           </div>
           <div class="form-row" id="tx-advance-emp-row" style="display:none;grid-column:1/-1">
             <label class="label">Сотрудник</label>
@@ -5099,7 +5110,29 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="form-row" id="tx-supplier-row" style="grid-column:1/-1">
             <label class="label">Контрагент</label>
-            <input id="tx-counterparty" type="text" placeholder="Клиент, поставщик, сотрудник...">
+            <select id="tx-counterparty-type" onchange="updateTxCounterpartyType()"
+              style="font-size:13px;margin-bottom:6px">
+              <option value="free">✏️ Ввести вручную</option>
+              <option value="office">🏢 Прямой покупатель офиса</option>
+              <option value="salon_armada">🏬 Салон Армада</option>
+              <option value="salon_nazarbayeva">🏪 Салон Назарбаева</option>
+              <option value="dealer">🚚 Дилер</option>
+              <option value="supplier">🏭 Поставщик</option>
+            </select>
+            <!-- Ввод вручную -->
+            <input id="tx-counterparty" type="text" placeholder="Контрагент..."
+              style="display:block">
+            <!-- Выбор из списка -->
+            <select id="tx-counterparty-select" style="display:none;font-size:13px"
+              onchange="document.getElementById('tx-counterparty').value=this.value">
+            </select>
+            <!-- Конечный клиент (для салонов) -->
+            <div id="tx-end-client-row" style="display:none;margin-top:6px">
+              <label class="label" style="font-size:11px">Конечный клиент салона</label>
+              <input id="tx-end-client" type="text" placeholder="Имя клиента..."
+                list="tx-end-client-list" style="font-size:13px">
+              <datalist id="tx-end-client-list"></datalist>
+            </div>
           </div>
           <div class="form-row" style="grid-column:1/-1">
             <label class="label">Описание / Назначение</label>
@@ -6979,6 +7012,118 @@ function renderAllTx(){
 }
 
 // ── Форма операции ────────────────────────────────────────────────────────────
+function onTxOrderSelect(){
+  const orderNum = document.getElementById('tx-order')?.value||'';
+  const linkEl   = document.getElementById('tx-order-link');
+  const infoEl   = document.getElementById('tx-order-info');
+
+  if(!orderNum){
+    if(linkEl) linkEl.style.display='none';
+    if(infoEl) infoEl.style.display='none';
+    return;
+  }
+
+  if(linkEl) linkEl.style.display='';
+
+  const order = ordersData.find(o=>o.num===orderNum);
+  if(!order){ if(infoEl) infoEl.style.display='none'; return; }
+
+  const total   = orderTotal(order);
+  const paid    = total * Math.min(order.payment||0,100) / 100;
+  const debt    = Math.max(0, total-paid);
+  const fmt     = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+
+  if(infoEl){
+    infoEl.style.display='block';
+    infoEl.innerHTML=`
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <span>📦 ${order.customer}</span>
+        ${order.salonClientName?`<span>👤 ${order.salonClientName}</span>`:''}
+        <span>💰 Сумма: <b>${fmt(total)}</b></span>
+        <span style="color:var(--green)">✅ Оплачено: ${fmt(paid)}</span>
+        ${debt>0?`<span style="color:var(--red)">⏳ Долг: ${fmt(debt)}</span>`:''}
+        <span style="color:var(--text3)">📅 ${order.date||'—'}</span>
+      </div>`;
+  }
+
+  // Автозаполняем поля
+  const amountEl = document.getElementById('tx-amount');
+  const descEl   = document.getElementById('tx-desc');
+  const ctpEl    = document.getElementById('tx-counterparty');
+
+  if(amountEl && !amountEl.value) amountEl.value = Math.round(debt)||Math.round(total);
+  if(descEl && !descEl.value)     descEl.value    = `Оплата ${orderNum}`;
+  if(ctpEl  && !ctpEl.value)      ctpEl.value     = order.salonClientName||order.customer;
+
+  // Автовыбор счёта по каналу заказа
+  const accSel = document.getElementById('tx-account');
+  if(accSel && !accSel.value){
+    const channelToAcc = {
+      'salon_armada':     'c854b1e4-c0f7-436b-a274-5e8a59c4ef78',
+      'salon_nazarbayeva':'701d7d6d-3dda-4403-ac3c-e4a3987836ea',
+      'office':           '6dfefc6b-586c-4bb7-8134-1dd537573d15',
+    };
+    const recAcc = channelToAcc[order.channel];
+    if(recAcc) accSel.value = recAcc;
+    updateTxForm();
+  }
+}
+
+function updateTxCounterpartyType(){
+  const type    = document.getElementById('tx-counterparty-type')?.value||'free';
+  const inputEl = document.getElementById('tx-counterparty');
+  const selEl   = document.getElementById('tx-counterparty-select');
+  const endRow  = document.getElementById('tx-end-client-row');
+  const isSalon = type.startsWith('salon_');
+
+  // Конечный клиент — только для салонов
+  if(endRow) endRow.style.display = isSalon ? 'block' : 'none';
+
+  if(type==='free'){
+    if(inputEl) inputEl.style.display='block';
+    if(selEl)   selEl.style.display='none';
+    return;
+  }
+
+  // Показываем select
+  if(inputEl) inputEl.style.display='none';
+  if(selEl)   selEl.style.display='block';
+
+  let options = '<option value="">— выберите —</option>';
+
+  if(type==='office'){
+    // Прямые покупатели офиса
+    const officeCustomers = [...new Set(
+      ordersData.filter(o=>o.channel==='office').map(o=>o.customer).filter(Boolean)
+    )].sort();
+    options += officeCustomers.map(n=>`<option value="${n}">${n}</option>`).join('');
+  } else if(isSalon){
+    // Салон как контрагент
+    const salonName = type==='salon_armada' ? 'Салон Армада' : 'Салон Назарбаева';
+    options += `<option value="${salonName}" selected>${salonName}</option>`;
+    if(inputEl) inputEl.value = salonName;
+    // Заполняем datalist конечных клиентов
+    const clients = [...new Set(
+      ordersData.filter(o=>o.channel===type&&o.salonClientName).map(o=>o.salonClientName)
+    )].sort();
+    const dl = document.getElementById('tx-end-client-list');
+    if(dl) dl.innerHTML = clients.map(c=>`<option value="${c}">`).join('');
+    if(selEl) selEl.style.display='none';
+    if(inputEl){ inputEl.style.display='block'; inputEl.value=salonName; }
+    return;
+  } else if(type==='dealer'){
+    dealersData.forEach(d=>{ options+=`<option value="${d.name}">${d.name}</option>`; });
+  } else if(type==='supplier'){
+    suppliersData.slice(0,50).forEach(s=>{ options+=`<option value="${s.name}">${s.name}</option>`; });
+  }
+
+  if(selEl){
+    selEl.innerHTML = options;
+    // Синхронизируем с text input
+    selEl.onchange = ()=>{ if(inputEl) inputEl.value=selEl.value; };
+  }
+}
+
 function setTxFlow(flow){
   // Обновляем кнопки
   const colors = {income:'var(--green)', expense:'var(--red)', transfer:'var(--accent)'};
@@ -7020,10 +7165,20 @@ function openMoneyTxModal(type, flow, editId){
   const accHtml=bankAccounts.map(a=>`<option value="${a.id}" ${tx?.accountId===a.id?'selected':''}>${a.type==='cash'?'💵':''} ${a.name}</option>`).join('');
   accSel.innerHTML=accHtml; acc2Sel.innerHTML=accHtml;
 
-  // Populate orders
+  // Populate orders — все заказы с суммой и долгом
   const ordSel=document.getElementById('tx-order');
-  ordSel.innerHTML='<option value="">— не привязан —</option>'+
-    ordersData.filter(o=>o.status!=='done').map(o=>`<option value="${o.num}" ${tx?.orderNum===o.num?'selected':''}>${o.num} — ${resolveCustomerName(o)}</option>`).join('');
+  if(ordSel){
+    const ch = getChannelFilter();
+    const orders = ch ? ordersData.filter(o=>o.channel===ch) : ordersData;
+    ordSel.innerHTML='<option value="">— не привязан —</option>'+
+      orders.map(o=>{
+        const total = orderTotal(o);
+        const debt  = Math.max(0, total - total*Math.min(o.payment||0,100)/100);
+        const label = `${o.num} — ${resolveCustomerName(o)} (₸${Math.round(total/1000)}К${debt>0?` долг ₸${Math.round(debt/1000)}К`:' ✅'})`;
+        return `<option value="${o.num}" ${tx?.orderNum===o.num?'selected':''}>${label}</option>`;
+      }).join('');
+    if(tx?.orderNum) setTimeout(onTxOrderSelect, 100);
+  }
 
   // Set flow через кнопки
   const initFlow = tx?.flow || flow || 'income';
@@ -7062,7 +7217,10 @@ function updateTxForm(){
   }
 
   document.getElementById('tx-account2-row').style.display = isTransfer?'':'none';
-  document.getElementById('tx-order-row').style.display    = flow==='income'?'':'none';
+  // Заказ показываем всегда (приход, расход, перевод могут быть связаны)
+  // но не для авансов сотрудников
+  const orderRow = document.getElementById('tx-order-row');
+  if(orderRow) orderRow.style.display = needEmp?'none':'';
 
   // Категории
   const catSel = document.getElementById('tx-category');
@@ -7095,6 +7253,15 @@ function updateTxForm(){
   }
   const ctpRow = document.getElementById('tx-supplier-row');
   if(ctpRow) ctpRow.style.display = needEmp?'none':'';
+
+  // Автовыбор типа контрагента по категории
+  const ctpTypeEl = document.getElementById('tx-counterparty-type');
+  if(ctpTypeEl && !needEmp){
+    if(newCat==='order_payment')   ctpTypeEl.value='salon_armada';
+    else if(newCat==='supplier')   ctpTypeEl.value='supplier';
+    else                           ctpTypeEl.value='free';
+    updateTxCounterpartyType();
+  }
 }
 
 function updateAdvanceReturnList(){
