@@ -8276,8 +8276,10 @@ function renderChannelPL(){
       return `<td style="${td};color:${color||'inherit'};font-weight:${bold?700:400}">${v>0.5?fmt(v):'—'}</td>`;
     }).join('');
     const t=tot(obj);
-    const click = ddFn ? `onclick="${ddFn}" style="cursor:pointer" title="Нажмите для детализации"` : '';
-    return `<tr ${click} class="${ddFn?'pl-row-drillable':''}" ${bold?'style="background:var(--bg2)"':''}>
+    const bgStyle = bold ? 'background:var(--bg2);' : '';
+    const cursorStyle = ddFn ? 'cursor:pointer;' : '';
+    const attrs = ddFn ? `onclick="${ddFn}" title="Нажмите для детализации"` : '';
+    return `<tr ${attrs} class="${ddFn?'pl-row-drillable':''}" style="${bgStyle}${cursorStyle}">
       <td style="padding:7px 12px;font-weight:${bold?700:400};padding-left:${bold?'12px':'24px'};color:${bold?'inherit':'var(--text2)'}">${label}${ddFn?' <span style="font-size:10px;color:var(--accent)">🔍</span>':''}</td>
       ${cells}
       <td style="${td};font-weight:${bold?700:400};color:${color||'inherit'}">${t>0.5?fmt(t):'—'}</td>
@@ -13271,7 +13273,9 @@ function buildOSV(){
 
   // Проводка: Дт accDt / Кт accKt на сумму amount
   // period: 'open'=до начала, 'cur'=за период
-  function post(accDt, accKt, amount, period){
+  const journal = []; // журнал проводок для drill-down
+
+  function post(accDt, accKt, amount, period, desc='', doc='', date=''){
     if(!amount||amount<=0) return;
     if(!ledger[accDt]) ledger[accDt]={openDt:0,openKt:0,dtOb:0,ktOb:0};
     if(!ledger[accKt]) ledger[accKt]={openDt:0,openKt:0,dtOb:0,ktOb:0};
@@ -13281,6 +13285,8 @@ function buildOSV(){
     } else {
       ledger[accDt].dtOb += amount;
       ledger[accKt].ktOb += amount;
+      // Записываем в журнал только текущие обороты
+      journal.push({dt:accDt, kt:accKt, amount, desc, doc, date});
     }
   }
 
@@ -13298,13 +13304,13 @@ function buildOSV(){
     switch(tx.category){
       // Оплата от клиентов: Дт50/51 / Кт62
       case 'order_payment':
-        post(cashAcc,'62',amt,p); break;
+        post(cashAcc,'62',amt,p, tx.desc||'Оплата заказа', tx.orderNum||'', tx.date); break;
       // Оплата поставщикам: Дт60 / Кт50/51
       case 'supplier':
-        post('60',cashAcc,amt,p); break;
+        post('60',cashAcc,amt,p, tx.desc||'Оплата поставщику', tx.counterparty||'', tx.date); break;
       // Зарплата: Дт70 / Кт50/51
       case 'salary':
-        post('70',cashAcc,amt,p); break;
+        post('70',cashAcc,amt,p, tx.desc||'Выплата зарплаты', '', tx.date); break;
       // Налоги: Дт68 / Кт50/51
       case 'tax':
         post('68',cashAcc,amt,p); break;
@@ -13457,7 +13463,7 @@ function buildOSV(){
     closeDt: acc.closeDt + r.closeDt, closeKt: acc.closeKt + r.closeKt,
   }),{openDt:0,openKt:0,dtOb:0,ktOb:0,closeDt:0,closeKt:0});
 
-  return {rows, totals, dateFrom, dateTo};
+  return {rows, totals, journal, dateFrom, dateTo};
 }
 
 function parseDMY(str){
@@ -15604,12 +15610,22 @@ function renderPurchases(){
 function renderPurchasesKpi(){
   const el=document.getElementById('pur-kpi');
   if(!el) return;
-  const total     =purchasesData.reduce((s,r)=>s+purTotal(r),0);
-  const totalPaid =purchasesData.reduce((s,r)=>s+r.paid,0);
-  const totalDebt =purchasesData.reduce((s,r)=>s+purDebt(r),0);
-  const unpaidCnt =purchasesData.filter(r=>purStatus(r)==='unpaid').length;
+  // Фильтруем по глобальному периоду финансов
+  const fromStr = financePeriod.from?.toISOString().slice(0,10)||'';
+  const toStr   = financePeriod.to?.toISOString().slice(0,10)||'';
+  const filtered = purchasesData.filter(r=>{
+    const d = (r.date||'').slice(0,10);
+    if(!d) return !fromStr; // без даты — только если нет фильтра
+    if(fromStr && d < fromStr) return false;
+    if(toStr   && d > toStr)   return false;
+    return true;
+  });
+  const total     =filtered.reduce((s,r)=>s+purTotal(r),0);
+  const totalPaid =filtered.reduce((s,r)=>s+r.paid,0);
+  const totalDebt =filtered.reduce((s,r)=>s+purDebt(r),0);
+  const unpaidCnt =filtered.filter(r=>purStatus(r)==='unpaid').length;
   const kpis=[
-    {label:'Закупок всего',       value:purchasesData.length,        color:'var(--accent)'},
+    {label:'Закупок всего',       value:filtered.length,             color:'var(--accent)'},
     {label:'Сумма закупок',       value:fmtCurrency(total),          color:'var(--text2)'},
     {label:'Оплачено',            value:fmtCurrency(totalPaid),      color:'var(--green)'},
     {label:'Кредиторский долг',   value:fmtCurrency(totalDebt),      color:totalDebt>0?'var(--red)':'var(--green)'},
@@ -15958,17 +15974,19 @@ function agingColor(days){
 
 // Collect all AR records (orders with debt > 0)
 function collectAR(){
-  return ordersData
+  const fromStr = financePeriod.from?.toISOString().slice(0,10)||'';
+  const toStr   = financePeriod.to?.toISOString().slice(0,10)||'';
+  return plFilteredOrders()
     .map(o=>{
       const total=orderTotal(o);
-      const paid=total*(o.payment/100);
+      const paid=total*(Math.min(o.payment||0,100)/100);
       const debt=total-paid;
       const overdueDays=daysOverdue(o);
       return {order:o, total, paid, debt, overdueDays,
               bucket:agingBucket(overdueDays),
               color:agingColor(overdueDays)};
     })
-    .filter(r=>r.debt>1); // > ₸1 to ignore rounding
+    .filter(r=>r.debt>1);
 }
 
 // ---- RENDER ----
@@ -16361,28 +16379,27 @@ function buildPL(){
   const grossMarginPct = revenue > 0 ? grossMargin/revenue : 0;
 
   // ── ПОСТОЯННЫЕ ЗАТРАТЫ ────────────────────────────────────────────
-  // 1) Оклады АУП из payrollStaff
-  const aupSalary = payrollStaff
-    .filter(s=>s.salary>0)
-    .reduce((s,emp)=>{
-      const row=buildPayrollRow(emp);
-      return s + row.totalEmployer; // стоимость с налогами работодателя
-    }, 0);
+  // 1) Оклады АУП — из реальных транзакций за период
+  const salaryTxs = plFilteredTx('expense').filter(t=>t.category==='salary');
+  const aupSalary = salaryTxs.length > 0
+    ? salaryTxs.reduce((s,t)=>s+t.amount, 0)
+    : payrollStaff.filter(s=>s.salary>0)
+        .reduce((s,emp)=>s+buildPayrollRow(emp).totalEmployer, 0);
 
-  // 2) Налоги на сдельщиков (СО+СН работодателя)
+  // 2) Налоги на сдельщиков
   const prodTaxes = payrollStaff
     .filter(s=>s.salary===0)
-    .reduce((s,emp)=>{
-      const row=buildPayrollRow(emp);
-      return s + row.so + row.sn;
-    }, 0);
+    .reduce((s,emp)=>{ const row=buildPayrollRow(emp); return s+row.so+row.sn; }, 0);
 
-  // 3) Прочие постоянные затраты из fixedCostsData (аренда, ком. услуги и т.д.)
-  const otherFixed = fixedCostsData
-    .filter(f=>!['payroll'].includes(f.category))
-    .reduce((s,f)=>s+fcToMonthly(f), 0);
+  // 3) Прочие постоянные затраты — из moneyTx за период (аренда, ком. услуги)
+  const fixedTxCats = ['expense','rent','utility','transport','other_out'];
+  const fixedTxs = plFilteredTx('expense').filter(t=>fixedTxCats.includes(t.category));
+  const otherFixed = fixedTxs.length > 0
+    ? fixedTxs.reduce((s,t)=>s+t.amount, 0)
+    : fixedCostsData.filter(f=>!['payroll'].includes(f.category))
+        .reduce((s,f)=>s+fcToMonthly(f), 0);
 
-  // 4) Закупки материалов за период (из purchasesData финансы)
+  // 4) Закупки материалов за период
   const purchCost = purchasesData.reduce((s,p)=>s+purTotal(p), 0);
 
   const fixedTotal = aupSalary + prodTaxes + otherFixed;
@@ -20456,30 +20473,42 @@ function ddMarginItem(orderNum, itemIdx){
 function ddOSVAccount(acc, accName){
   const from = financePeriod.from?.toISOString().slice(0,10)||'';
   const to   = financePeriod.to?.toISOString().slice(0,10)||'';
-  // Показываем транзакции которые относятся к счёту
-  const rows = [];
-  const accMap = {'50':'cash','51':'bank','60':'supplier','62':'order_payment','70':'salary','68':'tax','71':'advance_out'};
-  const cats   = Object.entries(accMap).filter(([a])=>a===acc).map(([,c])=>c);
-  const txs    = moneyTx.filter(t=>{
-    if(from && t.date < from) return false;
-    if(to   && t.date > to)   return false;
-    if(cats.length && !cats.includes(t.category)) return false;
+  const fmt  = n=>n>0?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
+
+  // Берём журнал проводок из buildOSV
+  const osv = buildOSV();
+  const entries = (osv.journal||[]).filter(e=>{
+    if(e.dt!==acc && e.kt!==acc) return false;
+    if(from && (e.date||'') < from) return false;
+    if(to   && (e.date||'') > to)   return false;
     return true;
   });
-  txs.forEach(t=>{
-    rows.push({
-      date:   t.date||'—',
-      desc:   t.desc||t.description||'—',
-      debit:  t.flow==='income' ? t.amount : 0,
-      credit: t.flow==='expense'? t.amount : 0,
-    });
-  });
-  openDrilldown(`ОСВ: Счёт ${acc} — ${accName}`, periodLabel()+' · '+rows.length+' проводок', rows, [
-    {key:'date',   label:'Дата',   num:false},
-    {key:'desc',   label:'Опер.',  num:false},
-    {key:'debit',  label:'Дт',     num:true,  color:'var(--accent)'},
-    {key:'credit', label:'Кт',     num:true,  color:'var(--red)'},
-  ]);
+
+  const rows = entries.map(e=>({
+    date:   e.date||'—',
+    doc:    e.doc||'—',
+    desc:   e.desc||'—',
+    corr:   e.dt===acc ? `Кт ${e.kt}` : `Дт ${e.dt}`,
+    debit:  e.dt===acc ? e.amount : 0,
+    credit: e.kt===acc ? e.amount : 0,
+  }));
+
+  const totalDt = rows.reduce((s,r)=>s+r.debit,0);
+  const totalKt = rows.reduce((s,r)=>s+r.credit,0);
+
+  openDrilldown(
+    `ОСВ: Счёт ${acc} — ${accName}`,
+    `${periodLabel()} · ${rows.length} проводок · Дт ${fmt(totalDt)} · Кт ${fmt(totalKt)}`,
+    rows,
+    [
+      {key:'date',   label:'Дата',           num:false},
+      {key:'doc',    label:'Документ',       num:false, mono:true},
+      {key:'desc',   label:'Содержание',     num:false},
+      {key:'corr',   label:'Корреспонденция',num:false},
+      {key:'debit',  label:'Дебет',          num:true,  color:'var(--accent)'},
+      {key:'credit', label:'Кредит',         num:true,  color:'var(--red)'},
+    ]
+  );
 }
 
 function periodLabel(){
