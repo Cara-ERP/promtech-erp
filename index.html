@@ -4547,22 +4547,36 @@ window.onerror = function(msg, src, line, col){
           <canvas id="bep-canvas" height="220" style="width:100%;display:block"></canvas>
           <div style="font-size:11.5px;color:var(--text3);margin-top:8px;text-align:center" id="bep-chart-hint"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">Постоянные затраты</span>
-              <button class="btn btn-primary btn-sm" onclick="openFixedCostModal(null)">+ Добавить</button>
+
+        <!-- Постоянные затраты — план/факт по месяцам -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header">
+            <span class="card-title">📋 Постоянные затраты — план и факт</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="fc-month-select" onchange="loadFixedCostsPeriod()" style="font-size:13px"></select>
+              <button class="btn btn-primary btn-sm" onclick="addFixedCostRow()">+ Статья</button>
+              <button class="btn btn-ghost btn-sm" onclick="saveAllFixedCosts()">💾 Сохранить все</button>
             </div>
-            <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Расходы, не зависящие от объёма производства (в месяц)</div>
-            <table class="data-table" id="fixed-costs-table">
-              <thead><tr>
-                <th>Статья затрат</th><th>Категория</th><th>В месяц (₸)</th><th>В год (₸)</th><th></th>
-              </tr></thead>
-              <tbody id="fixed-costs-tbody"></tbody>
-              <tfoot>
-                <tr style="background:var(--bg3);font-weight:600">
-                  <td colspan="2">Итого постоянных затрат/мес</td>
-                  <td id="fc-total-month" style="font-family:'IBM Plex Mono',monospace;color:var(--red)"></td>
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px" id="fc-period-hint">
+            Факт берётся из журнала операций за выбранный месяц
+          </div>
+          <table class="data-table" id="fc-plan-table">
+            <thead><tr>
+              <th style="min-width:200px">Статья затрат</th>
+              <th>Категория</th>
+              <th style="text-align:right">План (₸)</th>
+              <th style="text-align:right">Факт (₸)</th>
+              <th style="text-align:right">Откл. (₸)</th>
+              <th style="text-align:center">✓ Проведено</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="fc-plan-tbody"></tbody>
+            <tfoot id="fc-plan-tfoot"></tfoot>
+          </table>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
                   <td id="fc-total-year" style="font-family:'IBM Plex Mono',monospace;color:var(--red)"></td>
                   <td></td>
                 </tr>
@@ -11514,6 +11528,198 @@ function deleteFixedCost(){
 }
 
 // ---- MAIN RENDER ----
+// ════════════════════════════════════════════════════════════════
+// ПОСТОЯННЫЕ ЗАТРАТЫ — ПЛАН / ФАКТ / ПРОВЕДЕНИЕ
+// ════════════════════════════════════════════════════════════════
+
+let fcPlanData = [];   // [{id, name, category, period, plan, approved}]
+let fcCurrentPeriod = ''; // 'YYYY-MM'
+
+const FC_CATS = [
+  {id:'rent',     label:'🏠 Аренда',            txCats:['expense','rent']},
+  {id:'utility',  label:'💡 Коммунальные',       txCats:['utility','expense']},
+  {id:'payroll',  label:'👷 ФОТ (оклады)',        txCats:['salary']},
+  {id:'tax',      label:'🏛 Налоги',              txCats:['tax']},
+  {id:'transport',label:'🚚 Транспорт',           txCats:['transport']},
+  {id:'other',    label:'📎 Прочее',              txCats:['other_out','expense']},
+];
+
+function initFCMonthSelect(){
+  const sel = document.getElementById('fc-month-select');
+  if(!sel) return;
+  const now = new Date();
+  const options = [];
+  for(let i=0; i<12; i++){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const val = d.toISOString().slice(0,7);
+    const label = d.toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
+    options.push(`<option value="${val}" ${i===0?'selected':''}>${label}</option>`);
+  }
+  sel.innerHTML = options.join('');
+  fcCurrentPeriod = sel.value;
+}
+
+async function loadFixedCostsPeriod(){
+  const sel = document.getElementById('fc-month-select');
+  fcCurrentPeriod = sel?.value || new Date().toISOString().slice(0,7);
+
+  showLoading('Загрузка постоянных затрат...', fcCurrentPeriod);
+
+  // Загружаем план за этот месяц
+  const data = await sbFetch('fixed_costs',
+    `select=*&period=eq.${fcCurrentPeriod}&order=name`);
+
+  if(data && data.length > 0){
+    fcPlanData = data.map(r=>({...r}));
+  } else {
+    // Нет данных — копируем из прошлого месяца
+    const prevDate = new Date(fcCurrentPeriod+'-01');
+    prevDate.setMonth(prevDate.getMonth()-1);
+    const prevPeriod = prevDate.toISOString().slice(0,7);
+    const prevData = await sbFetch('fixed_costs',
+      `select=*&period=eq.${prevPeriod}&order=name`);
+
+    if(prevData && prevData.length > 0){
+      // Копируем план из прошлого месяца (без id, без approved)
+      fcPlanData = prevData.map(r=>({
+        id: null,
+        name:     r.name,
+        category: r.category,
+        period:   fcCurrentPeriod,
+        plan:     r.plan,
+        approved: false,
+      }));
+    } else {
+      // Первый раз — берём из fixedCostsData
+      fcPlanData = fixedCostsData.map(fc=>({
+        id: null,
+        name:     fc.name,
+        category: fc.category||'other',
+        period:   fcCurrentPeriod,
+        plan:     fcToMonthly(fc),
+        approved: false,
+      }));
+    }
+  }
+
+  hideLoading();
+  renderFCPlanTable();
+}
+
+function getFCFact(category, period){
+  // Считаем факт из moneyTx за месяц
+  const cats = FC_CATS.find(c=>c.id===category)?.txCats||[];
+  const [y,m] = period.split('-');
+  const from = `${y}-${m}-01`;
+  const to   = new Date(parseInt(y), parseInt(m), 0).toISOString().slice(0,10);
+  return moneyTx
+    .filter(t=>t.flow==='expense' && cats.includes(t.category)
+      && t.date >= from && t.date <= to)
+    .reduce((s,t)=>s+(t.amount||0), 0);
+}
+
+function addFixedCostRow(){
+  fcPlanData.push({
+    id: null,
+    name:     'Новая статья',
+    category: 'other',
+    period:   fcCurrentPeriod,
+    plan:     0,
+    approved: false,
+  });
+  renderFCPlanTable();
+  // Фокус на последнюю строку
+  setTimeout(()=>{
+    const inputs = document.querySelectorAll('#fc-plan-tbody .fc-name-input');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  }, 100);
+}
+
+function renderFCPlanTable(){
+  const tbody = document.getElementById('fc-plan-tbody');
+  const tfoot = document.getElementById('fc-plan-tfoot');
+  if(!tbody) return;
+  const fmt = n=>n>0?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
+
+  let totalPlan=0, totalFact=0;
+
+  tbody.innerHTML = fcPlanData.map((row,i)=>{
+    const fact = getFCFact(row.category, fcCurrentPeriod);
+    const diff = fact - row.plan;
+    const diffColor = diff>0?'var(--red)':diff<0?'var(--green)':'var(--text3)';
+    totalPlan += row.plan||0;
+    totalFact += fact;
+    const catOptions = FC_CATS.map(c=>
+      `<option value="${c.id}" ${c.id===row.category?'selected':''}>${c.label}</option>`
+    ).join('');
+    return `<tr style="${row.approved?'opacity:0.8':''}">
+      <td>
+        <input class="fc-name-input" value="${row.name}"
+          onchange="fcPlanData[${i}].name=this.value"
+          style="width:100%;background:transparent;border:none;border-bottom:1px solid var(--border);font-size:13px;padding:2px 4px">
+      </td>
+      <td>
+        <select onchange="fcPlanData[${i}].category=this.value;renderFCPlanTable()"
+          style="font-size:12px;width:100%">${catOptions}</select>
+      </td>
+      <td style="text-align:right">
+        <input type="number" value="${row.plan||0}"
+          onchange="fcPlanData[${i}].plan=parseFloat(this.value)||0"
+          style="width:110px;text-align:right;font-family:monospace;font-size:13px;background:transparent;border:none;border-bottom:1px solid var(--border)">
+      </td>
+      <td style="text-align:right;font-family:monospace;color:var(--text2)">${fmt(fact)}</td>
+      <td style="text-align:right;font-family:monospace;color:${diffColor};font-weight:600">
+        ${diff===0?'—':(diff>0?'+':'')+fmt(Math.abs(diff))}
+      </td>
+      <td style="text-align:center">
+        <input type="checkbox" ${row.approved?'checked':''}
+          onchange="fcPlanData[${i}].approved=this.checked"
+          style="width:16px;height:16px;cursor:pointer">
+      </td>
+      <td>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)"
+          onclick="fcPlanData.splice(${i},1);renderFCPlanTable()">✕</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text3)">Нет статей. Нажмите «+ Статья»</td></tr>';
+
+  if(tfoot) tfoot.innerHTML = `<tr style="background:var(--bg3);font-weight:700">
+    <td colspan="2" style="padding:8px 12px">Итого:</td>
+    <td style="text-align:right;font-family:monospace;color:var(--red)">₸${Math.round(totalPlan).toLocaleString('ru-RU')}</td>
+    <td style="text-align:right;font-family:monospace;color:var(--text2)">₸${Math.round(totalFact).toLocaleString('ru-RU')}</td>
+    <td style="text-align:right;font-family:monospace;color:${totalFact>totalPlan?'var(--red)':'var(--green)'}">
+      ${totalFact===totalPlan?'₸0':(totalFact>totalPlan?'+':'')+
+        '₸'+Math.round(Math.abs(totalFact-totalPlan)).toLocaleString('ru-RU')}
+    </td>
+    <td colspan="2"></td>
+  </tr>`;
+}
+
+async function saveAllFixedCosts(){
+  showLoading('Сохранение...', `${fcPlanData.length} статей за ${fcCurrentPeriod}`);
+
+  for(const row of fcPlanData){
+    const payload = {
+      name:     row.name,
+      category: row.category,
+      period:   fcCurrentPeriod,
+      plan:     row.plan||0,
+      approved: row.approved||false,
+    };
+    if(row.id){
+      await sbPatch('fixed_costs', `id=eq.${row.id}`, payload)
+        .catch(e=>console.warn('patch error:', e));
+    } else {
+      const res = await sbInsert('fixed_costs', payload);
+      if(res && res[0]) row.id = res[0].id;
+    }
+  }
+
+  hideLoading();
+  renderFCPlanTable();
+  console.log('✅ Постоянные затраты сохранены');
+}
+
 function renderBEP(){
   renderFixedCostsTable();
   renderFCBreakdown();
@@ -12853,7 +13059,11 @@ function showFinanceTab(tab, el){
   if(tab==='ar')        renderAR();
   if(tab==='purchases') renderPurchases();
   if(tab==='margin')    renderMarginReport();
-  if(tab==='bep')       renderBEP();
+  if(tab==='bep'){
+    renderBEP();
+    initFCMonthSelect();
+    loadMoneyFromDB().then(()=>loadFixedCostsPeriod());
+  }
   if(tab==='cfs')       renderCFS();
   if(tab==='osv')       renderOSV();
   if(tab==='activity')  renderActivityPL();
@@ -15590,11 +15800,27 @@ function renderPurchases(){
   const filter=(document.getElementById('pur-status-filter')?.value)||'all';
   const search=(document.getElementById('pur-search')?.value||'').toLowerCase();
 
-  let records=[...purchasesData].sort((a,b)=>b.date.localeCompare(a.date));
+  // Фильтр по глобальному периоду финансов
+  const fromStr = financePeriod.from?.toISOString().slice(0,10)||'';
+  const toStr   = financePeriod.to?.toISOString().slice(0,10)||'';
+
+  let records=[...purchasesData].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  // Применяем период
+  if(fromStr||toStr){
+    records = records.filter(r=>{
+      const d = (r.date||'').slice(0,10);
+      if(!d) return !fromStr;
+      if(fromStr && d < fromStr) return false;
+      if(toStr   && d > toStr)   return false;
+      return true;
+    });
+  }
+
   if(filter!=='all') records=records.filter(r=>purStatus(r)===filter);
   if(search) records=records.filter(r=>
-    r.supplier.toLowerCase().includes(search)||
-    r.items.some(it=>it.name.toLowerCase().includes(search)));
+    (r.supplier||'').toLowerCase().includes(search)||
+    r.items.some(it=>(it.name||'').toLowerCase().includes(search)));
 
   // Tab count = unpaid+partial
   const openCount=purchasesData.filter(r=>purStatus(r)!=='paid').length;
