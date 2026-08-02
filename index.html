@@ -11614,6 +11614,7 @@ async function loadFixedCostsPeriod(){
 
   hideLoading();
   renderFCPlanTable();
+  // Таблица 2 обновится внутри renderFCPlanTable
 }
 
 function getFCFact(category, period){
@@ -11704,6 +11705,10 @@ function renderFCPlanTable(){
     </td>
     <td colspan="2"></td>
   </tr>`;
+
+  // Обновляем таблицу 2 (структура затрат) — только проведённые
+  renderFixedCostsTable();
+  renderFCBreakdown();
 }
 
 let _fcSaveTimer = null;
@@ -11777,16 +11782,8 @@ function addFCCategory(){
 
 // Получить проведённые затраты для ТБУ и P&L
 function getApprovedFixedCosts(){
-  // Берём строки с галочкой из fcPlanData
-  const approved = fcPlanData.filter(f=>f.approved && (f.plan||0)>0);
-  if(approved.length > 0) return approved;
-  // Запасной вариант — fixedCostsData
-  return fixedCostsData.map(fc=>({
-    name:     fc.name,
-    category: fc.category||'other',
-    plan:     fcToMonthly(fc),
-    approved: true,
-  }));
+  // Только проведённые строки из таблицы 1
+  return fcPlanData.filter(f=>f.approved && (f.plan||0)>0);
 }
 
 function renderBEP(){
