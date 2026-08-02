@@ -7307,19 +7307,20 @@ function fillAdvanceReturnAmount(){
 }
 
 function saveMoneyTx(){
-  const editId=parseInt(document.getElementById('tx-edit-id').value)||0;
+  const editId  = document.getElementById('tx-edit-id').value||'';
   const flow    = document.getElementById('tx-flow').value;
   const category= document.getElementById('tx-category').value;
 
-  // Для аванса — берём имя из селекта сотрудников
   const advEmp = document.getElementById('tx-advance-emp')?.value||'';
   const counterparty = category==='advance_out' && advEmp
     ? advEmp
     : document.getElementById('tx-counterparty').value.trim();
 
+  const accountId = document.getElementById('tx-account').value;
+
   const obj={
     date:        document.getElementById('tx-date').value,
-    accountId:   parseInt(document.getElementById('tx-account').value),
+    accountId,
     flow,
     category,
     amount:      parseFloat(document.getElementById('tx-amount').value)||0,
@@ -7330,29 +7331,39 @@ function saveMoneyTx(){
   if(!obj.amount){alert('Укажите сумму');return;}
 
   if(flow==='transfer'){
-    const acc2=parseInt(document.getElementById('tx-account2').value);
-    const tx1={id:txSeq++,...obj,flow:'expense',category:'transfer',
+    const acc2 = document.getElementById('tx-account2').value;
+    const tx1={id:txSeq++,...obj,flow:'expense',category:'transfer_out',
       desc:'Перевод → '+bankAccounts.find(a=>a.id===acc2)?.name};
-    const tx2={id:txSeq++,...obj,accountId:acc2,flow:'income',category:'transfer',
+    const tx2={id:txSeq++,...obj,accountId:acc2,flow:'income',category:'transfer_in',
       desc:'Перевод ← '+bankAccounts.find(a=>a.id===obj.accountId)?.name};
-    moneyTx.push(tx1);
-    moneyTx.push(tx2);
-    // Сохраняем оба перевода в Supabase
+    moneyTx.push(tx1); moneyTx.push(tx2);
     Promise.all([
-      sbInsert('money_tx',{date:tx1.date,account_id:String(tx1.accountId),flow:tx1.flow,
+      sbInsert('money_tx',{date:tx1.date,account_id:tx1.accountId,flow:tx1.flow,
         category:tx1.category,amount:tx1.amount,description:tx1.desc,counterparty:tx1.counterparty||''}),
-      sbInsert('money_tx',{date:tx2.date,account_id:String(tx2.accountId),flow:tx2.flow,
+      sbInsert('money_tx',{date:tx2.date,account_id:tx2.accountId,flow:tx2.flow,
         category:tx2.category,amount:tx2.amount,description:tx2.desc,counterparty:tx2.counterparty||''}),
-    ]).then(()=>console.log('✅ Перевод сохранён в Supabase'))
-      .catch(e=>console.warn('⚠️ Ошибка сохранения перевода:', e.message));
+    ]).then(()=>console.log('✅ Перевод сохранён'));
+
   } else if(editId){
-    const idx=moneyTx.findIndex(t=>t.id===editId);
-    if(idx>=0) moneyTx[idx]={...moneyTx[idx],...obj};
-    // Обновляем в Supabase (по id)
-    sbPatch('money_tx',`id=eq.${moneyTx[idx]?.sbId||''}`,{
-      date:obj.date, flow:obj.flow, category:obj.category,
-      amount:obj.amount, description:obj.desc, counterparty:obj.counterparty||''
-    }).catch(e=>console.warn('⚠️ Ошибка обновления:', e.message));
+    // Редактирование существующей транзакции
+    const idx = moneyTx.findIndex(t=>t.sbId===editId||String(t.id)===String(editId));
+    if(idx>=0){
+      moneyTx[idx]={...moneyTx[idx],...obj};
+      const sbId = moneyTx[idx].sbId;
+      if(sbId){
+        sbPatch('money_tx', `id=eq.${sbId}`, {
+          date:         obj.date,
+          account_id:   obj.accountId,
+          flow:         obj.flow,
+          category:     obj.category,
+          amount:       obj.amount,
+          description:  obj.desc,
+          counterparty: obj.counterparty||'',
+          order_num:    obj.orderNum||'',
+        }).then(()=>console.log('✅ Транзакция обновлена в Supabase'))
+          .catch(e=>console.warn('⚠️ Ошибка обновления:', e.message));
+      }
+    }
   } else {
     const newTx={id:txSeq++,...obj};
     moneyTx.push(newTx);
@@ -7421,9 +7432,15 @@ function saveMoneyTx(){
 }
 
 function deleteMoneyTx(){
-  const id=parseInt(document.getElementById('tx-edit-id').value)||0;
-  if(!id||!confirm('Удалить операцию?')) return;
-  moneyTx=moneyTx.filter(t=>t.id!==id);
+  const editId = document.getElementById('tx-edit-id').value||'';
+  if(!editId||!confirm('Удалить операцию?')) return;
+  const tx = moneyTx.find(t=>t.sbId===editId||String(t.id)===String(editId));
+  moneyTx = moneyTx.filter(t=>t.sbId!==editId && String(t.id)!==String(editId));
+  if(tx?.sbId){
+    sbPatch('money_tx',`id=eq.${tx.sbId}`,{deleted:true})
+      .catch(()=>fetch(`${_SB_URL}/rest/v1/money_tx?id=eq.${tx.sbId}`,
+        {method:'DELETE',headers:{'apikey':_SB_KEY,'Authorization':'Bearer '+_SB_KEY}}));
+  }
   closeModal('moneyTxModal');
   renderMoneyKPIs(); renderCashTx(); renderBankTx(); renderAllTx();
 }
