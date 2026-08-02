@@ -795,11 +795,28 @@ async function loadPurchasesFromDB(){
 
 // Загрузить деньги (транзакции) из Supabase
 async function loadMoneyFromDB(){
+  if(_cacheLoaded.money && moneyTx.length > 100){
+    console.log('📦 Транзакции из кеша: '+moneyTx.length);
+    return true;
+  }
   try {
-    const txs = await sbFetch('money_tx', 'select=*&order=date.desc');
-    if(txs && txs.length > 0){
-      // Добавляем только транзакции которых нет локально
-      txs.forEach(t=>{
+    showLoading('Загрузка транзакций...', 'Подключение к базе данных');
+    // Загружаем все транзакции с пагинацией
+    let allTxs = [], from = 0, pageSize = 1000;
+    while(true){
+      updateLoading(Math.min(from/100, 85), `Загружено: ${from} записей...`);
+      const page = await sbFetch('money_tx',
+        `select=*&order=date.desc&limit=${pageSize}&offset=${from}`);
+      if(!page || page.length === 0) break;
+      allTxs = allTxs.concat(page);
+      if(page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    if(allTxs.length > 0){
+      // Очищаем локальные симулированные данные и заменяем реальными
+      moneyTx = moneyTx.filter(t=>!t.sbId); // оставляем только несохранённые
+      allTxs.forEach(t=>{
         const exists = moneyTx.find(m=>m.sbId===t.id);
         if(!exists){
           moneyTx.push({
@@ -816,10 +833,13 @@ async function loadMoneyFromDB(){
           });
         }
       });
-      console.log('✅ Транзакций загружено из Supabase: '+txs.length);
+      console.log('✅ Транзакций загружено из Supabase: '+allTxs.length);
+      _cacheLoaded.money = true;
     }
+    hideLoading();
     return true;
   } catch(e){
+    hideLoading();
     console.warn('⚠️ Ошибка загрузки транзакций:', e.message);
     return false;
   }
@@ -883,6 +903,7 @@ let _cacheLoaded = {
   catalog:   false,
   warehouse: false,
   suppliers: false,
+  money:     false,
 };
 let catalogLoaded = false;
 
@@ -20059,6 +20080,7 @@ function clearCache(){
   Object.keys(_cacheLoaded).forEach(k=>_cacheLoaded[k]=false);
   ordersData=[]; personsData=[]; leadsData=[];
   catalogData=[]; warehouseData=[]; suppliersData=[];
+  moneyTx = moneyTx.filter(t=>!t.sbId); // оставляем несохранённые локальные
   console.log('🔄 Кеш сброшен');
   // Перезагружаем текущую страницу
   const activeNav = document.querySelector('.nav-item.active');
