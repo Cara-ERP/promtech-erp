@@ -6785,7 +6785,7 @@ function renderCashTx(){
       const stats = calcAccountStats(acc.id, filtered);
       return `<div class="card" style="padding:12px 14px;cursor:pointer;
         border-left:3px solid var(--accent)"
-        onclick="document.getElementById('cash-account-select').value=${acc.id};renderCashTx()">
+        onclick="document.getElementById('cash-account-select').value='${acc.id}';renderCashTx()">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div style="font-size:12px;font-weight:600">${acc.icon||'💵'} ${acc.name}</div>
         </div>
@@ -6804,22 +6804,30 @@ function renderCashTx(){
   if(sel && sel.options.length !== cashAccounts.length){
     sel.innerHTML = cashAccounts.map(a=>`<option value="${a.id}">${a.icon||'💵'} ${a.name}</option>`).join('');
   }
-  const cashId = parseInt(sel?.value||cashAccounts[0]?.id||1);
+  const cashId = sel?.value || cashAccounts[0]?.id || '';
 
-  const stats = calcAccountStats(cashId);
-  const acc   = bankAccounts.find(a=>a.id===cashId);
+  const filtered = moneyFilteredTx(moneyTx);
+  const stats = calcAccountStats(cashId, filtered);
   const fmt   = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const set   = (id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-  set('cash-open-balance', fmt(acc?.balance||0));
+
+  // Начальный остаток = всё до начала периода
+  const fromStr = moneyPeriod.from ? moneyPeriod.from.toISOString().slice(0,10) : '';
+  const openBal = moneyPeriod.from
+    ? moneyTx.filter(t=>t.accountId===cashId && t.date < fromStr)
+        .reduce((s,t)=>s+(t.flow==='income'?t.amount:-t.amount), 0)
+    : 0;
+
+  set('cash-open-balance', fmt(openBal));
   set('cash-income',  fmt(stats.income));
   set('cash-expense', fmt(stats.expense));
-  set('cash-balance', fmt(stats.balance));
+  set('cash-balance', fmt(openBal + stats.income - stats.expense));
 
   const tbody = document.getElementById('cash-tbody');
   if(!tbody) return;
-  const txs = moneyFilteredTx(moneyTx).filter(t=>t.accountId===cashId)
-    .sort((a,b)=>b.date.localeCompare(a.date));
-  let running = stats.balance;
+  const txs = filtered.filter(t=>t.accountId===cashId)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  let running = openBal + stats.income - stats.expense;
   tbody.innerHTML = txs.map(t=>{
     const rowBal = running;
     running += t.flow==='income' ? -t.amount : t.amount;
@@ -6827,14 +6835,14 @@ function renderCashTx(){
       <td style="font-size:12px">${t.date}</td>
       <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
-      <td style="font-size:12px">${t.desc}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
+      <td style="font-size:12px">${t.desc||'—'}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600">${fmt(rowBal)}</td>
-      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,${t.id})">✏️</button></td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,'${t.sbId||t.id}')">✏️</button></td>
     </tr>`;
-  }).join('') || `<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--text3)">Операций нет</td></tr>`;
+  }).join('') || `<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--text3)">Операций нет за период</td></tr>`;
 }
 
 // ── Банковские счета ─────────────────────────────────────────────────────────
@@ -6845,7 +6853,7 @@ function renderBankAccounts(){
   grid.innerHTML = bankOnly.map(acc=>{
     const stats = calcAccountStats(acc.id);
     const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-    return `<div class="card" style="padding:16px;cursor:pointer" onclick="openBankAccountModal(${acc.id})">
+    return `<div class="card" style="padding:16px;cursor:pointer" onclick="openBankAccountModal('${acc.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
           <div style="font-weight:700;font-size:14px">${acc.name}</div>
