@@ -6741,11 +6741,13 @@ function setMoneyPeriod(mode){
 
 function moneyFilteredTx(txs){
   if(!moneyPeriod.from && !moneyPeriod.to) return txs;
+  const fromStr = moneyPeriod.from ? moneyPeriod.from.toISOString().slice(0,10) : '';
+  const toStr   = moneyPeriod.to   ? moneyPeriod.to.toISOString().slice(0,10)   : '';
   return txs.filter(t=>{
-    const d = t.date ? new Date(t.date) : null;
+    const d = (t.date||'').slice(0,10);
     if(!d) return true;
-    if(moneyPeriod.from && d < moneyPeriod.from) return false;
-    if(moneyPeriod.to   && d > moneyPeriod.to)   return false;
+    if(fromStr && d < fromStr) return false;
+    if(toStr   && d > toStr)   return false;
     return true;
   });
 }
@@ -16084,12 +16086,13 @@ function plFilteredTx(flow){
   let txs = moneyTx;
   if(flow) txs = txs.filter(t=>t.flow===flow);
   if(financePeriod.from || financePeriod.to){
+    const fromStr = financePeriod.from ? financePeriod.from.toISOString().slice(0,10) : '';
+    const toStr   = financePeriod.to   ? financePeriod.to.toISOString().slice(0,10)   : '';
     txs = txs.filter(t=>{
-      const d = parseDMY(t.date||'');
+      const d = (t.date||'').slice(0,10);
       if(!d) return true;
-      const date = new Date(d);
-      if(financePeriod.from && date < financePeriod.from) return false;
-      if(financePeriod.to   && date > financePeriod.to)   return false;
+      if(fromStr && d < fromStr) return false;
+      if(toStr   && d > toStr)   return false;
       return true;
     });
   }
