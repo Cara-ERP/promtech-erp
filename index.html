@@ -5048,13 +5048,31 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost btn-sm" onclick="openBankAccountModal(null,'cash')">+ Касса</button>
         </div>
 
+        <!-- Фильтры журнала кассы -->
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+          <input type="search" id="cash-search" placeholder="🔍 Контрагент, описание..."
+            style="font-size:13px;flex:1;min-width:160px" oninput="renderCashTx()">
+          <select id="cash-flow-filter" onchange="renderCashTx()" style="font-size:13px">
+            <option value="all">Все операции</option>
+            <option value="income">📥 Только приход</option>
+            <option value="expense">📤 Только расход</option>
+          </select>
+          <select id="cash-cat-filter" onchange="renderCashTx()" style="font-size:13px">
+            <option value="all">Все категории</option>
+          </select>
+          <span id="cash-filter-count" style="font-size:12px;color:var(--text3)"></span>
+        </div>
+
         <div class="card" style="padding:0">
           <table class="data-table">
             <thead><tr>
-              <th>Дата</th><th>Тип</th><th>Категория</th>
-              <th>Описание</th><th>Контрагент</th>
-              <th style="text-align:right;color:var(--green)">Приход</th>
-              <th style="text-align:right;color:var(--red)">Расход</th>
+              <th onclick="sortCashTx('date')"   style="cursor:pointer;user-select:none">Дата <span id="cash-sort-date">▼</span></th>
+              <th>Тип</th>
+              <th onclick="sortCashTx('cat')"    style="cursor:pointer;user-select:none">Категория <span id="cash-sort-cat"></span></th>
+              <th>Описание</th>
+              <th onclick="sortCashTx('ctr')"    style="cursor:pointer;user-select:none">Контрагент <span id="cash-sort-ctr"></span></th>
+              <th onclick="sortCashTx('income')" style="cursor:pointer;user-select:none;text-align:right;color:var(--green)">Приход <span id="cash-sort-income"></span></th>
+              <th onclick="sortCashTx('expense')" style="cursor:pointer;user-select:none;text-align:right;color:var(--red)">Расход <span id="cash-sort-expense"></span></th>
               <th style="text-align:right">Остаток</th>
               <th></th>
             </tr></thead>
@@ -6921,6 +6939,19 @@ function moneyFilteredTx(txs){
   });
 }
 
+let _cashSortCol = 'date';
+let _cashSortAsc = false;
+
+function sortCashTx(col){
+  if(_cashSortCol===col){ _cashSortAsc=!_cashSortAsc; }
+  else { _cashSortCol=col; _cashSortAsc=(col!=='date'); }
+  ['date','cat','ctr','income','expense'].forEach(c=>{
+    const el=document.getElementById('cash-sort-'+c);
+    if(el) el.textContent = c===_cashSortCol ? (_cashSortAsc?'▲':'▼') : '';
+  });
+  renderCashTx();
+}
+
 function recalcOrderPayment(orderNum){
   if(!orderNum) return;
   const order = ordersData.find(o=>o.num===orderNum);
@@ -6994,21 +7025,63 @@ function renderCashTx(){
 
   const tbody = document.getElementById('cash-tbody');
   if(!tbody) return;
-  const txs = filtered.filter(t=>t.accountId===cashId)
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  let running = openBal + stats.income - stats.expense;
+
+  // Заполняем фильтр категорий
+  const catSel = document.getElementById('cash-cat-filter');
+  if(catSel && catSel.options.length <= 1){
+    const cats = [...new Set(moneyTx.filter(t=>t.accountId===cashId).map(t=>t.category))].sort();
+    catSel.innerHTML = '<option value="all">Все категории</option>' +
+      cats.map(c=>`<option value="${c}">${txCatLabel(c)}</option>`).join('');
+  }
+
+  const search    = (document.getElementById('cash-search')?.value||'').toLowerCase();
+  const flowF     = document.getElementById('cash-flow-filter')?.value||'all';
+  const catF      = document.getElementById('cash-cat-filter')?.value||'all';
+
+  // Фильтруем
+  let txs = filtered.filter(t=>t.accountId===cashId);
+  if(flowF!=='all') txs = txs.filter(t=>t.flow===flowF);
+  if(catF!=='all')  txs = txs.filter(t=>t.category===catF);
+  if(search) txs = txs.filter(t=>
+    (t.counterparty||'').toLowerCase().includes(search)||
+    (t.desc||'').toLowerCase().includes(search)||
+    (t.orderNum||'').toLowerCase().includes(search));
+
+  // Сортируем
+  txs.sort((a,b)=>{
+    let va, vb;
+    switch(_cashSortCol){
+      case 'date':    va=a.date||''; vb=b.date||''; break;
+      case 'cat':     va=txCatLabel(a.category); vb=txCatLabel(b.category); break;
+      case 'ctr':     va=a.counterparty||''; vb=b.counterparty||''; break;
+      case 'income':  va=a.flow==='income'?a.amount:0; vb=b.flow==='income'?b.amount:0; return _cashSortAsc?va-vb:vb-va;
+      case 'expense': va=a.flow==='expense'?a.amount:0; vb=b.flow==='expense'?b.amount:0; return _cashSortAsc?va-vb:vb-va;
+      default:        va=a.date||''; vb=b.date||'';
+    }
+    return _cashSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
+  // Счётчик
+  const countEl = document.getElementById('cash-filter-count');
+  if(countEl) countEl.textContent = txs.length !== filtered.filter(t=>t.accountId===cashId).length
+    ? `Найдено: ${txs.length}` : `${txs.length} операций`;
+
+  // Остаток считаем только при сортировке по дате
+  const showRunning = _cashSortCol==='date';
+  let running = showRunning ? openBal + stats.income - stats.expense : 0;
+
   tbody.innerHTML = txs.map(t=>{
-    const rowBal = running;
-    running += t.flow==='income' ? -t.amount : t.amount;
+    const rowBal = showRunning ? running : null;
+    if(showRunning) running += t.flow==='income' ? -t.amount : t.amount;
     return `<tr>
-      <td style="font-size:12px">${t.date}</td>
+      <td style="font-size:12px;white-space:nowrap">${t.date}</td>
       <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
       <td style="font-size:12px">${t.desc||'—'}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
-      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600">${fmt(rowBal)}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--text3)">${rowBal!==null?fmt(rowBal):'—'}</td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,'${t.sbId||t.id}')">✏️</button></td>
     </tr>`;
   }).join('') || `<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--text3)">Операций нет за период</td></tr>`;
