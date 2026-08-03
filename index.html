@@ -7494,9 +7494,16 @@ function updateTxForm(){
     if(advRow){
       advRow.style.display = '';
       const empSel = document.getElementById('tx-advance-emp');
-      if(empSel){
-        empSel.innerHTML = '<option value="">— выберите сотрудника —</option>'+
-          employeesData.map(e=>`<option value="${e.name}">${e.name}${e.pos?' — '+e.pos:''}</option>`).join('');
+      const fillEmpSel = () => {
+        if(empSel){
+          empSel.innerHTML = '<option value="">— выберите сотрудника —</option>'+
+            employeesData.map(e=>`<option value="${e.name}">${e.name}${e.pos?' — '+e.pos:''}</option>`).join('');
+        }
+      };
+      if(employeesData.length === 0){
+        loadStaffFromDB().then(fillEmpSel);
+      } else {
+        fillEmpSel();
       }
     }
     if(ctpRow) ctpRow.style.display = 'none';
