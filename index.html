@@ -4334,6 +4334,18 @@ window.onerror = function(msg, src, line, col){
         <!-- TAB: Редактировать -->
         <div id="omt-edit" class="omt-tab" style="display:none">
           <div style="font-size:12px;color:var(--text3);margin-bottom:12px" id="eo-customer-label"></div>
+
+          <!-- Конечный клиент — только для салонов -->
+          <div id="eo-end-client-row" style="display:none;margin-bottom:12px;
+            padding:10px 12px;background:var(--bg3);border-radius:8px;border-left:3px solid var(--accent)">
+            <label class="label" style="margin-bottom:4px">
+              👤 Конечный клиент салона
+              <span style="font-size:11px;color:var(--text3);font-weight:400">(необязательно)</span>
+            </label>
+            <input id="eo-end-client" type="text" placeholder="Имя клиента..."
+              list="eo-end-client-list" style="font-size:13px">
+            <datalist id="eo-end-client-list"></datalist>
+          </div>
           <div class="form-row cols-2">
             <div><label class="label">Дата возникновения</label><input id="eo-created-date" type="date"></div>
             <div><label class="label">Срок выполнения</label><input id="eo-date" type="date"></div>
@@ -25211,6 +25223,24 @@ function openEditOrderModal(orderNum, targetItemIdx){
   showOrderModalTab('info', firstTab);
 
   document.getElementById('eo-customer-label').textContent='Покупатель: '+resolveCustomerName(order)+(order.seller&&order.seller!=='—'?' · Продавец: '+order.seller:'');
+
+  // Показываем поле "Конечный клиент" только для салонов
+  const isSalon = order.channel==='salon_armada' || order.channel==='salon_nazarbayeva';
+  const endClientRow = document.getElementById('eo-end-client-row');
+  const endClientInput = document.getElementById('eo-end-client');
+  if(endClientRow) endClientRow.style.display = isSalon ? 'block' : 'none';
+  if(endClientInput) endClientInput.value = order.salonClientName||'';
+  // Заполняем datalist клиентами этого салона
+  if(isSalon){
+    const dl = document.getElementById('eo-end-client-list');
+    if(dl){
+      const clients = [...new Set(
+        ordersData.filter(o=>o.channel===order.channel&&o.salonClientName)
+          .map(o=>o.salonClientName)
+      )].sort();
+      dl.innerHTML = clients.map(c=>`<option value="${c}">`).join('');
+    }
+  }
   document.getElementById('eo-created-date').value=isoFromDisplayDate(order.createdDate||order.date);
   document.getElementById('eo-date').value=isoFromDisplayDate(order.date);
   document.getElementById('eo-delivery-date').value=isoFromDisplayDate(order.deliveryDate||'');
@@ -25401,6 +25431,7 @@ function saveEditedOrder(){
   const resp=document.getElementById('eo-resp').value;
   const payment=Math.max(0,Math.min(100,parseInt(document.getElementById('eo-payment').value)||0));
   const status=document.getElementById('eo-status').value;
+  const endClient=(document.getElementById('eo-end-client')?.value||'').trim();
 
   if(!createdDateVal){err.textContent='Укажите дату возникновения заказа';return;}
   if(!date){err.textContent='Укажите срок выполнения';return;}
@@ -25443,6 +25474,7 @@ function saveEditedOrder(){
   order.payment=payment;
   order.status=status;
   order.items=items;
+  if(endClient !== undefined) order.salonClientName = endClient;
 
   // Сохраняем изменения в Supabase
   saveOrderToDB(order).then(ok=>{
