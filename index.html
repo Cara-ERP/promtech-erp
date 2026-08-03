@@ -1100,12 +1100,34 @@ async function loadOrdersFromDB(){
     showLoading('Загрузка заказов...', 'Получение данных из базы');
     updateLoading(10, 'Загрузка заказов, позиций и платежей...');
 
-    // Грузим заказы + позиции + историю оплат параллельно
-    const [orders, items, payments] = await Promise.all([
-      sbFetch('orders', 'select=*&order=created_at.desc'),
-      sbFetch('order_items', 'select=*'),
-      sbFetch('payment_history', 'select=*'),
-    ]);
+    // Грузим заказы с пагинацией (снимаем лимит 1000)
+    showLoading('Загрузка заказов...', 'Подключение к базе данных');
+    updateLoading(10, 'Загрузка заказов...');
+    let allOrders = [], from = 0, pageSize = 1000;
+    while(true){
+      const page = await sbFetch('orders', `select=*&order=created_at.desc&limit=${pageSize}&offset=${from}`);
+      if(!page || page.length===0) break;
+      allOrders = allOrders.concat(page);
+      updateLoading(20 + Math.min(from/20, 30), `Заказов: ${allOrders.length}...`);
+      if(page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    updateLoading(50, 'Загрузка позиций заказов...');
+    let allItems = [], fromI = 0;
+    while(true){
+      const page = await sbFetch('order_items', `select=*&limit=${pageSize}&offset=${fromI}`);
+      if(!page || page.length===0) break;
+      allItems = allItems.concat(page);
+      updateLoading(50 + Math.min(fromI/40, 30), `Позиций: ${allItems.length}...`);
+      if(page.length < pageSize) break;
+      fromI += pageSize;
+    }
+
+    updateLoading(85, 'Загрузка истории оплат...');
+    const payments = await sbFetch('payment_history', 'select=*');
+    const orders = allOrders;
+    const items  = allItems;
 
     if(!orders || orders.length === 0){
       hideLoading();
@@ -3137,7 +3159,16 @@ window.onerror = function(msg, src, line, col){
       <div class="orders-tab" id="orders-queue" style="display:none">
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
+            <thead><tr>
+  <th onclick="sortOrders('num')" style="cursor:pointer;user-select:none">Номер <span id="sort-icon-num"></span></th>
+  <th onclick="sortOrders('customer')" style="cursor:pointer;user-select:none">Покупатель <span id="sort-icon-customer"></span></th>
+  <th>Конечный клиент</th>
+  <th onclick="sortOrders('total')" style="cursor:pointer;user-select:none;text-align:right">Сумма <span id="sort-icon-total"></span></th>
+  <th onclick="sortOrders('paid')" style="cursor:pointer;user-select:none;text-align:right">Оплачено <span id="sort-icon-paid"></span></th>
+  <th onclick="sortOrders('debt')" style="cursor:pointer;user-select:none;text-align:right">К оплате <span id="sort-icon-debt"></span></th>
+  <th onclick="sortOrders('date')" style="cursor:pointer;user-select:none">Дата <span id="sort-icon-date">▼</span></th>
+  <th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th>
+</tr></thead>
             <tbody id="orders-queue-tbody"></tbody>
           </table>
         </div>
@@ -3145,7 +3176,16 @@ window.onerror = function(msg, src, line, col){
       <div class="orders-tab" id="orders-progress" style="display:none">
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
+            <thead><tr>
+  <th onclick="sortOrders('num')" style="cursor:pointer;user-select:none">Номер <span id="sort-icon-num"></span></th>
+  <th onclick="sortOrders('customer')" style="cursor:pointer;user-select:none">Покупатель <span id="sort-icon-customer"></span></th>
+  <th>Конечный клиент</th>
+  <th onclick="sortOrders('total')" style="cursor:pointer;user-select:none;text-align:right">Сумма <span id="sort-icon-total"></span></th>
+  <th onclick="sortOrders('paid')" style="cursor:pointer;user-select:none;text-align:right">Оплачено <span id="sort-icon-paid"></span></th>
+  <th onclick="sortOrders('debt')" style="cursor:pointer;user-select:none;text-align:right">К оплате <span id="sort-icon-debt"></span></th>
+  <th onclick="sortOrders('date')" style="cursor:pointer;user-select:none">Дата <span id="sort-icon-date">▼</span></th>
+  <th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th>
+</tr></thead>
             <tbody id="orders-progress-tbody"></tbody>
           </table>
         </div>
@@ -3153,7 +3193,16 @@ window.onerror = function(msg, src, line, col){
       <div class="orders-tab" id="orders-done" style="display:none">
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
+            <thead><tr>
+  <th onclick="sortOrders('num')" style="cursor:pointer;user-select:none">Номер <span id="sort-icon-num"></span></th>
+  <th onclick="sortOrders('customer')" style="cursor:pointer;user-select:none">Покупатель <span id="sort-icon-customer"></span></th>
+  <th>Конечный клиент</th>
+  <th onclick="sortOrders('total')" style="cursor:pointer;user-select:none;text-align:right">Сумма <span id="sort-icon-total"></span></th>
+  <th onclick="sortOrders('paid')" style="cursor:pointer;user-select:none;text-align:right">Оплачено <span id="sort-icon-paid"></span></th>
+  <th onclick="sortOrders('debt')" style="cursor:pointer;user-select:none;text-align:right">К оплате <span id="sort-icon-debt"></span></th>
+  <th onclick="sortOrders('date')" style="cursor:pointer;user-select:none">Дата <span id="sort-icon-date">▼</span></th>
+  <th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th>
+</tr></thead>
             <tbody id="orders-done-tbody"></tbody>
           </table>
         </div>
@@ -3237,7 +3286,16 @@ window.onerror = function(msg, src, line, col){
         </div>
         <div class="card">
           <table class="data-table">
-            <thead><tr><th>Номер</th><th>Покупатель</th><th>Конечный клиент</th><th>Сумма</th><th>Дата</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th></tr></thead>
+            <thead><tr>
+  <th onclick="sortOrders('num')" style="cursor:pointer;user-select:none">Номер <span id="sort-icon-num"></span></th>
+  <th onclick="sortOrders('customer')" style="cursor:pointer;user-select:none">Покупатель <span id="sort-icon-customer"></span></th>
+  <th>Конечный клиент</th>
+  <th onclick="sortOrders('total')" style="cursor:pointer;user-select:none;text-align:right">Сумма <span id="sort-icon-total"></span></th>
+  <th onclick="sortOrders('paid')" style="cursor:pointer;user-select:none;text-align:right">Оплачено <span id="sort-icon-paid"></span></th>
+  <th onclick="sortOrders('debt')" style="cursor:pointer;user-select:none;text-align:right">К оплате <span id="sort-icon-debt"></span></th>
+  <th onclick="sortOrders('date')" style="cursor:pointer;user-select:none">Дата <span id="sort-icon-date">▼</span></th>
+  <th>Прогресс</th><th>Срок</th><th>Статус</th><th>Продавец</th><th>% оплаты</th>
+</tr></thead>
             <tbody id="orders-tbody"></tbody>
           </table>
         </div>
@@ -19914,6 +19972,36 @@ function clearOrderFilters(){
   renderOrders();
 }
 
+function sortOrders(col){
+  if(_orderSortCol === col){
+    _orderSortAsc = !_orderSortAsc;
+  } else {
+    _orderSortCol = col;
+    _orderSortAsc = col === 'num' || col === 'customer';
+  }
+  // Обновляем иконки
+  ['num','customer','total','paid','debt','date'].forEach(c=>{
+    const el = document.getElementById('sort-icon-'+c);
+    if(!el) return;
+    el.textContent = c === _orderSortCol ? (_orderSortAsc ? ' ▲' : ' ▼') : '';
+  });
+  renderOrders();
+}
+
+function getOrderSortValue(order, col){
+  const total = orderTotal(order);
+  const paid  = total * Math.min(order.payment||0, 100) / 100;
+  switch(col){
+    case 'num':      return order.num||'';
+    case 'customer': return (order.customer||'').toLowerCase();
+    case 'total':    return total;
+    case 'paid':     return paid;
+    case 'debt':     return total - paid;
+    case 'date':     return order.date||order.createdDate||'';
+    default:         return order.date||'';
+  }
+}
+
 function renderOrders(){
   const allBody=document.getElementById('orders-tbody');
   const queueBody=document.getElementById('orders-queue-tbody');
@@ -19969,12 +20057,21 @@ function renderOrders(){
       : '';
   }
 
+  // Применяем сортировку
+  visibleOrders.sort((a,b)=>{
+    const va = getOrderSortValue(a, _orderSortCol);
+    const vb = getOrderSortValue(b, _orderSortCol);
+    if(typeof va === 'number') return _orderSortAsc ? va-vb : vb-va;
+    return _orderSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
   visibleOrders.forEach(order=>{
     statusCounts[order.status]=(statusCounts[order.status]||0)+1;
     const total=orderTotal(order);
+    const paid = total * Math.min(order.payment||0, 100) / 100;
+    const debt = Math.max(0, total - paid);
     const customerDisplay=resolveCustomerName(order);
-    // Average progress across items
-    const avgProgress=Math.round(order.items.reduce((s,it)=>s+it.progress,0)/order.items.length);
+    const avgProgress=Math.round(order.items.reduce((s,it)=>s+it.progress,0)/Math.max(order.items.length,1));
     const progClass=PROGRESS_CLASS[order.status];
     const badgeClass=STATUS_BADGE[order.status];
     const statusLabel=STATUS_LABELS[order.status];
@@ -19987,7 +20084,9 @@ function renderOrders(){
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${order.num}</td>
       <td>${customerDisplay}</td>
       <td style="font-size:12px;color:var(--text3)">${order.salonClientName||'—'}</td>
-      <td style="font-family:'IBM Plex Mono',monospace">${fmtCurrency(total)}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmtCurrency(total)}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${paid>0?fmtCurrency(paid):'—'}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:${debt>0?'var(--red)':'var(--text3)'}">${debt>0?fmtCurrency(debt):'✅'}</td>
       <td style="font-size:12px;color:var(--text3)">${order.createdDate||'—'}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="flex:1"><div class="progress-fill ${progClass}" style="width:${avgProgress}%"></div></div><span style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text3)">${avgProgress}%</span></div></td>
       <td style="font-size:12px">${order.date}</td>
@@ -20991,7 +21090,9 @@ function convertLeadToClient(id){
 
 // ── Отчёт по заказам: сортировка ────────────────────────────────────────────
 let _repSortField = 'date';   // текущее поле сортировки
-let _repSortAsc   = true;     // направление
+let _repSortAsc   = true;
+let _orderSortCol = 'date';   // текущая колонка сортировки заказов
+let _orderSortAsc = false;    // по убыванию по умолчанию (новые сверху)
 
 function sortReport(field){
   if(_repSortField === field){
