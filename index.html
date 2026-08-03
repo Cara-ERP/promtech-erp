@@ -5200,7 +5200,7 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="form-row" id="tx-account-row">
             <label class="label" id="tx-account-label">Счёт / Касса</label>
-            <select id="tx-account" style="font-size:13px" onchange="updateTxForm()"></select>
+            <select id="tx-account" style="font-size:13px" onchange="updateTxForm();updateTBUHint()"></select>
           </div>
           <div class="form-row" id="tx-account2-row" style="display:none">
             <label class="label">На счёт</label>
@@ -7405,31 +7405,28 @@ function updateTxForm(){
   const flow = document.getElementById('tx-flow')?.value;
   const isTransfer = flow==='transfer';
 
-  // Заголовок и подпись документа — зависит от счёта и типа операции
+  // Заголовок документа
   const titleEl = document.getElementById('money-tx-title');
-  const docInfo = document.getElementById('tx-doc-info');
-  const accId   = document.getElementById('tx-account')?.value;
-  const acc     = bankAccounts.find(a=>a.id===accId);
-  const isCash  = !acc || acc.type==='cash';
+  const docInfo  = document.getElementById('tx-doc-info');
+  const accId    = document.getElementById('tx-account')?.value;
+  const acc      = bankAccounts.find(a=>a.id===accId);
+  const isCash   = !acc || acc.type==='cash';
 
   if(flow==='income'){
     if(titleEl) titleEl.textContent = isCash ? '📥 Приходный кассовый ордер (ПКО)' : '📥 Платёжное поручение (входящее)';
-    if(docInfo) docInfo.textContent = isCash
-      ? '📄 Касса: оформляется ПКО с подписью кассира и получателя'
-      : '📄 Банк: входящее платёжное поручение от плательщика';
+    if(docInfo) docInfo.textContent = isCash ? '📄 Касса: ПКО с подписью кассира' : '📄 Банк: входящее платёжное поручение';
   } else if(flow==='expense'){
     if(titleEl) titleEl.textContent = isCash ? '📤 Расходный кассовый ордер (РКО)' : '📤 Платёжное поручение (исходящее)';
-    if(docInfo) docInfo.textContent = isCash
-      ? '📄 Касса: оформляется РКО с подписью директора и кассира'
-      : '📄 Банк: исходящее платёжное поручение в банк';
+    if(docInfo) docInfo.textContent = isCash ? '📄 Касса: РКО с подписью директора и кассира' : '📄 Банк: исходящее платёжное поручение';
   } else {
     if(titleEl) titleEl.textContent = '↔️ Перевод между счетами';
-    if(docInfo) docInfo.textContent = '📄 Внутреннее перемещение средств между счетами';
+    if(docInfo) docInfo.textContent = '📄 Внутреннее перемещение средств';
   }
 
+  // Второй счёт при переводе
   document.getElementById('tx-account2-row').style.display = isTransfer?'':'none';
 
-  // Категории — определяем до needEmp
+  // Категории
   const catSel = document.getElementById('tx-category');
   if(catSel){
     const cats = isTransfer?TX_INCOME_CATS:(flow==='income'?TX_INCOME_CATS:TX_EXPENSE_CATS);
@@ -7438,41 +7435,188 @@ function updateTxForm(){
     if(curVal && cats.find(c=>c.id===curVal)) catSel.value=curVal;
   }
 
-  const newCat      = document.getElementById('tx-category')?.value;
-  const isAdvOut    = newCat==='advance_out';
-  const isAdvReturn = newCat==='advance_return';
-  const needEmp     = isAdvOut || isAdvReturn;
+  const cat = document.getElementById('tx-category')?.value||'';
 
-  // Заказ — показываем для всех кроме авансов
-  const orderRow = document.getElementById('tx-order-row');
-  if(orderRow) orderRow.style.display = needEmp?'none':'';
+  // Определяем тип контрагента по категории
+  const CAT_COUNTERPARTY = {
+    // Расходы
+    'salary':         {type:'employee', label:'👷 Сотрудник'},
+    'advance_out':    {type:'employee', label:'👤 Подотчётный сотрудник'},
+    'advance_return': {type:'employee', label:'👤 Сотрудник (возврат)'},
+    'tax':            {type:'fixed',    label:'🏛 Получатель', values:['КГД МФ РК','Пенсионный фонд','ГЦВП','Государственная корпорация']},
+    'supplier':       {type:'supplier', label:'🏭 Поставщик'},
+    'rent':           {type:'free',     label:'🏠 Арендодатель'},
+    'utility':        {type:'fixed',    label:'💡 Коммунальная служба', values:['Алматыэнергосбыт','КазТрансОйл','Водоканал','ГорГаз']},
+    'expense':        {type:'expense_item', label:'🧾 Статья расходов'},
+    'loan_out':       {type:'free',     label:'🤝 Получатель займа'},
+    'customer_return':({type:'salon', label:'↩️ Покупатель'}),
+    'transfer_out':   {type:'account',  label:'↔️ Счёт получатель'},
+    'bank':           {type:'fixed',    label:'🏦 Банк', values:['АО «Халык Банк»','АО «Kaspi Bank»']},
+    'deposit_out':    {type:'free',     label:'🏦 Банк/депозит'},
+    'other_out':      {type:'free',     label:'📎 Контрагент'},
+    // Доходы
+    'order_payment':  {type:'salon',    label:'📦 Покупатель'},
+    'supplier_return':{type:'supplier', label:'🔄 Поставщик (возврат)'},
+    'loan_in':        {type:'free',     label:'💳 Источник займа'},
+    'tax_return':     {type:'fixed',    label:'🏛 Налоговый орган', values:['КГД МФ РК']},
+    'other_in':       {type:'free',     label:'➕ Контрагент'},
+  };
 
-  const advRow = document.getElementById('tx-advance-emp-row');
-  const advReturnRow = document.getElementById('tx-advance-report-row');
+  const EXPENSE_ITEMS = [
+    'Канцелярия','Хозтовары','Транспортные расходы','Питание сотрудников',
+    'Реклама и маркетинг','Дизайн-услуги','Ремонт и обслуживание',
+    'Интернет и связь','Программное обеспечение','Командировочные',
+    'Охрана','Обучение','Прочие расходы',
+  ];
 
-  if(advRow){
-    advRow.style.display = needEmp?'':'none';
-    if(needEmp){
+  const ctpConfig = CAT_COUNTERPARTY[cat] || {type:'free', label:'Контрагент'};
+  const ctpRow    = document.getElementById('tx-supplier-row');
+  const advRow    = document.getElementById('tx-advance-emp-row');
+  const advRetRow = document.getElementById('tx-advance-report-row');
+  const orderRow  = document.getElementById('tx-order-row');
+  const inputEl   = document.getElementById('tx-counterparty');
+  const selEl     = document.getElementById('tx-counterparty-select');
+  const ctpLabel  = document.querySelector('#tx-supplier-row .label');
+  const ctpTypeEl = document.getElementById('tx-counterparty-type');
+
+  // Сброс видимости
+  if(ctpRow)    ctpRow.style.display    = '';
+  if(advRow)    advRow.style.display    = 'none';
+  if(advRetRow) advRetRow.style.display = 'none';
+  if(orderRow)  orderRow.style.display  = cat==='order_payment'?'':'none';
+  if(ctpTypeEl) ctpTypeEl.style.display = 'none';  // скрываем тип-селект
+  if(inputEl)   inputEl.style.display   = 'block';
+  if(selEl)     selEl.style.display     = 'none';
+  if(ctpLabel)  ctpLabel.textContent    = ctpConfig.label;
+
+  if(ctpConfig.type==='employee'){
+    // Показываем селект сотрудников
+    if(advRow){
+      advRow.style.display = '';
       const empSel = document.getElementById('tx-advance-emp');
-      empSel.innerHTML = '<option value="">— выберите сотрудника —</option>'+
-        employeesData.map(e=>`<option value="${e.name}">${e.name} — ${e.pos}</option>`).join('');
+      if(empSel){
+        empSel.innerHTML = '<option value="">— выберите сотрудника —</option>'+
+          employeesData.map(e=>`<option value="${e.name}">${e.name}${e.pos?' — '+e.pos:''}</option>`).join('');
+      }
+    }
+    if(ctpRow) ctpRow.style.display = 'none';
+    if(cat==='advance_return' && advRetRow) advRetRow.style.display='';
+
+  } else if(ctpConfig.type==='supplier'){
+    // Datalist поставщиков
+    if(inputEl){ inputEl.style.display='block'; inputEl.placeholder='Выберите поставщика...'; }
+    const dl = document.getElementById('tx-counterparty-list')||document.createElement('datalist');
+    dl.id='tx-counterparty-list';
+    dl.innerHTML = suppliersData.slice(0,100).map(s=>`<option value="${s.name||s}">`).join('');
+    if(!document.getElementById('tx-counterparty-list')) inputEl?.parentNode.appendChild(dl);
+    if(inputEl) inputEl.setAttribute('list','tx-counterparty-list');
+
+  } else if(ctpConfig.type==='fixed'){
+    // Селект с фиксированными значениями
+    if(selEl && ctpConfig.values){
+      selEl.style.display='block';
+      selEl.innerHTML='<option value="">— выберите —</option>'+
+        ctpConfig.values.map(v=>`<option value="${v}">${v}</option>`).join('');
+      selEl.onchange=()=>{ if(inputEl) inputEl.value=selEl.value; };
+      if(inputEl) inputEl.style.display='none';
+    }
+
+  } else if(ctpConfig.type==='expense_item'){
+    // Статьи расходов — берём из fcPlanData (ТБУ) + дефолтные
+    const fcItems = fcPlanData
+      .filter(f=>f.approved && f.plan>0 && !['payroll','rent','utility','tax'].includes(f.category))
+      .map(f=>f.name);
+    const defaultItems = ['Канцелярия','Хозтовары','Транспортные расходы',
+      'Питание сотрудников','Реклама и маркетинг','Дизайн-услуги',
+      'Ремонт и обслуживание','Интернет и связь','Командировочные',
+      'Охрана','Обучение','Прочие расходы'];
+    const allItems = [...new Set([...fcItems, ...defaultItems])];
+
+    if(selEl){
+      selEl.style.display='block';
+      selEl.innerHTML='<option value="">— статья расходов —</option>'+
+        allItems.map(v=>{
+          const fc = fcPlanData.find(f=>f.name===v);
+          const hint = fc ? ` (план ₸${Math.round(fc.plan/1000)}К)` : '';
+          return `<option value="${v}">${v}${hint}</option>`;
+        }).join('');
+      selEl.onchange=()=>{
+        if(inputEl) inputEl.value=selEl.value;
+        const descEl=document.getElementById('tx-desc');
+        if(descEl && !descEl.value) descEl.value=selEl.value;
+        updateTBUHint(selEl.value);
+      };
+      if(inputEl) inputEl.style.display='none';
+    }
+
+  } else if(ctpConfig.type==='salon'){
+    // Тип контрагента (салон/дилер/офис)
+    if(ctpTypeEl) ctpTypeEl.style.display='';
+    updateTxCounterpartyType();
+
+  } else {
+    // free — обычный текстовый ввод
+    if(inputEl){ inputEl.placeholder='Контрагент...'; inputEl.removeAttribute('list'); }
+  }
+
+  // Подсказка о связи с ТБУ
+  updateTBUHint(cat==='expense' ? (document.getElementById('tx-counterparty-select')?.value||'') : cat);
+
+  // Автоплейсхолдер описания
+  const descEl = document.getElementById('tx-desc');
+  if(descEl && !descEl.value){
+    const autoDesc = {
+      'salary':'Выплата заработной платы','tax':'Оплата налогов',
+      'advance_out':'Выдача под отчёт','rent':'Оплата аренды',
+      'utility':'Оплата коммунальных услуг','bank':'Банковская комиссия',
+    };
+    if(autoDesc[cat]) descEl.placeholder = autoDesc[cat];
+  }
+}
+
+function updateTBUHint(catOrItem){
+  const docInfo = document.getElementById('tx-doc-info');
+  if(!docInfo) return;
+  const flow = document.getElementById('tx-flow')?.value;
+  const accId = document.getElementById('tx-account')?.value;
+  const acc   = bankAccounts.find(a=>a.id===accId);
+  const isCash = !acc || acc.type==='cash';
+
+  // Базовый документ
+  let docText = flow==='income'
+    ? (isCash ? '📄 Касса: ПКО с подписью кассира' : '📄 Банк: входящее платёжное поручение')
+    : (isCash ? '📄 Касса: РКО с подписью директора и кассира' : '📄 Банк: исходящее платёжное поручение');
+
+  // Проверяем связь с ТБУ
+  const CAT_TO_FC = {
+    'rent':'rent', 'utility':'utility', 'salary':'payroll',
+    'tax':'tax', 'expense':'other', 'transport':'transport',
+  };
+  const cat = document.getElementById('tx-category')?.value||'';
+  const fcCat = CAT_TO_FC[cat];
+
+  if(fcCat && flow==='expense'){
+    // Ищем в fcPlanData
+    let fcItem = null;
+    if(cat==='expense' && catOrItem){
+      fcItem = fcPlanData.find(f=>f.name===catOrItem);
+    } else {
+      fcItem = fcPlanData.find(f=>f.category===fcCat && f.approved);
+    }
+
+    if(fcItem){
+      const period = fcCurrentPeriod || new Date().toISOString().slice(0,7);
+      const [y,m] = period.split('-');
+      const monthName = new Date(+y,+m-1,1).toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
+      const fact = getFCFact(fcItem.category, period);
+      const remaining = Math.max(0, fcItem.plan - fact);
+      docText += `\n📊 ТБУ: «${fcItem.name}» · план ₸${Math.round(fcItem.plan/1000)}К · `+
+        `факт ₸${Math.round(fact/1000)}К · остаток ₸${Math.round(remaining/1000)}К (${monthName})`;
     }
   }
-  if(advReturnRow){
-    advReturnRow.style.display = isAdvReturn?'':'none';
-    if(isAdvReturn) updateAdvanceReturnList();
-  }
-  const ctpRow = document.getElementById('tx-supplier-row');
-  if(ctpRow) ctpRow.style.display = needEmp?'none':'';
 
-  // Автовыбор типа контрагента по категории
-  const ctpTypeEl = document.getElementById('tx-counterparty-type');
-  if(ctpTypeEl && !needEmp){
-    if(newCat==='order_payment')   ctpTypeEl.value='salon_armada';
-    else if(newCat==='supplier')   ctpTypeEl.value='supplier';
-    else                           ctpTypeEl.value='free';
-    updateTxCounterpartyType();
-  }
+  docInfo.textContent = docText;
+  docInfo.style.whiteSpace = 'pre-line';
 }
 
 function updateAdvanceReturnList(){
