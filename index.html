@@ -5092,20 +5092,33 @@ window.onerror = function(msg, src, line, col){
         </div>
         <!-- Карточки счетов -->
         <div id="bank-accounts-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:16px"></div>
-        <!-- Выписка -->
-        <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center">
+        <!-- Фильтры и сортировка -->
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
           <select id="bank-account-filter" onchange="renderBankTx()" style="font-size:13px;width:auto">
             <option value="all">Все счета</option>
           </select>
-          <span style="font-size:13px;font-weight:600">Выписка:</span>
+          <input type="search" id="bank-search" placeholder="🔍 Контрагент, описание..."
+            style="font-size:13px;flex:1;min-width:160px" oninput="renderBankTx()">
+          <select id="bank-flow-filter" onchange="renderBankTx()" style="font-size:13px">
+            <option value="all">Все операции</option>
+            <option value="income">📥 Только приход</option>
+            <option value="expense">📤 Только расход</option>
+          </select>
+          <select id="bank-cat-filter" onchange="renderBankTx()" style="font-size:13px">
+            <option value="all">Все категории</option>
+          </select>
+          <span id="bank-filter-count" style="font-size:12px;color:var(--text3)"></span>
         </div>
         <div class="card" style="padding:0">
           <table class="data-table">
             <thead><tr>
-              <th>Дата</th><th>Счёт</th><th>Категория</th>
-              <th>Описание</th><th>Контрагент</th>
-              <th style="text-align:right;color:var(--green)">Приход</th>
-              <th style="text-align:right;color:var(--red)">Расход</th>
+              <th onclick="sortBankTx('date')"    style="cursor:pointer;user-select:none">Дата <span id="bank-sort-date">▼</span></th>
+              <th onclick="sortBankTx('acc')"     style="cursor:pointer;user-select:none">Счёт <span id="bank-sort-acc"></span></th>
+              <th onclick="sortBankTx('cat')"     style="cursor:pointer;user-select:none">Категория <span id="bank-sort-cat"></span></th>
+              <th>Описание</th>
+              <th onclick="sortBankTx('ctr')"     style="cursor:pointer;user-select:none">Контрагент <span id="bank-sort-ctr"></span></th>
+              <th onclick="sortBankTx('income')"  style="cursor:pointer;user-select:none;text-align:right;color:var(--green)">Приход <span id="bank-sort-income"></span></th>
+              <th onclick="sortBankTx('expense')" style="cursor:pointer;user-select:none;text-align:right;color:var(--red)">Расход <span id="bank-sort-expense"></span></th>
               <th style="text-align:right">Остаток</th>
               <th></th>
             </tr></thead>
@@ -7119,32 +7132,82 @@ function renderBankAccounts(){
   }
 }
 
+let _bankSortCol = 'date';
+let _bankSortAsc = false;
+
+function sortBankTx(col){
+  if(_bankSortCol===col){ _bankSortAsc=!_bankSortAsc; }
+  else { _bankSortCol=col; _bankSortAsc=(col!=='date'); }
+  ['date','acc','cat','ctr','income','expense'].forEach(c=>{
+    const el=document.getElementById('bank-sort-'+c);
+    if(el) el.textContent = c===_bankSortCol ? (_bankSortAsc?'▲':'▼') : '';
+  });
+  renderBankTx();
+}
+
 function renderBankTx(){
   const tbody = document.getElementById('bank-tbody');
   if(!tbody) return;
-  const filterId = parseInt(document.getElementById('bank-account-filter')?.value||'0')||0;
+
   const bankIds  = bankAccounts.filter(a=>a.type==='bank').map(a=>a.id);
+  const filterId = document.getElementById('bank-account-filter')?.value||'all';
+  const search   = (document.getElementById('bank-search')?.value||'').toLowerCase();
+  const flowF    = document.getElementById('bank-flow-filter')?.value||'all';
+  const catF     = document.getElementById('bank-cat-filter')?.value||'all';
+
+  // Заполняем фильтр категорий
+  const catSel = document.getElementById('bank-cat-filter');
+  if(catSel && catSel.options.length <= 1){
+    const cats = [...new Set(moneyTx.filter(t=>bankIds.includes(t.accountId)).map(t=>t.category))].sort();
+    catSel.innerHTML = '<option value="all">Все категории</option>'+
+      cats.map(c=>`<option value="${c}">${txCatLabel(c)}</option>`).join('');
+  }
+
   let txs = moneyFilteredTx(moneyTx).filter(t=>bankIds.includes(t.accountId));
-  if(filterId) txs=txs.filter(t=>t.accountId===filterId);
-  txs.sort((a,b)=>b.date.localeCompare(a.date));
-  const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-  // Running balance per account
-  const balMap = {};
-  bankAccounts.filter(a=>a.type==='bank').forEach(a=>{ balMap[a.id]=calcAccountBalance(a.id); });
-  tbody.innerHTML=txs.map(t=>{
-    const acc=bankAccounts.find(a=>a.id===t.accountId);
+  if(filterId!=='all') txs = txs.filter(t=>t.accountId===filterId);
+  if(flowF!=='all')    txs = txs.filter(t=>t.flow===flowF);
+  if(catF!=='all')     txs = txs.filter(t=>t.category===catF);
+  if(search) txs = txs.filter(t=>
+    (t.counterparty||'').toLowerCase().includes(search)||
+    (t.desc||'').toLowerCase().includes(search)||
+    (t.orderNum||'').toLowerCase().includes(search));
+
+  // Сортировка
+  txs.sort((a,b)=>{
+    let va, vb;
+    switch(_bankSortCol){
+      case 'date':    va=a.date||''; vb=b.date||''; break;
+      case 'acc':     va=bankAccounts.find(x=>x.id===a.accountId)?.name||''; vb=bankAccounts.find(x=>x.id===b.accountId)?.name||''; break;
+      case 'cat':     va=txCatLabel(a.category); vb=txCatLabel(b.category); break;
+      case 'ctr':     va=a.counterparty||''; vb=b.counterparty||''; break;
+      case 'income':  va=a.flow==='income'?a.amount:0; vb=b.flow==='income'?b.amount:0; return _bankSortAsc?va-vb:vb-va;
+      case 'expense': va=a.flow==='expense'?a.amount:0; vb=b.flow==='expense'?b.amount:0; return _bankSortAsc?va-vb:vb-va;
+      default:        va=a.date||''; vb=b.date||'';
+    }
+    return _bankSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
+  // Счётчик
+  const countEl = document.getElementById('bank-filter-count');
+  if(countEl) countEl.textContent = `${txs.length} операций`;
+
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const showRunning = _bankSortCol==='date';
+
+  tbody.innerHTML = txs.map(t=>{
+    const acc = bankAccounts.find(a=>a.id===t.accountId);
     return `<tr>
-      <td style="font-size:12px">${t.date}</td>
+      <td style="font-size:12px;white-space:nowrap">${t.date}</td>
       <td style="font-size:12px;font-weight:500">${acc?.name||'—'}</td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
-      <td style="font-size:12px">${t.desc}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
+      <td style="font-size:12px">${t.desc||'—'}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
-      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600">${fmt(calcAccountBalance(t.accountId))}</td>
-      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,${t.id})">✏️</button></td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--text3)">—</td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,'${t.sbId||t.id}')">✏️</button></td>
     </tr>`;
-  }).join('');
+  }).join('') || `<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--text3)">Операций нет за период</td></tr>`;
 }
 
 // ── Авансовые отчёты ─────────────────────────────────────────────────────────
@@ -20552,11 +20615,8 @@ function showOrdersTab(tab, el){
     });
   }
   if(tab==='leads'){
-    const loadAll = personsData.length > 0
-      ? loadLeadsFromDB()
-      : loadCustomersFromDB().then(()=>loadLeadsFromDB());
-    loadAll.then(()=>{
-      // Устанавливаем период по умолчанию — текущий год
+    // Лиды грузим напрямую — не ждём загрузку клиентов
+    loadLeadsFromDB().then(()=>{
       const periodSel = document.getElementById('leads-period');
       if(periodSel && !periodSel._initialized){
         periodSel._initialized = true;
@@ -21281,17 +21341,41 @@ async function loadLeadsFromDB(){
     showLoading('Загрузка лидов...', 'Подключение к базе данных');
     const ch = getChannelFilter();
     const chParam = ch ? `&channel=eq.${ch}` : '';
+    const pageSize = 1000;
 
-    // Загружаем все лиды с пагинацией
-    let allLeads = [], from = 0, pageSize = 1000;
-    while(true){
-      updateLoading(Math.min(from/50, 80), `Загружено: ${from} записей...`);
-      const page = await sbFetch('leads',
-        `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=${from}`);
-      if(!page || page.length === 0) break;
-      allLeads = allLeads.concat(page);
-      if(page.length < pageSize) break;
-      from += pageSize;
+    // Сначала узнаём общее количество
+    updateLoading(5, 'Подсчёт лидов...');
+    const first = await sbFetch('leads',
+      `select=id${chParam}&limit=1&offset=0`);
+
+    // Грузим первую страницу
+    updateLoading(15, 'Загрузка лидов...');
+    const page0 = await sbFetch('leads',
+      `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=0`);
+
+    if(!page0 || page0.length === 0){
+      hideLoading();
+      _cacheLoaded.leads = true;
+      return true;
+    }
+
+    let allLeads = [...page0];
+
+    // Если есть ещё страницы — грузим параллельно
+    if(page0.length === pageSize){
+      updateLoading(40, `Загружено ${allLeads.length}, грузим остальные...`);
+      const offsets = [];
+      for(let off = pageSize; off < 6000; off += pageSize) offsets.push(off);
+
+      const pages = await Promise.all(offsets.map(off =>
+        sbFetch('leads', `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=${off}`)
+      ));
+
+      for(const page of pages){
+        if(!page || page.length === 0) break;
+        allLeads = allLeads.concat(page);
+        if(page.length < pageSize) break;
+      }
     }
 
     updateLoading(85, `Обработка ${allLeads.length} лидов...`);
@@ -21311,7 +21395,7 @@ async function loadLeadsFromDB(){
     }));
 
     updateLoading(95, `Загружено лидов: ${leadsData.length}`);
-    console.log('✅ Лиды: '+leadsData.length+', с интересами: '+leadsData.filter(l=>l.interest).length);
+    console.log('✅ Лиды: '+leadsData.length);
     _cacheLoaded.leads = true;
     hideLoading();
     return true;
