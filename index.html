@@ -19991,14 +19991,21 @@ function sortOrders(col){
 function getOrderSortValue(order, col){
   const total = orderTotal(order);
   const paid  = total * Math.min(order.payment||0, 100) / 100;
+  // Конвертируем ДД.ММ.ГГГГ → ГГГГ-ММ-ДД для правильной сортировки
+  const toISO = d => {
+    if(!d) return '';
+    const p = d.split('.');
+    if(p.length===3) return `${p[2]}-${p[1]}-${p[0]}`;
+    return d; // уже ISO
+  };
   switch(col){
     case 'num':      return order.num||'';
     case 'customer': return (order.customer||'').toLowerCase();
     case 'total':    return total;
     case 'paid':     return paid;
     case 'debt':     return total - paid;
-    case 'date':     return order.date||order.createdDate||'';
-    default:         return order.date||'';
+    case 'date':     return toISO(order.date||order.createdDate||'');
+    default:         return toISO(order.date||'');
   }
 }
 
