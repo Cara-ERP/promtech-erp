@@ -19717,7 +19717,7 @@ function crmDrop(ev){
   const cell=ev.currentTarget;
   cell.classList.remove('crm-dragover');
   if(!crmDragLeadId) return;
-  const lead=crmLeads.find(l=>l.id==crmDragLeadId);
+  const lead=crmLeads.find(l=>String(l.id)===String(crmDragLeadId));
   if(!lead){ crmDragLeadId=null; return; }
   const newStage=cell.dataset.stage;
   if(newStage===lead.stage){ crmDragLeadId=null; return; }
@@ -19736,7 +19736,7 @@ function crmDrop(ev){
     .catch(e=>console.warn('⚠️ Ошибка:', e));
 
   // Обновляем в leadsData
-  const ld = leadsData.find(l=>l.id==lead.id);
+  const ld = leadsData.find(l=>String(l.id)===String(lead.id));
   if(ld) ld.status = newStatus;
 
   renderCrmKanban();
@@ -19744,35 +19744,33 @@ function crmDrop(ev){
 
 // Лид выиграл — меняем статус и предлагаем создать заказ
 function leadWon(leadId){
-  const lead = crmLeads.find(l=>l.id==leadId);
+  const lead = crmLeads.find(l=>String(l.id)===String(leadId));
   if(!lead) return;
 
-  if(!confirm(`✅ Лид «${lead.name}» выиграли?\n\nСтатус изменится на «Выиграли» и лид уйдёт из воронки.`)) return;
+  if(!confirm(`✅ Лид «${lead.name}» выиграли?\nСтатус изменится на «Выиграли» и лид уйдёт из воронки.`)) return;
 
-  // Сохраняем статус won
+  // Сохраняем статус won в Supabase
   sbPatch('leads', `id=eq.${leadId}`, {status:'won'})
     .catch(e=>console.warn('⚠️', e));
 
   // Обновляем в leadsData
-  const ld = leadsData.find(l=>l.id==leadId);
+  const ld = leadsData.find(l=>String(l.id)===String(leadId));
   if(ld) ld.status='won';
 
   // Убираем из воронки
-  crmLeads = crmLeads.filter(l=>l.id!=leadId);
+  crmLeads = crmLeads.filter(l=>String(l.id)!==String(leadId));
   renderCrmKanban();
 
-  // Предлагаем создать заказ
-  setTimeout(()=>{
-    if(confirm(`📦 Создать заказ для «${lead.name}»?\n\nПерейти в раздел «Новый заказ»?`)){
-      showPage('sales', document.querySelector('.nav-item[onclick*="sales"]'));
-      setTimeout(()=>showModal('newCustOrderModal'), 300);
-    }
-  }, 200);
+  // Предлагаем создать заказ через существующий модал
+  crmPendingWonLead = lead;
+  const labelEl = document.getElementById('crm-convert-label');
+  if(labelEl) labelEl.textContent = `«${lead.name}» выиграли! Создать заказ покупателя?`;
+  showModal('crmConvertModal');
 }
 
 // Лид проиграл — меняем статус и убираем из воронки
 function leadLost(leadId){
-  const lead = crmLeads.find(l=>l.id==leadId);
+  const lead = crmLeads.find(l=>String(l.id)===String(leadId));
   if(!lead) return;
 
   const reason = prompt(`❌ Причина отказа «${lead.name}»?\n(необязательно, нажмите OK чтобы пропустить)`);
@@ -19783,10 +19781,10 @@ function leadLost(leadId){
   sbPatch('leads', `id=eq.${leadId}`, {status:'lost', comment})
     .catch(e=>console.warn('⚠️', e));
 
-  const ld = leadsData.find(l=>l.id==leadId);
+  const ld = leadsData.find(l=>String(l.id)===String(leadId));
   if(ld){ ld.status='lost'; if(reason) ld.comment=comment; }
 
-  crmLeads = crmLeads.filter(l=>l.id!=leadId);
+  crmLeads = crmLeads.filter(l=>String(l.id)!==String(leadId));
   renderCrmKanban();
 }
 
@@ -19795,7 +19793,7 @@ function openCrmLeadModal(leadId){
   editingLeadId=leadId;
 
   // Ищем лид — сначала в crmLeads, потом в leadsData
-  const lead = crmLeads.find(l=>l.id==leadId) || leadsData.find(l=>l.id==leadId);
+  const lead = crmLeads.find(l=>String(l.id)===String(leadId)) || leadsData.find(l=>String(l.id)===String(leadId));
 
   const err=document.getElementById('crm-lead-form-error');
   if(err) err.textContent='';
@@ -19998,7 +19996,8 @@ function crmMoveToNextStage(leadId){
   renderCrmKanban();
   if(l.stage==='won'){
     crmPendingWonLead=l;
-    document.getElementById('crm-convert-label').textContent=`«${l.name}» перемещён в «Сделка закрыта». Создать реальный заказ покупателя?`;
+    const labelEl=document.getElementById('crm-convert-label');
+    if(labelEl) labelEl.textContent=`«${l.name}» выиграли! Создать заказ покупателя?`;
     showModal('crmConvertModal');
   }
 }
