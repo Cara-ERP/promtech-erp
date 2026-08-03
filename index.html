@@ -835,6 +835,19 @@ async function loadMoneyFromDB(){
       });
       console.log('✅ Транзакций загружено из Supabase: '+allTxs.length);
       _cacheLoaded.money = true;
+      // Пересчитываем % оплаты всех заказов из реальных транзакций
+      if(ordersData.length > 0){
+        ordersData.forEach(order=>{
+          const total = orderTotal(order);
+          if(!total) return;
+          const paid = moneyTx
+            .filter(t=>t.orderNum===order.num && t.flow==='income')
+            .reduce((s,t)=>s+(t.amount||0), 0);
+          if(paid > 0){
+            order.payment = Math.min(100, Math.round(paid/total*100));
+          }
+        });
+      }
     }
     hideLoading();
     return true;
@@ -6908,6 +6921,27 @@ function moneyFilteredTx(txs){
   });
 }
 
+function recalcOrderPayment(orderNum){
+  if(!orderNum) return;
+  const order = ordersData.find(o=>o.num===orderNum);
+  if(!order) return;
+  const total = orderTotal(order);
+  if(!total) return;
+  // Считаем оплату из moneyTx (реальные транзакции)
+  const paid = moneyTx
+    .filter(t=>t.orderNum===orderNum && t.flow==='income')
+    .reduce((s,t)=>s+(t.amount||0), 0);
+  // Также из paymentHistory
+  const paidHistory = (order.paymentHistory||[]).reduce((s,p)=>s+(p.amount||0), 0);
+  const totalPaid = Math.max(paid, paidHistory);
+  const newPct = Math.min(100, Math.round(totalPaid/total*100));
+  if(order.payment !== newPct){
+    order.payment = newPct;
+    sbPatch('orders', `num=eq.${encodeURIComponent(orderNum)}`, {payment: newPct})
+      .catch(e=>console.warn('payment update:', e.message));
+  }
+}
+
 function renderCashTx(){
   const cashAccounts = bankAccounts.filter(a=>a.type==='cash');
 
@@ -7531,6 +7565,10 @@ function saveMoneyTx(){
   renderBankTx();
   renderAllTx();
   renderAdvances();
+  // Обновляем % оплаты заказа если транзакция привязана к заказу
+  if(obj.orderNum) recalcOrderPayment(obj.orderNum);
+  // Перерисовываем журнал заказов если он открыт
+  if(document.getElementById('page-sales')?.style.display!=='none') renderOrders();
 }
 
 function deleteMoneyTx(){
