@@ -19663,10 +19663,15 @@ function renderCrmKanban(){
           ondragstart="crmDragStart(event)" data-lead-id="${l.id}">
           ${seg?`<div style="margin-bottom:4px">${segmentBadgeHtml(l.segment)}</div>`:''}
           <div class="crm-card-name">${l.name}</div>
-          <div class="crm-card-amount">${crmFmtAmount(l.amount)}</div>
+          <div class="crm-card-amount">${crmFmtAmount(l.amount||l.budget||0)}</div>
           <div class="crm-card-mgr">👤 ${l.manager||'—'}</div>
+          ${l.interest?`<div style="font-size:11px;color:var(--text3);margin-top:2px">📦 ${l.interest.substring(0,30)}</div>`:''}
           ${nextLabel?`<div style="font-size:10px;color:var(--text3);margin-top:3px">📅 ${nextLabel}${l.nextAction?' · '+l.nextAction.substring(0,18)+(l.nextAction.length>18?'…':''):''}</div>`:''}
           ${tagsRow}
+          <div style="display:flex;gap:4px;margin-top:8px">
+            <button onclick="event.stopPropagation();leadWon('${l.id}')" style="flex:1;font-size:11px;padding:3px 0;background:rgba(61,214,140,.15);border:1px solid var(--green);border-radius:5px;cursor:pointer;color:var(--green);font-weight:600">✅ Выиграли</button>
+            <button onclick="event.stopPropagation();leadLost('${l.id}')" style="flex:1;font-size:11px;padding:3px 0;background:rgba(249,70,70,.08);border:1px solid var(--red);border-radius:5px;cursor:pointer;color:var(--red)">❌ Отказ</button>
+          </div>
           <button class="crm-card-detail-btn" onclick="event.stopPropagation();openCrmPopover(${l.id},this)" title="Детали лида">⋯</button>
         </div>`;
       } else {
@@ -19712,18 +19717,77 @@ function crmDrop(ev){
   const cell=ev.currentTarget;
   cell.classList.remove('crm-dragover');
   if(!crmDragLeadId) return;
-  const lead=crmLeads.find(l=>l.id===crmDragLeadId);
+  const lead=crmLeads.find(l=>l.id==crmDragLeadId);
   if(!lead){ crmDragLeadId=null; return; }
   const newStage=cell.dataset.stage;
   if(newStage===lead.stage){ crmDragLeadId=null; return; }
   lead.stage=newStage;
   crmDragLeadId=null;
+
+  // Маппинг stage воронки → status в таблице leads
+  const stageToStatus = {
+    'qualify':'qualify', 'proposal':'proposal', 'negotiation':'negotiation'
+  };
+  const newStatus = stageToStatus[newStage] || newStage;
+
+  // Сохраняем в Supabase
+  sbPatch('leads', `id=eq.${lead.id}`, {status: newStatus})
+    .then(()=>console.log(`✅ Лид ${lead.name} → ${newStatus}`))
+    .catch(e=>console.warn('⚠️ Ошибка:', e));
+
+  // Обновляем в leadsData
+  const ld = leadsData.find(l=>l.id==lead.id);
+  if(ld) ld.status = newStatus;
+
   renderCrmKanban();
-  if(newStage==='won'){
-    crmPendingWonLead=lead;
-    document.getElementById('crm-convert-label').textContent=`«${lead.name}» перемещён в «Сделка закрыта». Создать реальный заказ покупателя?`;
-    showModal('crmConvertModal');
-  }
+}
+
+// Лид выиграл — меняем статус и предлагаем создать заказ
+function leadWon(leadId){
+  const lead = crmLeads.find(l=>l.id==leadId);
+  if(!lead) return;
+
+  if(!confirm(`✅ Лид «${lead.name}» выиграли?\n\nСтатус изменится на «Выиграли» и лид уйдёт из воронки.`)) return;
+
+  // Сохраняем статус won
+  sbPatch('leads', `id=eq.${leadId}`, {status:'won'})
+    .catch(e=>console.warn('⚠️', e));
+
+  // Обновляем в leadsData
+  const ld = leadsData.find(l=>l.id==leadId);
+  if(ld) ld.status='won';
+
+  // Убираем из воронки
+  crmLeads = crmLeads.filter(l=>l.id!=leadId);
+  renderCrmKanban();
+
+  // Предлагаем создать заказ
+  setTimeout(()=>{
+    if(confirm(`📦 Создать заказ для «${lead.name}»?\n\nПерейти в раздел «Новый заказ»?`)){
+      showPage('sales', document.querySelector('.nav-item[onclick*="sales"]'));
+      setTimeout(()=>showModal('newCustOrderModal'), 300);
+    }
+  }, 200);
+}
+
+// Лид проиграл — меняем статус и убираем из воронки
+function leadLost(leadId){
+  const lead = crmLeads.find(l=>l.id==leadId);
+  if(!lead) return;
+
+  const reason = prompt(`❌ Причина отказа «${lead.name}»?\n(необязательно, нажмите OK чтобы пропустить)`);
+  if(reason === null) return; // нажали Отмена
+
+  const comment = reason ? `Отказ: ${reason}` : 'Отказ';
+
+  sbPatch('leads', `id=eq.${leadId}`, {status:'lost', comment})
+    .catch(e=>console.warn('⚠️', e));
+
+  const ld = leadsData.find(l=>l.id==leadId);
+  if(ld){ ld.status='lost'; if(reason) ld.comment=comment; }
+
+  crmLeads = crmLeads.filter(l=>l.id!=leadId);
+  renderCrmKanban();
 }
 
 // ----- Lead modal (add / edit) -----
