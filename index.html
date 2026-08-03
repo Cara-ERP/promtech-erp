@@ -7398,6 +7398,33 @@ function openMoneyTxModal(type, flow, editId){
   // Теперь вызываем setTxFlow (внутри updateTxForm читает категорию)
   setTxFlow(initFlow);
 
+  // Восстанавливаем контрагента после updateTxForm
+  if(tx){
+    const empCats = ['salary','advance_out','advance_return'];
+    if(empCats.includes(tx.category)){
+      // Ждём заполнения селекта сотрудников
+      const trySetEmp = ()=>{
+        const empSel = document.getElementById('tx-advance-emp');
+        if(empSel && tx.counterparty){
+          // Если опция уже есть — выбираем
+          const opt = [...empSel.options].find(o=>o.value===tx.counterparty);
+          if(opt){ empSel.value=tx.counterparty; }
+          else {
+            // Добавляем опцию если нет в списке
+            const o=document.createElement('option');
+            o.value=o.textContent=tx.counterparty;
+            empSel.appendChild(o);
+            empSel.value=tx.counterparty;
+          }
+        }
+      };
+      if(employeesData.length>0) trySetEmp();
+      else loadStaffFromDB().then(trySetEmp);
+    } else {
+      document.getElementById('tx-counterparty').value = tx.counterparty||'';
+    }
+  }
+
   showModal('moneyTxModal');
 }
 
@@ -7672,7 +7699,9 @@ function saveMoneyTx(){
   const category= document.getElementById('tx-category').value;
 
   const advEmp = document.getElementById('tx-advance-emp')?.value||'';
-  const counterparty = category==='advance_out' && advEmp
+  // Для всех категорий с сотрудником — берём из селекта сотрудников
+  const empCats = ['salary','advance_out','advance_return'];
+  const counterparty = (empCats.includes(category) && advEmp)
     ? advEmp
     : document.getElementById('tx-counterparty').value.trim();
 
@@ -7784,15 +7813,18 @@ function saveMoneyTx(){
   }
 
   closeModal('moneyTxModal');
+  // Обновляем только текущую активную вкладку — не все сразу
   renderMoneyKPIs();
-  renderCashTx();
-  renderBankTx();
-  renderAllTx();
-  renderAdvances();
-  // Обновляем % оплаты заказа если транзакция привязана к заказу
-  if(obj.orderNum) recalcOrderPayment(obj.orderNum);
-  // Перерисовываем журнал заказов если он открыт
-  if(document.getElementById('page-sales')?.style.display!=='none') renderOrders();
+  const activeTab = document.querySelector('#page-money .money-tab[style*="block"], #page-money .money-tab:not([style*="none"])');
+  // Откладываем тяжёлые рендеры чтобы модалка закрылась быстро
+  setTimeout(()=>{
+    renderCashTx();
+    renderBankTx();
+    renderAllTx();
+    renderAdvances();
+    if(obj.orderNum) recalcOrderPayment(obj.orderNum);
+    if(document.getElementById('page-sales')?.style.display!=='none') renderOrders();
+  }, 50);
 }
 
 function deleteMoneyTx(){
