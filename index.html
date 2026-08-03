@@ -21424,11 +21424,11 @@ async function loadLeadsFromDB(){
 
     let allLeads = [...page0];
 
-    // Если есть ещё страницы — грузим параллельно
+    // Если есть ещё страницы — грузим параллельно начиная с offset=pageSize
     if(page0.length === pageSize){
       updateLoading(40, `Загружено ${allLeads.length}, грузим остальные...`);
       const offsets = [];
-      for(let off = pageSize; off < 6000; off += pageSize) offsets.push(off);
+      for(let off = pageSize; off < 10000; off += pageSize) offsets.push(off);
 
       const pages = await Promise.all(offsets.map(off =>
         sbFetch('leads', `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=${off}`)
@@ -21440,6 +21440,10 @@ async function loadLeadsFromDB(){
         if(page.length < pageSize) break;
       }
     }
+
+    // Дедупликация по id на случай если что-то пошло не так
+    const seen = new Set();
+    allLeads = allLeads.filter(l=>{ if(seen.has(l.id)) return false; seen.add(l.id); return true; });
 
     updateLoading(85, `Обработка ${allLeads.length} лидов...`);
     leadsData = allLeads.map(l=>({
