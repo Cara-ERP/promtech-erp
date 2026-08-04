@@ -3227,42 +3227,49 @@ window.onerror = function(msg, src, line, col){
         </div>
       </div>
       <div class="orders-tab" id="orders-sales-journal" style="display:none">
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
           <input type="date" id="sj-date-from" onchange="renderSalesJournal()" style="font-size:13px">
           <span style="color:var(--text3)">—</span>
           <input type="date" id="sj-date-to" onchange="renderSalesJournal()" style="font-size:13px">
           <select id="sj-channel" onchange="renderSalesJournal()" style="font-size:13px">
             <option value="">Все каналы</option>
-            <option value="office">Офис</option>
-            <option value="salon_armada">Салон Армада</option>
-            <option value="salon_nazarbayeva">Салон Назарбаева</option>
-            <option value="dealer_astana">Дилер Астана</option>
-            <option value="dealer_aktau">Дилер Актау</option>
-            <option value="dealer_shymkent">Дилер Шымкент</option>
-            <option value="dealer_atyrau">Дилер Атырау</option>
-            <option value="dealer_aktobe">Дилер Актобе</option>
+            <option value="office">🏢 Офис</option>
+            <option value="salon_armada">🏬 Армада</option>
+            <option value="salon_nazarbayeva">🏪 Назарбаева</option>
+            <option value="dealer_astana">🚚 Астана</option>
+            <option value="dealer_aktau">🚚 Актау</option>
+            <option value="dealer_shymkent">🚚 Шымкент</option>
+            <option value="dealer_atyrau">🚚 Атырау</option>
+            <option value="dealer_aktobe">🚚 Актобе</option>
           </select>
-          <input type="search" id="sj-search" placeholder="🔍 Поиск..." style="font-size:13px;width:180px" oninput="renderSalesJournal()">
+          <select id="sj-payment-filter" onchange="renderSalesJournal()" style="font-size:13px">
+            <option value="">Все оплаты</option>
+            <option value="paid">✅ Оплачен 100%</option>
+            <option value="partial">💳 Частично</option>
+            <option value="unpaid">❌ Не оплачен</option>
+          </select>
+          <input type="search" id="sj-search" placeholder="🔍 Заказ, покупатель, товар..."
+            style="font-size:13px;flex:1;min-width:160px" oninput="renderSalesJournal()">
           <button class="btn btn-ghost btn-sm" onclick="exportSalesJournalExcel()">📥 Excel</button>
           <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Печать</button>
-          <span id="sj-totals" style="font-size:12px;color:var(--text3);margin-left:8px"></span>
         </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:8px" id="sj-totals"></div>
         <div class="card" style="padding:0">
           <table class="data-table" id="sj-table">
             <thead><tr>
-              <th>№</th>
-              <th>Дата</th>
-              <th>Номер заказа</th>
-              <th>Покупатель</th>
-              <th>Конечный клиент</th>
-              <th>Канал</th>
-              <th>Товар / Позиция</th>
-              <th style="text-align:right">Кол-во</th>
-              <th style="text-align:right">Цена (₸)</th>
-              <th style="text-align:right">Сумма (₸)</th>
-              <th style="text-align:right">% оплаты</th>
-              <th style="text-align:right">Оплачено (₸)</th>
-              <th>Статус</th>
+              <th style="width:36px">№</th>
+              <th onclick="sortSJ('date')"     style="cursor:pointer;user-select:none">Дата <span id="sj-sort-date">▲</span></th>
+              <th onclick="sortSJ('num')"      style="cursor:pointer;user-select:none">Заказ <span id="sj-sort-num"></span></th>
+              <th onclick="sortSJ('customer')" style="cursor:pointer;user-select:none">Покупатель <span id="sj-sort-customer"></span></th>
+              <th onclick="sortSJ('endClient')"style="cursor:pointer;user-select:none">Клиент <span id="sj-sort-endClient"></span></th>
+              <th onclick="sortSJ('channel')"  style="cursor:pointer;user-select:none">Канал <span id="sj-sort-channel"></span></th>
+              <th onclick="sortSJ('item')"     style="cursor:pointer;user-select:none">Товар <span id="sj-sort-item"></span></th>
+              <th onclick="sortSJ('qty')"      style="cursor:pointer;user-select:none;text-align:right">Кол-во <span id="sj-sort-qty"></span></th>
+              <th onclick="sortSJ('price')"    style="cursor:pointer;user-select:none;text-align:right">Цена <span id="sj-sort-price"></span></th>
+              <th onclick="sortSJ('total')"    style="cursor:pointer;user-select:none;text-align:right">Сумма <span id="sj-sort-total"></span></th>
+              <th onclick="sortSJ('payPct')"   style="cursor:pointer;user-select:none;text-align:right">% опл. <span id="sj-sort-payPct"></span></th>
+              <th onclick="sortSJ('paid')"     style="cursor:pointer;user-select:none;text-align:right">Оплачено <span id="sj-sort-paid"></span></th>
+              <th onclick="sortSJ('status')"   style="cursor:pointer;user-select:none">Статус <span id="sj-sort-status"></span></th>
             </tr></thead>
             <tbody id="sj-tbody"></tbody>
             <tfoot id="sj-tfoot"></tfoot>
@@ -20738,6 +20745,19 @@ function showOrdersTab(tab, el){
   }
 }
 
+let _sjSortCol = 'date';
+let _sjSortAsc = true;
+
+function sortSJ(col){
+  if(_sjSortCol===col){ _sjSortAsc=!_sjSortAsc; }
+  else { _sjSortCol=col; _sjSortAsc=col==='date'||col==='num'; }
+  ['date','num','customer','endClient','channel','item','qty','price','total','payPct','paid','status'].forEach(c=>{
+    const el=document.getElementById('sj-sort-'+c);
+    if(el) el.textContent = c===_sjSortCol ? (_sjSortAsc?'▲':'▼') : '';
+  });
+  renderSalesJournal();
+}
+
 function renderSalesJournal(){
   // Устанавливаем даты по умолчанию если пустые
   const fromEl = document.getElementById('sj-date-from');
@@ -20752,7 +20772,8 @@ function renderSalesJournal(){
   const dateTo    = toEl?.value || '';
   const channel   = document.getElementById('sj-channel')?.value || '';
   const search    = (document.getElementById('sj-search')?.value||'').toLowerCase();
-  const chFilter  = getChannelFilter(); // для дилеров/салонов
+  const payFilter = document.getElementById('sj-payment-filter')?.value||'';
+  const chFilter  = getChannelFilter();
 
   const tbody = document.getElementById('sj-tbody');
   const tfoot = document.getElementById('sj-tfoot');
@@ -20797,6 +20818,12 @@ function renderSalesJournal(){
 
       const lineTotal = (item.qty||1) * (item.price||0);
       const paid = lineTotal * (order.payment||0) / 100;
+
+      // Фильтр оплаты
+      if(payFilter==='paid'    && (order.payment||0)<100) return;
+      if(payFilter==='unpaid'  && (order.payment||0)>0)   return;
+      if(payFilter==='partial' && ((order.payment||0)===0||(order.payment||0)>=100)) return;
+
       rows.push({
         date:      order.date||order.createdDate||'—',
         num:       order.num,
@@ -20814,8 +20841,14 @@ function renderSalesJournal(){
     });
   });
 
-  // Сортируем по дате
-  rows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  // Сортировка
+  rows.sort((a,b)=>{
+    const va=a[_sjSortCol], vb=b[_sjSortCol];
+    if(typeof va==='number') return _sjSortAsc ? va-vb : vb-va;
+    return _sjSortAsc
+      ? String(va||'').localeCompare(String(vb||''))
+      : String(vb||'').localeCompare(String(va||''));
+  });
 
   // Итоги
   const totalSum  = rows.reduce((s,r)=>s+r.total, 0);
