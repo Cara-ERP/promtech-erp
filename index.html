@@ -5076,6 +5076,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showMoneyTab('bank',this)">🏦 Расчётные счета</div>
         <div class="tab" onclick="showMoneyTab('advances',this)">📋 Авансовые отчёты</div>
         <div class="tab" onclick="showMoneyTab('all',this)">📄 Все операции</div>
+        <div class="tab" onclick="showMoneyTab('calendar',this)">📅 Платёжный календарь</div>
       </div>
 
       <!-- КАССА -->
@@ -5236,6 +5237,50 @@ window.onerror = function(msg, src, line, col){
               <th></th>
             </tr></thead>
             <tbody id="all-tx-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB: Платёжный календарь -->
+      <div id="money-tab-calendar" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+          <select id="pc-days" onchange="renderPayCalendar()" style="font-size:13px">
+            <option value="14">2 недели</option>
+            <option value="30" selected>30 дней</option>
+            <option value="60">60 дней</option>
+            <option value="90">90 дней</option>
+          </select>
+          <select id="pc-account" onchange="renderPayCalendar()" style="font-size:13px">
+            <option value="">Все счета</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="pc-show-orders" onchange="renderPayCalendar()" checked>
+            📦 Ожидаемые оплаты
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="pc-show-fixed" onchange="renderPayCalendar()" checked>
+            📋 Плановые расходы
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="pc-show-actual" onchange="renderPayCalendar()" checked>
+            ✅ Факт
+          </label>
+        </div>
+        <div id="pc-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
+        <div class="card" style="margin-bottom:16px;padding:16px">
+          <canvas id="pc-chart" height="120" style="width:100%"></canvas>
+        </div>
+        <div class="card" style="padding:0">
+          <table class="data-table">
+            <thead><tr>
+              <th style="min-width:90px">Дата</th>
+              <th>День</th>
+              <th style="text-align:right;color:var(--green)">📥 Приход</th>
+              <th style="text-align:right;color:var(--red)">📤 Расход</th>
+              <th style="text-align:right">💰 Остаток</th>
+              <th>Детали</th>
+            </tr></thead>
+            <tbody id="pc-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -7001,9 +7046,10 @@ function setMoneyPeriod(mode){
   // Перерендериваем активную вкладку
   renderMoneyKPIs();
   const activeTx = document.querySelector('#page-money .money-tab[style*="block"]');
-  if(document.getElementById('money-tab-cash')?.style.display!=='none')   renderCashTx();
-  if(document.getElementById('money-tab-bank')?.style.display!=='none')   renderBankTx();
-  if(document.getElementById('money-tab-all')?.style.display!=='none')    renderAllTx();
+  if(document.getElementById('money-tab-cash')?.style.display!=='none')     renderCashTx();
+  if(document.getElementById('money-tab-bank')?.style.display!=='none')     renderBankTx();
+  if(document.getElementById('money-tab-all')?.style.display!=='none')      renderAllTx();
+  if(document.getElementById('money-tab-calendar')?.style.display!=='none') renderPayCalendar();
 }
 
 function moneyFilteredTx(txs){
@@ -7315,7 +7361,21 @@ function renderAdvances(){
 }
 
 // ── Все операции ──────────────────────────────────────────────────────────────
+function renderPayCalendar(){
+  const tbody = document.getElementById('pc-tbody');
+  if(!tbody) return;
+  // Не рендерим если вкладка скрыта
+  const tab = document.getElementById('money-tab-calendar');
+  if(!tab || tab.style.display==='none') return;
+
+  const days    = parseInt(document.getElementById('pc-days')?.value||30);
+  const accF    = document.getElementById('pc-account')?.value||'';
+  const showOrd = document.getElementById('pc-show-orders')?.checked!==false;
+  const showFix = document.getElementById('pc-show-fixed')?.checked!==false;
+  const showAct = document.getElementById('pc-show-actual')?.checked!==false;
+
 function renderAllTx(){
+
   const tbody=document.getElementById('all-tx-tbody');
   if(!tbody) return;
   const q=(document.getElementById('money-search')?.value||'').toLowerCase();
@@ -26506,6 +26566,8 @@ function populateClientPersonSelect(){
     + personsData.filter(p=>!linkedIds.has(p.id)).map(p=>`<option value="${p.id}">${p.name} (${p.type})</option>`).join('');
   document.getElementById('cli-seller-select').value='';
   document.getElementById('client-form-error').textContent='';
+}
+
 }
 
 if(typeof diagLog==='function') diagLog('✅✅✅ Основной скрипт ДОЧИТАН ДО КОНЦА — showPage='+(typeof showPage));
