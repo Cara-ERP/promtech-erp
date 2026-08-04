@@ -3291,17 +3291,34 @@ window.onerror = function(msg, src, line, col){
           <select id="ord-year" onchange="setOrderYear(this.value)" style="font-size:13px">
             <option value="">Все годы</option>
           </select>
+          <select id="ord-channel-filter" onchange="renderOrders()" style="font-size:13px">
+            <option value="">Все покупатели</option>
+            <option value="salon_armada">🏬 Салон Армада</option>
+            <option value="salon_nazarbayeva">🏪 Салон Назарбаева</option>
+            <option value="dealer_astana">🚚 Дилер Астана</option>
+            <option value="dealer_aktau">🚚 Дилер Актау</option>
+            <option value="dealer_atyrau">🚚 Дилер Атырау</option>
+            <option value="dealer_shymkent">🚚 Дилер Шымкент</option>
+            <option value="dealer_aktobe">🚚 Дилер Актобе</option>
+            <option value="office">🏢 Офис / Прямые</option>
+          </select>
           <select id="ord-status-filter" onchange="renderOrders()" style="font-size:13px">
             <option value="">Все статусы</option>
-            <option value="queue">Очередь</option>
-            <option value="progress">В работе</option>
-            <option value="done">Завершено</option>
+            <option value="queue">⏳ В очереди</option>
+            <option value="production">🔨 В производстве</option>
+            <option value="ready">📦 Готов</option>
+            <option value="delivered">🚚 Доставлен</option>
+            <option value="done">✅ Завершён</option>
+            <option value="cancelled">❌ Отменён</option>
+          </select>
+          <select id="ord-payment-filter" onchange="renderOrders()" style="font-size:13px">
+            <option value="">Все оплаты</option>
+            <option value="paid">✅ Оплачен 100%</option>
+            <option value="partial">💳 Частично</option>
+            <option value="unpaid">❌ Не оплачен</option>
           </select>
           <select id="ord-seller-filter" onchange="renderOrders()" style="font-size:13px">
             <option value="">Все продавцы</option>
-          </select>
-          <select id="ord-resp-filter" onchange="renderOrders()" style="font-size:13px">
-            <option value="">Все ответственные</option>
           </select>
           <input type="number" id="ord-amount-min" placeholder="Сумма от ₸"
             style="font-size:13px;width:110px" oninput="renderOrders()">
@@ -20449,7 +20466,7 @@ function setOrderYear(year){
 function clearOrderFilters(){
   ['ord-search','ord-date-from','ord-date-to','ord-amount-min','ord-amount-max']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
-  ['ord-year','ord-status-filter','ord-seller-filter','ord-resp-filter']
+  ['ord-year','ord-status-filter','ord-channel-filter','ord-payment-filter','ord-seller-filter']
     .forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   renderOrders();
 }
@@ -20507,22 +20524,26 @@ function renderOrders(){
   const dateFrom  = document.getElementById('ord-date-from')?.value||'';
   const dateTo    = document.getElementById('ord-date-to')?.value||'';
   const statusF   = document.getElementById('ord-status-filter')?.value||'';
+  const channelF  = document.getElementById('ord-channel-filter')?.value||'';
+  const paymentF  = document.getElementById('ord-payment-filter')?.value||'';
   const sellerF   = document.getElementById('ord-seller-filter')?.value||'';
-  const respF     = document.getElementById('ord-resp-filter')?.value||'';
   const amountMin = parseFloat(document.getElementById('ord-amount-min')?.value||0)||0;
   const amountMax = parseFloat(document.getElementById('ord-amount-max')?.value||0)||0;
   const chFilter  = getChannelFilter();
 
   let itemsCount=0;
-  const statusCounts={queue:0,progress:0,done:0};
+  const statusCounts={queue:0,production:0,ready:0,delivered:0,done:0,cancelled:0};
 
   let visibleOrders = ordersData.filter(order=>{
-    if(chFilter && order.channel!==chFilter) return false;
-    if(statusF && order.status!==statusF) return false;
-    if(sellerF && order.seller!==sellerF) return false;
-    if(respF   && order.resp!==respF)     return false;
+    if(chFilter  && order.channel!==chFilter)  return false;
+    if(channelF  && order.channel!==channelF)  return false;
+    if(statusF   && order.status!==statusF)    return false;
+    if(sellerF   && (order.seller||'')!==sellerF) return false;
+    if(paymentF==='paid'    && (order.payment||0)<100) return false;
+    if(paymentF==='unpaid'  && (order.payment||0)>0)   return false;
+    if(paymentF==='partial' && ((order.payment||0)===0||(order.payment||0)>=100)) return false;
     if(search){
-      const hay = (order.customer||'').toLowerCase()+(order.num||'').toLowerCase()+(order.seller||'').toLowerCase()+(order.resp||'').toLowerCase();
+      const hay = (order.customer||'').toLowerCase()+(order.num||'').toLowerCase()+(order.salonClientName||'').toLowerCase();
       if(!hay.includes(search)) return false;
     }
     const d = order.date||order.createdDate||'';
@@ -20540,10 +20561,21 @@ function renderOrders(){
   // Счётчик фильтра
   const countEl = document.getElementById('ord-filter-count');
   if(countEl){
-    const hasFilter = search||dateFrom||dateTo||statusF||sellerF||respF||amountMin||amountMax;
+    const hasFilter = search||dateFrom||dateTo||statusF||channelF||paymentF||sellerF||amountMin||amountMax;
     countEl.textContent = hasFilter
       ? `Найдено: ${visibleOrders.length} из ${ordersData.filter(o=>!chFilter||o.channel===chFilter).length}`
       : '';
+
+    // Заполняем селект продавцов из данных
+    const sellerSel = document.getElementById('ord-seller-filter');
+    if(sellerSel && sellerSel.options.length <= 1){
+      const sellers = [...new Set(ordersData.map(o=>o.seller).filter(Boolean))].sort();
+      sellers.forEach(s=>{
+        const opt=document.createElement('option');
+        opt.value=s; opt.textContent=s;
+        sellerSel.appendChild(opt);
+      });
+    }
   }
 
   // Применяем сортировку
