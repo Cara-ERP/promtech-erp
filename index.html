@@ -20764,22 +20764,35 @@ let _cacheLoaded_realiz = false;
 async function loadRealizationsFromDB(){
   if(_cacheLoaded_realiz && realizationsData.length > 0) return true;
   try {
-    showLoading('Загрузка реализации...', '');
-    let all = [], from = 0, pageSize = 1000;
-    while(true){
-      const page = await sbFetch('realizations',
-        `select=*&order=doc_date.desc&limit=${pageSize}&offset=${from}`);
-      if(!page || page.length===0) break;
-      all = all.concat(page);
-      if(page.length < pageSize) break;
-      from += pageSize;
+    const pageSize = 1000;
+    // Грузим первую страницу
+    const page0 = await sbFetch('realizations',
+      `select=*&order=doc_date.desc&limit=${pageSize}&offset=0`);
+    if(!page0 || page0.length===0){
+      _cacheLoaded_realiz = true;
+      return true;
     }
-    realizationsData = all;
+    let all = [...page0];
+    // Если есть ещё — грузим параллельно
+    if(page0.length === pageSize){
+      const offsets = [];
+      for(let off=pageSize; off<5000; off+=pageSize) offsets.push(off);
+      const pages = await Promise.all(offsets.map(off=>
+        sbFetch('realizations', `select=*&order=doc_date.desc&limit=${pageSize}&offset=${off}`)
+      ));
+      for(const page of pages){
+        if(!page || page.length===0) break;
+        all = all.concat(page);
+        if(page.length < pageSize) break;
+      }
+    }
+    // Дедупликация по id
+    const seen = new Set();
+    realizationsData = all.filter(r=>{ if(seen.has(r.id)) return false; seen.add(r.id); return true; });
     _cacheLoaded_realiz = true;
-    hideLoading();
+    console.log('✅ Реализации загружены:', realizationsData.length);
     return true;
   } catch(e){
-    hideLoading();
     console.warn('⚠️ Ошибка загрузки реализации:', e.message);
     return false;
   }
@@ -20807,9 +20820,10 @@ function renderSalesJournal(){
   if(!tbody) return;
 
   // Если реализация ещё не загружена — грузим
-  if(!_cacheLoaded_realiz){
-    loadRealizationsFromDB().then(()=>renderSalesJournal());
+  if(!_cacheLoaded_realiz || realizationsData.length === 0){
+    _cacheLoaded_realiz = false;
     tbody.innerHTML='<tr><td colspan="13" style="text-align:center;padding:20px;color:var(--text3)">⏳ Загрузка реализации...</td></tr>';
+    loadRealizationsFromDB().then(()=>renderSalesJournal());
     return;
   }
 
