@@ -1105,9 +1105,14 @@ function renderWhRemains(){ renderWarehouse(); }
 
 // Загрузить заказы из Supabase
 async function loadOrdersFromDB(){
-  if(_cacheLoaded.orders && ordersData.length > 0){
+let _ordersLoadedForChannel = null;
+
+  if(_cacheLoaded.orders && ordersData.length > 0 && _ordersLoadedForChannel === (getChannelFilter()||'')){
     console.log('📦 Заказы из кеша: '+ordersData.length);
     return true;
+  }
+  if(_ordersLoadedForChannel !== (getChannelFilter()||'')){
+    ordersData = []; _cacheLoaded.orders = false;
   }
   try {
     showLoading('Загрузка заказов...', 'Получение данных из базы');
@@ -1215,6 +1220,7 @@ async function loadOrdersFromDB(){
 
     console.log(`✅ Загружено из Supabase: ${ordersData.length} заказов, ${(items||[]).length} позиций`);
     _cacheLoaded.orders = true;
+    _ordersLoadedForChannel = getChannelFilter()||'';
     hideLoading();
     return true;
 
@@ -21516,25 +21522,31 @@ function hideLoading(){
 }
 
 async function loadLeadsFromDB(){
-  if(_cacheLoaded.leads && leadsData.length > 0){
+  const ch = getChannelFilter();
+  const isDealer = ch && ch.startsWith('dealer_');
+
+  // Дилеры не видят лиды вообще
+  if(isDealer){
+    leadsData = [];
+    _cacheLoaded.leads = true;
+    _leadsLoadedForChannel = ch;
+    return true;
+  }
+
+  // Для офиса и салонов — грузим все лиды (без фильтра по каналу)
+  // Кеш валиден если уже загружен без фильтра дилера
+  if(_cacheLoaded.leads && leadsData.length > 0 && !(_leadsLoadedForChannel||'').startsWith('dealer_')){
     console.log('📦 Лиды из кеша: '+leadsData.length);
     return true;
   }
   try {
     showLoading('Загрузка лидов...', 'Подключение к базе данных');
-    const ch = getChannelFilter();
-    const chParam = ch ? `&channel=eq.${ch}` : '';
     const pageSize = 1000;
+    // Лиды грузим без фильтра по каналу — видны всем кроме дилеров
 
-    // Сначала узнаём общее количество
-    updateLoading(5, 'Подсчёт лидов...');
-    const first = await sbFetch('leads',
-      `select=id${chParam}&limit=1&offset=0`);
-
-    // Грузим первую страницу
     updateLoading(15, 'Загрузка лидов...');
     const page0 = await sbFetch('leads',
-      `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=0`);
+      `select=*&order=created_at.desc&limit=${pageSize}&offset=0`);
 
     if(!page0 || page0.length === 0){
       hideLoading();
@@ -21551,7 +21563,7 @@ async function loadLeadsFromDB(){
       for(let off = pageSize; off < 10000; off += pageSize) offsets.push(off);
 
       const pages = await Promise.all(offsets.map(off =>
-        sbFetch('leads', `select=*${chParam}&order=created_at.desc&limit=${pageSize}&offset=${off}`)
+        sbFetch('leads', `select=*&order=created_at.desc&limit=${pageSize}&offset=${off}`)
       ));
 
       for(const page of pages){
@@ -21584,6 +21596,7 @@ async function loadLeadsFromDB(){
     updateLoading(95, `Загружено лидов: ${leadsData.length}`);
     console.log('✅ Лиды: '+leadsData.length);
     _cacheLoaded.leads = true;
+    _leadsLoadedForChannel = ch||'';  // запоминаем для проверки дилера
     hideLoading();
     return true;
   } catch(e){
