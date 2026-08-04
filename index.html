@@ -3432,21 +3432,57 @@ window.onerror = function(msg, src, line, col){
 
       <!-- TAB: Журнал реализации -->
 
-      <!-- TAB: Воронка заказов -->
+      <!-- TAB: Воронка заказов (Продажи) -->
       <div class="orders-tab" id="orders-orders-kanban" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+          <select id="ok-period" onchange="setOKPeriod(this.value)" style="font-size:13px">
+            <option value="month">Текущий месяц</option>
+            <option value="quarter">Квартал</option>
+            <option value="year">Текущий год</option>
+            <option value="active">Все активные</option>
+            <option value="custom">Период...</option>
+          </select>
+          <div id="ok-period-dates" style="display:none;gap:4px;align-items:center">
+            <input type="date" id="ok-date-from" onchange="renderOrdersKanban()" style="font-size:12px">
+            <span style="color:var(--text3)">—</span>
+            <input type="date" id="ok-date-to" onchange="renderOrdersKanban()" style="font-size:12px">
+          </div>
           <select id="ok-channel-filter" onchange="renderOrdersKanban()" style="font-size:13px">
             <option value="">Все каналы</option>
-            <option value="office">Офис</option>
-            <option value="salon_armada">Салон Армада</option>
-            <option value="salon_nazarbayeva">Салон Назарбаева</option>
-            <option value="dealer_astana">Дилер Астана</option>
-            <option value="dealer_aktau">Дилер Актау</option>
-            <option value="dealer_shymkent">Дилер Шымкент</option>
+            <option value="office">🏢 Офис</option>
+            <option value="salon_armada">🏬 Салон Армада</option>
+            <option value="salon_nazarbayeva">🏪 Салон Назарбаева</option>
+            <option value="dealer_astana">🚚 Дилер Астана</option>
+            <option value="dealer_aktau">🚚 Дилер Актау</option>
+            <option value="dealer_atyrau">🚚 Дилер Атырау</option>
+            <option value="dealer_shymkent">🚚 Дилер Шымкент</option>
+            <option value="dealer_aktobe">🚚 Дилер Актобе</option>
           </select>
           <span style="font-size:12px;color:var(--text3)" id="ok-count"></span>
         </div>
-        <div id="orders-kanban-board" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start"></div>
+
+        <!-- Легенда -->
+        <div style="display:flex;gap:16px;margin-bottom:12px;font-size:11px;color:var(--text3)">
+          <span>📋 Статус производства → 🚀 Отправлен</span>
+          <span>💳 Статус оплаты → ✅ Оплачен</span>
+          <span style="color:var(--accent)">Заказ исчезает когда оба ✅</span>
+        </div>
+
+        <!-- Две строки канбана -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <!-- Строка 1: По производству/доставке -->
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;
+              text-transform:uppercase;letter-spacing:.5px">🏭 По производству</div>
+            <div id="ok-board-production" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px"></div>
+          </div>
+          <!-- Строка 2: По оплате -->
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;
+              text-transform:uppercase;letter-spacing:.5px">💳 По оплате</div>
+            <div id="ok-board-payment" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px"></div>
+          </div>
+        </div>
       </div>
 
       <!-- TAB: Лиды -->
@@ -20663,7 +20699,10 @@ function showOrdersTab(tab, el){
       renderCrmKanban();
     }).catch(()=>{ hideLoading(); renderCrmKanban(); });
   }
-  if(tab==='orders-kanban') renderOrdersKanban();
+  if(tab==='orders-kanban'){
+    if(!_okDateFrom) setOKPeriod('month');
+    else renderOrdersKanban();
+  }
   if(tab==='tasks')         renderTasks();
   if(tab==='report')        renderOrderReport();
   if(tab==='clients'){
@@ -20822,58 +20861,139 @@ function exportSalesJournalExcel(){
   XLSX.writeFile(wb, 'Журнал_реализации_'+new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')+'.xlsx');
 }
 
+let _okDateFrom = '';
+let _okDateTo   = '';
+
+function setOKPeriod(val){
+  const datesRow = document.getElementById('ok-period-dates');
+  const now = new Date();
+  if(val==='month'){
+    _okDateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    _okDateTo   = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='quarter'){
+    const q=Math.floor(now.getMonth()/3);
+    _okDateFrom = new Date(now.getFullYear(), q*3, 1).toISOString().slice(0,10);
+    _okDateTo   = new Date(now.getFullYear(), q*3+3, 0).toISOString().slice(0,10);
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='year'){
+    _okDateFrom = `${now.getFullYear()}-01-01`;
+    _okDateTo   = `${now.getFullYear()}-12-31`;
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='active'){
+    _okDateFrom = ''; _okDateTo = '';
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='custom'){
+    if(datesRow) datesRow.style.display='flex';
+    _okDateFrom = document.getElementById('ok-date-from')?.value||'';
+    _okDateTo   = document.getElementById('ok-date-to')?.value||'';
+  }
+  renderOrdersKanban();
+}
+
 function renderOrdersKanban(){
-  const board = document.getElementById('orders-kanban-board');
-  if(!board) return;
+  const boardProd = document.getElementById('ok-board-production');
+  const boardPay  = document.getElementById('ok-board-payment');
+  if(!boardProd || !boardPay) return;
 
-  const chFilter = document.getElementById('ok-channel-filter')?.value ||
-                   getChannelFilter() || '';
+  if(!_okDateFrom && document.getElementById('ok-period')?.value!=='active'){
+    setOKPeriod('month'); return;
+  }
 
-  const stages = [
-    {key:'queue',    label:'⏳ Очередь',   color:'#4f8ef7'},
-    {key:'progress', label:'🔧 В работе',  color:'#f59e0b'},
-    {key:'ready',    label:'📦 Готово',    color:'#8b5cf6'},
-    {key:'done',     label:'✅ Отгружено', color:'#10b981'},
-  ];
-
-  let orders = ordersData;
-  if(chFilter) orders = orders.filter(o=>o.channel===chFilter);
-
-  const countEl = document.getElementById('ok-count');
-  if(countEl) countEl.textContent = orders.length + ' заказов';
-
+  const chFilter = document.getElementById('ok-channel-filter')?.value||getChannelFilter()||'';
+  const toISO = d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10);
+    const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const today = new Date().toISOString().slice(0,10);
 
-  board.innerHTML = stages.map(stage=>{
-    const cols = orders.filter(o=>{
-      if(stage.key==='ready') return o.status==='ready'||o.status==='shipping';
-      return o.status===stage.key;
+  // Фильтрация
+  let orders = ordersData.filter(o=>{
+    // Исключаем полностью закрытые (done + 100% оплата)
+    if(o.status==='done' && (o.payment||0)>=100) return false;
+    if(o.status==='cancelled') return false;
+    return true;
+  });
+
+  if(_okDateFrom||_okDateTo){
+    orders = orders.filter(o=>{
+      const d=toISO(o.createdDate||o.date||'');
+      if(!d) return true;
+      if(_okDateFrom && d<_okDateFrom) return false;
+      if(_okDateTo   && d>_okDateTo)   return false;
+      return true;
     });
-    const total = cols.reduce((s,o)=>s+orderTotal(o),0);
+  }
+  if(chFilter) orders=orders.filter(o=>o.channel===chFilter);
 
-    const cards = cols.map(o=>`
-      <div class="card" style="padding:10px 12px;margin-bottom:8px;cursor:pointer;border-left:3px solid ${stage.color}"
-        onclick="openEditOrderModal(${JSON.stringify(o.num)})">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-family:monospace;font-size:12px;color:${stage.color};font-weight:600">${o.num}</span>
-          <span style="font-size:11px;color:var(--text3)">${o.date||''}</span>
-        </div>
-        <div style="font-weight:500;font-size:13px;margin-bottom:4px;
-          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.customer}</div>
-        <div style="font-size:12px;color:var(--green);font-weight:600">${fmt(orderTotal(o))}</div>
-        ${o.items?.length?`<div style="font-size:11px;color:var(--text3);margin-top:4px">
-          ${o.items.slice(0,2).map(i=>i.name).join(', ')}${o.items.length>2?'...':''}</div>`:''}
-      </div>`).join('');
+  const countEl=document.getElementById('ok-count');
+  if(countEl) countEl.textContent=`${orders.length} активных заказов`;
 
-    return `<div>
-      <div style="padding:10px 12px;border-radius:8px;margin-bottom:10px;
-        background:${stage.color}22;border:1px solid ${stage.color}44">
-        <div style="font-weight:700;color:${stage.color}">${stage.label}</div>
-        <div style="font-size:12px;color:var(--text3)">
-          ${cols.length} заказов · ${fmt(total)}
-        </div>
+  // Карточка заказа
+  const makeCard=(o,accentColor)=>{
+    const total=orderTotal(o);
+    const paid=total*(o.payment||0)/100;
+    const debt=Math.max(0,total-paid);
+    const dISO=toISO(o.date||'');
+    const overdue=dISO&&dISO<today;
+    const client=o.salonClientName?`<div style="font-size:11px;color:var(--accent)">👤 ${o.salonClientName}</div>`:'';
+    const progress=Math.round((o.items||[]).reduce((s,it)=>s+(it.progress||0),0)/Math.max((o.items||[]).length,1));
+    return `<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;
+        padding:10px 12px;margin-bottom:8px;cursor:pointer;min-width:160px;
+        border-left:3px solid ${overdue?'var(--red)':accentColor}"
+      onclick="openEditOrderModal(${JSON.stringify(o.num)})">
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+        <span style="font-family:monospace;font-size:11px;color:${accentColor};font-weight:700">${o.num}</span>
+        <span style="font-size:10px;color:${overdue?'var(--red)':'var(--text3)'}">${o.date||''}</span>
       </div>
-      ${cards||'<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">Пусто</div>'}
+      <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${o.customer}</div>
+      ${client}
+      <div style="display:flex;justify-content:space-between;margin-top:4px">
+        <span style="font-size:12px;color:var(--green);font-weight:600">${fmt(total)}</span>
+        ${debt>0?`<span style="font-size:10px;color:var(--red)">−${fmt(debt)}</span>`:'<span style="font-size:10px;color:var(--green)">✅</span>'}
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;margin-top:5px">
+        <div style="flex:1;height:3px;background:var(--border);border-radius:2px">
+          <div style="width:${progress}%;height:100%;background:${accentColor};border-radius:2px"></div>
+        </div>
+        <span style="font-size:9px;color:var(--text3)">${progress}%</span>
+      </div>
+    </div>`;
+  };
+
+  // ── Строка 1: По производству ──────────────────────────────────
+  const prodStages=[
+    {key:'queue',      label:'📋 В очереди',       color:'#6b7280', filter:o=>o.status==='queue'},
+    {key:'production', label:'🔨 В производстве',  color:'#f59e0b', filter:o=>o.status==='production'},
+    {key:'ready',      label:'📦 Готов',             color:'#8b5cf6', filter:o=>o.status==='ready'||o.status==='shipping'},
+    {key:'delivered',  label:'🚀 Отправлен',        color:'#06b6d4', filter:o=>o.status==='delivered'},
+  ];
+  boardProd.innerHTML=prodStages.map(s=>{
+    const cols=orders.filter(s.filter);
+    const tot=cols.reduce((a,o)=>a+orderTotal(o),0);
+    return `<div style="min-width:190px;flex:1;background:var(--bg3);border-radius:10px;padding:10px">
+      <div style="padding:7px 10px;border-radius:7px;margin-bottom:8px;background:${s.color}22;border:1px solid ${s.color}44">
+        <div style="font-weight:700;color:${s.color};font-size:12px">${s.label}</div>
+        <div style="font-size:10px;color:var(--text3)">${cols.length} · ${fmt(tot)}</div>
+      </div>
+      ${cols.map(o=>makeCard(o,s.color)).join('')||'<div style="text-align:center;padding:12px;color:var(--text3);font-size:11px">Пусто</div>'}
+    </div>`;
+  }).join('');
+
+  // ── Строка 2: По оплате ────────────────────────────────────────
+  const payStages=[
+    {label:'💰 Не оплачен',     color:'#ef4444', filter:o=>(o.payment||0)===0},
+    {label:'💳 Частично оплачен',color:'#f59e0b', filter:o=>(o.payment||0)>0&&(o.payment||0)<100},
+    {label:'✅ Полностью оплачен',color:'#10b981', filter:o=>(o.payment||0)>=100&&o.status!=='done'},
+  ];
+  boardPay.innerHTML=payStages.map(s=>{
+    const cols=orders.filter(s.filter);
+    const tot=cols.reduce((a,o)=>a+orderTotal(o),0);
+    return `<div style="min-width:190px;flex:1;background:var(--bg3);border-radius:10px;padding:10px">
+      <div style="padding:7px 10px;border-radius:7px;margin-bottom:8px;background:${s.color}22;border:1px solid ${s.color}44">
+        <div style="font-weight:700;color:${s.color};font-size:12px">${s.label}</div>
+        <div style="font-size:10px;color:var(--text3)">${cols.length} · ${fmt(tot)}</div>
+      </div>
+      ${cols.map(o=>makeCard(o,s.color)).join('')||'<div style="text-align:center;padding:12px;color:var(--text3);font-size:11px">Пусто</div>'}
     </div>`;
   }).join('');
 }
