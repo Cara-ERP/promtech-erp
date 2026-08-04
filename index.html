@@ -20946,7 +20946,7 @@ function renderOrdersKanban(){
     return `<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;
         padding:10px 12px;margin-bottom:8px;cursor:pointer;min-width:160px;
         border-left:3px solid ${overdue?'var(--red)':accentColor}"
-      data-num="${o.num.replace(/"/g,'&quot;')}" onclick="openEditOrderModal(this.dataset.num)">
+      data-num="${o.num}" onclick="openEditOrderModal(this.dataset.num)">
       <div style="display:flex;justify-content:space-between;margin-bottom:2px">
         <span style="font-family:monospace;font-size:11px;color:${accentColor};font-weight:700">${o.num}</span>
         <span style="font-size:10px;color:${overdue?'var(--red)':'var(--text3)'}">${o.date||''}</span>
@@ -25789,8 +25789,13 @@ function generateAct(orderNum){
 }
 
 function openEditOrderModal(orderNum, targetItemIdx){
+  if(!orderNum){ console.warn('openEditOrderModal: no orderNum'); return; }
   const order=ordersData.find(o=>o.num===orderNum);
-  if(!order) return;
+  if(!order){ 
+    console.warn('openEditOrderModal: order not found:', orderNum);
+    alert('Заказ не найден: '+orderNum+'\nПопробуйте нажать 🔄 для обновления данных.');
+    return; 
+  }
   editingOrderNum=orderNum;
   window._editingOrderNum=orderNum;
 
