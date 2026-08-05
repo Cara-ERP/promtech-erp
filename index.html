@@ -7374,6 +7374,146 @@ function renderPayCalendar(){
   const showFix = document.getElementById('pc-show-fixed')?.checked!==false;
   const showAct = document.getElementById('pc-show-actual')?.checked!==false;
 
+  // Заполняем селект счетов
+  const accSel = document.getElementById('pc-account');
+  if(accSel && accSel.options.length<=1){
+    bankAccounts.forEach(a=>{
+      const opt=document.createElement('option');
+      opt.value=a.id; opt.textContent=`${a.icon} ${a.name}`;
+      accSel.appendChild(opt);
+    });
+  }
+
+  const fmt   = n=>'₸'+Math.round(Math.abs(n)).toLocaleString('ru-RU');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayISO = today.toISOString().slice(0,10);
+  const DAYS_RU  = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+  const MONTHS_RU= ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  const maxISO   = new Date(today.getTime()+days*86400000).toISOString().slice(0,10);
+
+  const accsToUse = accF ? [accF] : bankAccounts.map(a=>a.id);
+  let balance = accsToUse.reduce((s,id)=>{
+    const allIn  = moneyTx.filter(t=>t.accountId===id&&t.flow==='income').reduce((s,t)=>s+t.amount,0);
+    const allOut = moneyTx.filter(t=>t.accountId===id&&t.flow==='expense').reduce((s,t)=>s+t.amount,0);
+    return s+allIn-allOut;
+  }, 0);
+
+  const eventsByDate = {};
+  const addEvent = (iso, ev)=>{
+    if(iso<todayISO||iso>maxISO) return;
+    if(!eventsByDate[iso]) eventsByDate[iso]=[];
+    eventsByDate[iso].push(ev);
+  };
+
+  if(showOrd){
+    const toISO = d=>{ if(!d) return null; if(d.includes('-')) return d.slice(0,10); const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:null; };
+    ordersData.filter(o=>o.status!=='done'&&o.status!=='cancelled').forEach(o=>{
+      const total=orderTotal(o); if(total<1000) return;
+      const paid=total*(o.payment||0)/100, debt=Math.max(0,total-paid); if(debt<1000) return;
+      if((o.payment||0)<50&&o.status==='queue'){
+        const d=toISO(o.createdDate||o.date||'')||todayISO;
+        const exp=d<todayISO?todayISO:d;
+        addEvent(exp,{emoji:'💛',label:`Аванс 50% ${o.num} (${o.customer})`,amount:total*0.5-paid,type:'expected'});
+      }
+      if(['ready','delivered'].includes(o.status)&&(o.payment||0)<100){
+        const exp=new Date(today.getTime()+3*86400000).toISOString().slice(0,10);
+        addEvent(exp,{emoji:'✅',label:`Финал ${o.num} (${o.customer})`,amount:debt,type:'expected'});
+      }
+      if(o.status==='production'&&(o.payment||0)<100){
+        const d=toISO(o.date||'');
+        if(d&&d>todayISO&&d<=maxISO) addEvent(d,{emoji:'🔨',label:`Ожидаем ${o.num} (${o.customer})`,amount:debt,type:'expected'});
+      }
+    });
+  }
+
+  if(showFix){
+    const monthlyPayroll=fcPlanData.filter(f=>f.category==='payroll'&&f.approved&&f.plan>0).reduce((s,f)=>s+(f.plan||0),0);
+    const weeklyPayroll=monthlyPayroll/4;
+    const otherFC=fcPlanData.filter(f=>f.category!=='payroll'&&f.approved&&f.plan>0);
+    const FIXED_ON_FIRST=['rent','utility','telecom','bank','insurance'];
+    const fixedOnFirst=otherFC.filter(f=>FIXED_ON_FIRST.includes(f.category));
+    const fixedEvenly=otherFC.filter(f=>!FIXED_ON_FIRST.includes(f.category));
+    let workDays=0;
+    for(let d=0;d<days;d++){ const dt=new Date(today.getTime()+d*86400000); if(dt.getDay()!==0&&dt.getDay()!==6) workDays++; }
+    const dailyAmt=workDays>0?fixedEvenly.reduce((s,f)=>s+(f.plan||0),0)/workDays:0;
+    if(monthlyPayroll>0){
+      const dt=new Date(today); while(dt.getDay()!==5) dt.setDate(dt.getDate()+1);
+      addEvent(dt.toISOString().slice(0,10),{emoji:'⚠️',label:'ЗП долг за прошлый месяц',amount:-monthlyPayroll,type:'planned',urgent:true});
+    }
+    for(let d=0;d<days;d++){
+      const dt=new Date(today.getTime()+d*86400000), iso=dt.toISOString().slice(0,10);
+      const isWeekend=dt.getDay()===0||dt.getDay()===6;
+      if(dt.getDay()===5&&weeklyPayroll>0) addEvent(iso,{emoji:'👷',label:'ЗП еженедельная',amount:-weeklyPayroll,type:'planned'});
+      if(dt.getDate()===1) fixedOnFirst.forEach(f=>addEvent(iso,{emoji:'📋',label:f.name,amount:-(f.plan||0),type:'planned'}));
+      if(!isWeekend&&dailyAmt>100) addEvent(iso,{emoji:'📊',label:'Текущие расходы',amount:-dailyAmt,type:'planned'});
+    }
+    const inProd=ordersData.filter(o=>o.status==='queue'||o.status==='production');
+    if(inProd.length>0){
+      const matPerWeek=inProd.reduce((s,o)=>s+orderTotal(o)*0.4,0)/2;
+      for(let w=1;w<=2;w++) addEvent(new Date(today.getTime()+w*7*86400000).toISOString().slice(0,10),{emoji:'🏭',label:'Материалы (~40%)',amount:-matPerWeek,type:'planned'});
+    }
+  }
+
+  if(showAct){
+    moneyTx.filter(t=>{ const d=t.date||''; return d>todayISO&&d<=maxISO&&(!accF||t.accountId===accF); })
+      .forEach(t=>addEvent(t.date,{emoji:t.flow==='income'?'✅':'💸',label:`${txCatLabel(t.category)} ${t.counterparty||t.desc||''}`,amount:t.flow==='income'?t.amount:-t.amount,type:'actual'}));
+  }
+
+  const labels=[],incArr=[],expArr=[],balArr=[];
+  let totalInc=0,totalExp=0,minBal=balance,gapDays=0;
+  const rows=[];
+
+  for(let d=0;d<days;d++){
+    const dt=new Date(today.getTime()+d*86400000), iso=dt.toISOString().slice(0,10);
+    const dayName=DAYS_RU[dt.getDay()], isWeekend=dt.getDay()===0||dt.getDay()===6, isFriday=dt.getDay()===5;
+    const dateLabel=`${dt.getDate()} ${MONTHS_RU[dt.getMonth()]}`;
+    const events=eventsByDate[iso]||[];
+    const dayInc=events.filter(e=>e.amount>0).reduce((s,e)=>s+e.amount,0);
+    const dayExp=events.filter(e=>e.amount<0).reduce((s,e)=>s+Math.abs(e.amount),0);
+    balance+=dayInc-dayExp;
+    if(balance<0) gapDays++; if(balance<minBal) minBal=balance;
+    totalInc+=dayInc; totalExp+=dayExp;
+    labels.push(dateLabel); incArr.push(Math.round(dayInc)); expArr.push(Math.round(dayExp)); balArr.push(Math.round(balance));
+    if(events.length===0&&d>0&&!isFriday) continue;
+    const balColor=balance<0?'var(--red)':balance<500000?'var(--amber)':'var(--green)';
+    const hasUrgent=events.some(e=>e.urgent);
+    const details=events.map(e=>{
+      const col=e.amount>0?'rgba(61,214,140,.15)':e.urgent?'rgba(249,70,70,.2)':'rgba(249,70,70,.1)';
+      const tcol=e.amount>0?'var(--green)':e.urgent?'var(--red)':'#f97316';
+      return `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:3px 8px;border-radius:5px;font-size:11px;background:${col};color:${tcol}">${e.emoji} ${e.label.slice(0,45)} <b>${e.amount>0?'+'+fmt(e.amount):'-'+fmt(Math.abs(e.amount))}</b></span>`;
+    }).join('');
+    rows.push(`<tr style="background:${d===0?'var(--bg3)':hasUrgent?'rgba(249,70,70,.04)':isWeekend?'var(--bg2)':''}">
+      <td style="font-size:12px;font-weight:${d===0||hasUrgent?700:400};white-space:nowrap;color:${hasUrgent?'var(--red)':'inherit'}">${d===0?'📍 Сегодня':dateLabel}${hasUrgent?' ⚠️':''}</td>
+      <td style="font-size:11px;color:${isFriday?'var(--amber)':isWeekend?'var(--red)':'var(--text3)'}">${dayName}${isFriday?' 💰':''}</td>
+      <td style="text-align:right;font-family:monospace;font-size:12px;color:var(--green)">${dayInc>0?'+'+fmt(dayInc):'—'}</td>
+      <td style="text-align:right;font-family:monospace;font-size:12px;color:var(--red)">${dayExp>0?'-'+fmt(dayExp):'—'}</td>
+      <td style="text-align:right;font-family:monospace;font-size:13px;font-weight:700;color:${balColor}">${balance<0?'−':'+'}${fmt(Math.abs(balance))}${balance<0?' 🔴':''}</td>
+      <td>${details||'<span style="color:var(--text3);font-size:11px">—</span>'}</td>
+    </tr>`);
+  }
+
+  tbody.innerHTML=rows.join('');
+  const kpiEl=document.getElementById('pc-kpi');
+  if(kpiEl) kpiEl.innerHTML=[
+    {label:'💰 Текущий остаток',val:fmt(balArr[0]||0),color:balArr[0]>=0?'var(--green)':'var(--red)'},
+    {label:'📥 Ожидаем',val:'+'+fmt(totalInc),color:'var(--green)'},
+    {label:'📤 Расходы',val:'-'+fmt(totalExp),color:'var(--red)'},
+    {label:'📉 Мин. остаток',val:(minBal<0?'−':'+')+fmt(Math.abs(minBal)),color:minBal<0?'var(--red)':'var(--amber)'},
+    {label:'⚠️ Дней с разрывом',val:gapDays>0?gapDays+' дн.':'Нет',color:gapDays>0?'var(--red)':'var(--green)'},
+  ].map(k=>`<div class="pl-kpi" style="min-width:130px"><div class="pl-kpi-label">${k.label}</div><div class="pl-kpi-value" style="color:${k.color};font-size:15px">${k.val}</div></div>`).join('');
+  const canvas=document.getElementById('pc-chart');
+  if(canvas&&window.Chart){
+    const ctx=canvas.getContext('2d');
+    if(canvas._chart) canvas._chart.destroy();
+    canvas._chart=new Chart(ctx,{type:'bar',data:{labels,datasets:[
+      {label:'Поступления',data:incArr,backgroundColor:'rgba(61,214,140,.5)',order:2},
+      {label:'Расходы',data:expArr.map(v=>-v),backgroundColor:'rgba(249,70,70,.5)',order:2},
+      {label:'Остаток',data:balArr,type:'line',borderColor:'#4f8ef7',backgroundColor:'rgba(79,142,247,.08)',borderWidth:2,fill:true,tension:.3,order:1,pointRadius:2},
+    ]},options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'top'},tooltip:{mode:'index',intersect:false}},
+      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:20,font:{size:10}}},
+              y:{ticks:{callback:v=>(v<0?'-':'')+fmt(Math.abs(v/1000))+'К',font:{size:10}}}}}});
+  }
 }
 
 function renderAllTx(){
