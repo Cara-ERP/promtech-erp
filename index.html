@@ -661,6 +661,19 @@ const sbPatch = async (table, filter, body)=>{
   return res.json();
 };
 
+const sbPost = async (table, body)=>{
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/${table}`,
+    {
+      method: 'POST',
+      headers: {...sbHeaders, 'Prefer': 'return=representation'},
+      body: JSON.stringify(body)
+    }
+  );
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+};
+
 console.log('✅ Supabase настроен (прямые запросы)');
 
 // Загрузить сотрудников из Supabase
@@ -5243,7 +5256,7 @@ window.onerror = function(msg, src, line, col){
 
       <!-- TAB: Платёжный календарь -->
       <div id="money-tab-calendar" style="display:none">
-        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;border:2px solid blue">
           <select id="pc-days" onchange="renderPayCalendar()" style="font-size:13px">
             <option value="14">2 недели</option>
             <option value="30" selected>30 дней</option>
@@ -5266,13 +5279,13 @@ window.onerror = function(msg, src, line, col){
             ✅ Факт
           </label>
         </div>
-        <div id="pc-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
-        <div class="card" style="margin-bottom:16px;padding:16px">
+        <div id="pc-kpi" style="display:none;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
+        <div class="card" id="pc-chart-card" style="margin-bottom:16px;padding:16px;display:none">
           <canvas id="pc-chart" height="120" style="width:100%"></canvas>
         </div>
-        <div class="card" style="padding:0">
-          <table class="data-table">
-            <thead><tr>
+        <div class="card" id="pc-table-card" style="padding:0;display:none">
+          <table class="data-table" id="pc-table">
+            <thead id="pc-thead"><tr>
               <th style="min-width:90px">Дата</th>
               <th>День</th>
               <th style="text-align:right;color:var(--green)">📥 Приход</th>
@@ -7051,7 +7064,7 @@ function setMoneyPeriod(mode){
   if(document.getElementById('money-tab-bank')?.style.display!=='none')     renderBankTx();
   if(document.getElementById('money-tab-all')?.style.display!=='none')      renderAllTx();
   if(document.getElementById('money-tab-calendar')?.style.display!=='none'){
-    setTimeout(renderPayCalendar, 50);
+    // рендерится через showMoneyTab
   }
 }
 
@@ -7492,6 +7505,12 @@ function renderPayCalendar(){
   }
 
   tbody.innerHTML=rows.join('');
+  const pcChartCard=document.getElementById('pc-chart-card');
+  const pcTableCard=document.getElementById('pc-table-card');
+  const pcKpiEl=document.getElementById('pc-kpi');
+  if(pcKpiEl) pcKpiEl.style.display='flex';
+  if(pcChartCard) pcChartCard.style.display='';
+  if(pcTableCard) pcTableCard.style.display='';
   const kpiEl=document.getElementById('pc-kpi');
   if(kpiEl) kpiEl.innerHTML=[
     {label:'💰 Текущий остаток',val:fmt(balArr[0]||0),color:balArr[0]>=0?'var(--green)':'var(--red)'},
@@ -20560,20 +20579,36 @@ function saveTask(){
   const err=document.getElementById('task-form-error');
   if(!title){err.textContent='Укажите описание задачи';return;}
   err.textContent='';
+
   const data={
     title,
-    date:document.getElementById('task-date').value,
-    time:document.getElementById('task-time').value,
-    manager:document.getElementById('task-manager').value,
-    priority:document.getElementById('task-priority').value,
-    leadId:parseInt(document.getElementById('task-lead-id').value)||null,
-    status: editingTaskId ? (tasksData.find(t=>t.id===editingTaskId)?.status||'open') : 'open',
+    date:document.getElementById('task-date').value||'',
+    time:document.getElementById('task-time').value||'',
+    manager:document.getElementById('task-manager').value||'',
+    priority:document.getElementById('task-priority').value||'normal',
+    lead_id:parseInt(document.getElementById('task-lead-id').value)||null,
+    status: editingTaskId ? (tasksData.find(t=>String(t.id)===String(editingTaskId))?.status||'open') : 'open',
   };
+
   if(editingTaskId){
-    Object.assign(tasksData.find(t=>t.id===editingTaskId), data);
+    // Обновляем в Supabase
+    sbPatch('tasks', `id=eq.${editingTaskId}`, data)
+      .then(()=>console.log('✅ Задача обновлена'))
+      .catch(e=>console.warn('⚠️',e));
+    const local = tasksData.find(t=>String(t.id)===String(editingTaskId));
+    if(local) Object.assign(local, data);
   } else {
-    tasksData.unshift({id:taskSeq++, ...data});
+    // Создаём в Supabase
+    sbPost('tasks', data)
+      .then(res=>{
+        if(res && res[0]) {
+          tasksData.unshift({id:res[0].id, ...data});
+        }
+        renderTasks();
+      })
+      .catch(e=>console.warn('⚠️',e));
   }
+
   err.style.color='var(--green)';
   err.textContent='✓ Сохранено!';
   setTimeout(()=>{err.textContent='';err.style.color='var(--red)';closeModal('taskModal');renderTasks();},700);
@@ -20581,9 +20616,32 @@ function saveTask(){
 
 function deleteTask(){
   if(!editingTaskId) return;
-  tasksData=tasksData.filter(t=>t.id!==editingTaskId);
+  sbPatch('tasks', `id=eq.${editingTaskId}`, {status:'deleted'})
+    .catch(e=>console.warn('⚠️',e));
+  tasksData=tasksData.filter(t=>String(t.id)!==String(editingTaskId));
   closeModal('taskModal');
   renderTasks();
+}
+
+async function loadTasksFromDB(){
+  try {
+    const data = await sbFetch('tasks','select=*&status=neq.deleted&order=created_at.desc');
+    if(data && data.length>0){
+      tasksData = data.map(t=>({
+        id: t.id,
+        title: t.title,
+        date: t.date||'',
+        time: t.time||'',
+        manager: t.manager||'',
+        priority: t.priority||'normal',
+        status: t.status||'open',
+        leadId: t.lead_id||null,
+      }));
+      console.log('✅ Задачи загружены:', tasksData.length);
+    }
+  } catch(e){
+    console.warn('⚠️ Ошибка загрузки задач:', e.message);
+  }
 }
 
 // Resolve sellerId/salonClientId for starter salon orders by matching seller/client names
@@ -20950,7 +21008,7 @@ function showOrdersTab(tab, el){
     if(!_okDateFrom) setOKPeriod('month');
     else renderOrdersKanban();
   }
-  if(tab==='tasks')         renderTasks();
+  if(tab==='tasks'){ loadTasksFromDB().then(()=>renderTasks()); }
   if(tab==='report')        renderOrderReport();
   if(tab==='clients'){
     loadOrdersFromDB().then(()=>{
