@@ -6984,7 +6984,7 @@ function renderMoneyKPIs(){
 function showMoneyTab(tab, el){
   document.querySelectorAll('#page-money .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  ['cash','bank','advances','all'].forEach(id=>{
+  ['cash','bank','advances','all','calendar'].forEach(id=>{
     const e=document.getElementById('money-tab-'+id);
     if(e) e.style.display=id===tab?'':'none';
   });
@@ -6992,6 +6992,7 @@ function showMoneyTab(tab, el){
   if(tab==='bank')     { renderBankAccounts(); renderBankTx(); }
   if(tab==='advances') renderAdvances();
   if(tab==='all')      renderAllTx();
+  if(tab==='calendar') renderPayCalendar();
   renderMoneyKPIs();
 }
 
@@ -7049,7 +7050,9 @@ function setMoneyPeriod(mode){
   if(document.getElementById('money-tab-cash')?.style.display!=='none')     renderCashTx();
   if(document.getElementById('money-tab-bank')?.style.display!=='none')     renderBankTx();
   if(document.getElementById('money-tab-all')?.style.display!=='none')      renderAllTx();
-  if(document.getElementById('money-tab-calendar')?.style.display!=='none') renderPayCalendar();
+  if(document.getElementById('money-tab-calendar')?.style.display!=='none'){
+    setTimeout(renderPayCalendar, 50);
+  }
 }
 
 function moneyFilteredTx(txs){
@@ -7364,10 +7367,6 @@ function renderAdvances(){
 function renderPayCalendar(){
   const tbody = document.getElementById('pc-tbody');
   if(!tbody) return;
-  // Не рендерим если вкладка скрыта
-  const tab = document.getElementById('money-tab-calendar');
-  if(!tab || tab.style.display==='none') return;
-
   const days    = parseInt(document.getElementById('pc-days')?.value||30);
   const accF    = document.getElementById('pc-account')?.value||'';
   const showOrd = document.getElementById('pc-show-orders')?.checked!==false;
