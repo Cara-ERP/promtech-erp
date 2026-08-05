@@ -2021,7 +2021,8 @@ window.onerror = function(msg, src, line, col){
             📤 Загрузить факт
             <input type="file" accept=".xlsx,.xls" onchange="importDailyFact(this)" style="display:none">
           </label>
-          <button class="btn btn-primary btn-sm" onclick="showModal('newOrderModal')">+ Новый производственный заказ</button>
+          <button class="btn btn-primary btn-sm" id="btn-new-mrp-order"
+            onclick="showModal('newOrderModal')">+ Новый производственный заказ</button>
         </div>
       </div>
       <div class="tabs">
@@ -19928,6 +19929,10 @@ function renderCrmKanban(){
       <div class="crm-row-label-name" onclick="openCrmLeadModal(${l.id})" title="Открыть карточку">${l.name}</div>
       <div class="crm-row-label-meta">${l.phone||'—'}</div>
       ${overdue?'<div style="font-size:10px;color:var(--red)">⚠ просроченное действие</div>':''}
+      <button onclick="openTaskModal(null,'${l.id}')" title="Создать задачу по лиду"
+        style="margin-top:3px;font-size:10px;padding:2px 6px;background:rgba(79,142,247,.1);
+        border:1px solid var(--accent);border-radius:4px;cursor:pointer;color:var(--accent)">
+        📋 Задача</button>
     </div>`;
   });
   html+='</div>';
@@ -19959,6 +19964,7 @@ function renderCrmKanban(){
           <div style="display:flex;gap:4px;margin-top:8px">
             <button onclick="event.stopPropagation();leadWon('${l.id}')" style="flex:1;font-size:11px;padding:3px 0;background:rgba(61,214,140,.15);border:1px solid var(--green);border-radius:5px;cursor:pointer;color:var(--green);font-weight:600">✅ Выиграли</button>
             <button onclick="event.stopPropagation();leadLost('${l.id}')" style="flex:1;font-size:11px;padding:3px 0;background:rgba(249,70,70,.08);border:1px solid var(--red);border-radius:5px;cursor:pointer;color:var(--red)">❌ Отказ</button>
+            <button onclick="event.stopPropagation();openTaskModal(null,'${l.id}')" style="font-size:11px;padding:3px 6px;background:rgba(79,142,247,.1);border:1px solid var(--accent);border-radius:5px;cursor:pointer;color:var(--accent)" title="Создать задачу">📋</button>
           </div>
           <button class="crm-card-detail-btn" onclick="event.stopPropagation();openCrmPopover(${l.id},this)" title="Детали лида">⋯</button>
         </div>`;
@@ -20576,8 +20582,15 @@ function openTaskModal(taskId, prefillLeadId){
     }
   }
 
-  // Заполняем список лидов
-  _taskAllLeads = leadsData.length>0 ? leadsData : crmLeads;
+  // Заполняем список лидов — берём из leadsData или crmLeads
+  _taskAllLeads = leadsData.length>0 ? leadsData : (crmLeads.length>0 ? crmLeads : []);
+  if(_taskAllLeads.length===0 && !_cacheLoaded.leads){
+    // Подгружаем лиды асинхронно
+    loadLeadsFromDB().then(()=>{
+      _taskAllLeads = leadsData;
+      filterTaskLeadList();
+    });
+  }
   filterTaskLeadList();
 
   if(taskId){
@@ -20640,7 +20653,7 @@ function saveTask(){
     time:document.getElementById('task-time').value||'',
     manager:document.getElementById('task-manager').value||'',
     priority:document.getElementById('task-priority').value||'normal',
-    lead_id:parseInt(document.getElementById('task-lead-id').value)||null,
+    lead_id:document.getElementById('task-lead-id').value||null,
     status: editingTaskId ? (tasksData.find(t=>String(t.id)===String(editingTaskId))?.status||'open') : 'open',
   };
 
@@ -25794,7 +25807,11 @@ function openNewCustOrderModal(){
   const designerRow = document.getElementById('co-designer-row');
   const designerSel = document.getElementById('co-designer');
 
-  respSel.innerHTML = '';
+  // Скрываем кнопку МРП для салонов
+  const mrpBtn = document.getElementById('btn-new-mrp-order');
+  if(mrpBtn) mrpBtn.style.display = (ch&&(ch.startsWith('salon_')||ch.startsWith('dealer_'))) ? 'none' : '';
+
+  if(respSel) respSel.innerHTML = '';
 
   if(ch && ch.startsWith('dealer_')){
     if(typeRow) typeRow.style.display='none';
@@ -25820,18 +25837,20 @@ function openNewCustOrderModal(){
     });
 
     // Дизайнеры
-    designerSel.innerHTML='<option value="">— без дизайнера —</option>';
-    (salon?.designers||[]).forEach(d=>{
-      const o=document.createElement('option');
-      o.value=d.name;
-      o.textContent=d.name+' ('+d.commissionPct+'%)';
-      designerSel.appendChild(o);
-    });
-    // Приходящий дизайнер
-    const oExt=document.createElement('option');
-    oExt.value='__custom__';
-    oExt.textContent='Приходящий дизайнер...';
-    designerSel.appendChild(oExt);
+    if(designerSel){
+      designerSel.innerHTML='<option value="">— без дизайнера —</option>';
+      (salon?.designers||[]).forEach(d=>{
+        const o=document.createElement('option');
+        o.value=d.name;
+        o.textContent=d.name+' ('+d.commissionPct+'%)';
+        designerSel.appendChild(o);
+      });
+      // Приходящий дизайнер
+      const oExt=document.createElement('option');
+      oExt.value='__custom__';
+      oExt.textContent='Приходящий дизайнер...';
+      designerSel.appendChild(oExt);
+    }
 
     coType.value='client';
     onCoTypeChange();
