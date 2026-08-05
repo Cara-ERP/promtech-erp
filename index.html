@@ -3966,23 +3966,24 @@ window.onerror = function(msg, src, line, col){
           <div><label class="label">Ответственный менеджер</label>
             <select id="task-manager">
               <option value="">— выберите —</option>
-              <option>Иванов И.И.</option><option>Петров С.А.</option>
-              <option>Сидоров М.В.</option><option>Козлов Д.О.</option><option>Новиков А.</option>
             </select>
           </div>
           <div><label class="label">Приоритет</label>
             <select id="task-priority">
               <option value="high">🔴 Высокий</option>
-              <option value="medium" selected>🟡 Средний</option>
+              <option value="normal" selected>🟡 Средний</option>
               <option value="low">⚪ Низкий</option>
             </select>
           </div>
         </div>
         <div class="form-row">
           <label class="label">Привязка к лиду (необязательно)</label>
-          <select id="task-lead-id">
+          <input type="search" id="task-lead-search" placeholder="🔍 Имя или телефон лида..."
+            style="margin-bottom:6px;font-size:13px" oninput="filterTaskLeadList()">
+          <select id="task-lead-id" size="4" style="width:100%;font-size:12px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text1)">
             <option value="">— без привязки (общая задача) —</option>
           </select>
+          <div id="task-lead-selected" style="font-size:12px;color:var(--accent);margin-top:4px;min-height:16px"></div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost" id="task-delete-btn" style="margin-right:auto;display:none;color:var(--red)" onclick="deleteTask()">Удалить</button>
@@ -20542,36 +20543,89 @@ function toggleTask(taskId){
   renderTasks();
 }
 
-function openTaskModal(taskId){
+function openTaskModal(taskId, prefillLeadId){
   editingTaskId=taskId;
   const err=document.getElementById('task-form-error');
   err.textContent='';
   document.getElementById('task-delete-btn').style.display=taskId?'block':'none';
 
-  // Populate lead dropdown
-  const leadSel=document.getElementById('task-lead-id');
-  leadSel.innerHTML='<option value="">— без привязки (общая задача) —</option>'
-    +crmLeads.map(l=>`<option value="${l.id}">${l.name}</option>`).join('');
+  // Заполняем менеджеров из реальных сотрудников
+  const mgrSel = document.getElementById('task-manager');
+  if(mgrSel){
+    const currentVal = mgrSel.value;
+    mgrSel.innerHTML='<option value="">— выберите —</option>';
+    const emps = employeesData.length > 0 ? employeesData :
+      [{name:'Директор'},{name:'Менеджер'},{name:'Бухгалтер'}];
+    emps.forEach(e=>{
+      const opt=document.createElement('option');
+      opt.value=e.name; opt.textContent=e.name+(e.pos?` (${e.pos})`:'');
+      mgrSel.appendChild(opt);
+    });
+    if(currentVal) mgrSel.value=currentVal;
+    // Если сотрудники не загружены — подгружаем
+    if(employeesData.length===0){
+      loadStaffFromDB().then(()=>{
+        mgrSel.innerHTML='<option value="">— выберите —</option>';
+        employeesData.forEach(e=>{
+          const opt=document.createElement('option');
+          opt.value=e.name; opt.textContent=e.name+(e.pos?` (${e.pos})`:'');
+          mgrSel.appendChild(opt);
+        });
+        if(taskId){ const t=tasksData.find(x=>String(x.id)===String(taskId)); if(t) mgrSel.value=t.manager||''; }
+      });
+    }
+  }
+
+  // Заполняем список лидов
+  _taskAllLeads = leadsData.length>0 ? leadsData : crmLeads;
+  filterTaskLeadList();
 
   if(taskId){
-    const t=tasksData.find(x=>x.id===taskId);
+    const t=tasksData.find(x=>String(x.id)===String(taskId));
+    if(!t) return;
     document.getElementById('task-modal-title').textContent='Редактировать задачу';
     document.getElementById('task-title').value=t.title||'';
     document.getElementById('task-date').value=t.date||'';
     document.getElementById('task-time').value=t.time||'';
-    document.getElementById('task-manager').value=t.manager||'';
-    document.getElementById('task-priority').value=t.priority||'medium';
+    if(mgrSel) mgrSel.value=t.manager||'';
+    document.getElementById('task-priority').value=t.priority||'normal';
     document.getElementById('task-lead-id').value=t.leadId||'';
+    updateTaskLeadSelected(t.leadId);
   } else {
     document.getElementById('task-modal-title').textContent='Новая задача';
     document.getElementById('task-title').value='';
-    document.getElementById('task-date').value=TODAY_ISO;
+    document.getElementById('task-date').value=TODAY_ISO||new Date().toISOString().slice(0,10);
     document.getElementById('task-time').value='10:00';
-    document.getElementById('task-manager').value='';
-    document.getElementById('task-priority').value='medium';
-    document.getElementById('task-lead-id').value='';
+    if(mgrSel) mgrSel.value='';
+    document.getElementById('task-priority').value='normal';
+    document.getElementById('task-lead-id').value=prefillLeadId||'';
+    if(prefillLeadId) updateTaskLeadSelected(prefillLeadId);
+    else { const sel=document.getElementById('task-lead-selected'); if(sel) sel.textContent=''; }
+    // Очищаем поиск
+    const srch=document.getElementById('task-lead-search'); if(srch) srch.value='';
   }
   showModal('taskModal');
+}
+
+let _taskAllLeads = [];
+function filterTaskLeadList(){
+  const q=(document.getElementById('task-lead-search')?.value||'').toLowerCase();
+  const sel=document.getElementById('task-lead-id');
+  if(!sel) return;
+  const leads=q ? _taskAllLeads.filter(l=>(l.name||'').toLowerCase().includes(q)||(l.phone||'').includes(q)) : _taskAllLeads.slice(0,50);
+  const curVal=sel.value;
+  sel.innerHTML='<option value="">— без привязки —</option>'+
+    leads.slice(0,100).map(l=>`<option value="${l.id}">${l.name}${l.phone?' · '+l.phone:''}</option>`).join('');
+  if(curVal) sel.value=curVal;
+  sel.onchange=()=>updateTaskLeadSelected(sel.value);
+}
+
+function updateTaskLeadSelected(leadId){
+  const el=document.getElementById('task-lead-selected');
+  if(!el) return;
+  if(!leadId){ el.textContent=''; return; }
+  const lead=_taskAllLeads.find(l=>String(l.id)===String(leadId));
+  el.textContent=lead?`✅ Лид: ${lead.name}${lead.phone?' · '+lead.phone:''}`:'';
 }
 
 function saveTask(){
