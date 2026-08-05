@@ -25790,10 +25790,14 @@ function openNewOrderModalReset(){
     o.value=d.id; o.textContent=d.name; dlrSel.appendChild(o);
   });
   // reset salon cascades
-  document.getElementById('co-salon-select').value='';
-  document.getElementById('co-salon-seller').innerHTML='<option value="">— сначала выберите салон —</option>';
-  document.getElementById('co-salon-client').innerHTML='<option value="">— выберите клиента —</option>';
-  document.getElementById('co-total').textContent='₸0';
+  const coSalonSel = document.getElementById('co-salon-select');
+  const coSalonSeller = document.getElementById('co-salon-seller');
+  const coSalonClient = document.getElementById('co-salon-client');
+  if(coSalonSel) coSalonSel.value='';
+  if(coSalonSeller) coSalonSeller.innerHTML='<option value="">— сначала выберите салон —</option>';
+  if(coSalonClient) coSalonClient.innerHTML='<option value="">— выберите клиента —</option>';
+  const coTotal = document.getElementById('co-total');
+  if(coTotal) coTotal.textContent='₸0';
   addOrderItemRow();
 }
 
