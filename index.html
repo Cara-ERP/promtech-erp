@@ -3545,7 +3545,8 @@ window.onerror = function(msg, src, line, col){
             <span style="color:var(--text3)">—</span>
             <input type="date" id="leads-date-to" onchange="renderLeadsTab()" style="font-size:12px">
           </div>
-          <select id="leads-status-filter" onchange="renderLeadsTab()" style="font-size:13px">
+          <select id="leads-status-filter" onchange="onLeadsStatusFilterChange()" style="font-size:13px">
+            <option value="active">Активные лиды</option>
             <option value="all">Все статусы</option>
             <option value="new">🆕 Новый</option>
             <option value="contact">📞 Контакт</option>
@@ -3979,12 +3980,16 @@ window.onerror = function(msg, src, line, col){
         </div>
         <div class="form-row">
           <label class="label">Привязка к лиду (необязательно)</label>
-          <input type="search" id="task-lead-search" placeholder="🔍 Имя или телефон лида..."
-            style="margin-bottom:6px;font-size:13px" oninput="filterTaskLeadList()">
-          <select id="task-lead-id" size="4" style="width:100%;font-size:12px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text1)">
-            <option value="">— без привязки (общая задача) —</option>
-          </select>
-          <div id="task-lead-selected" style="font-size:12px;color:var(--accent);margin-top:4px;min-height:16px"></div>
+          <div style="position:relative">
+            <input type="search" id="task-lead-search" placeholder="🔍 Начните вводить имя лида..."
+              style="font-size:13px;width:100%" oninput="filterTaskLeadList()" autocomplete="off">
+            <div id="task-lead-dropdown" style="display:none;position:absolute;z-index:999;
+              width:100%;max-height:200px;overflow-y:auto;background:var(--bg3);
+              border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 4px 12px rgba(0,0,0,.2)">
+            </div>
+          </div>
+          <input type="hidden" id="task-lead-id">
+          <div id="task-lead-selected" style="font-size:12px;color:var(--accent);margin-top:6px;min-height:18px"></div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost" id="task-delete-btn" style="margin-right:auto;display:none;color:var(--red)" onclick="deleteTask()">Удалить</button>
@@ -20523,7 +20528,7 @@ function renderTasks(){
     const lead=t.leadId ? crmLeads.find(l=>l.id===t.leadId) : null;
     const cardCls=`task-card ${t.status==='done'?'task-done':pc.cls} ${overdue?'task-overdue':''}`;
     return `<div class="${cardCls}">
-      <div class="task-checkbox ${t.status==='done'?'checked':''}" onclick="toggleTask(${t.id})" title="${t.status==='done'?'Переоткрыть':'Отметить выполненной'}">
+      <div class="task-checkbox ${t.status==='done'?'checked':''}" onclick="toggleTask('${t.id}')" title="${t.status==='done'?'Переоткрыть':'Отметить выполненной'}">
         ${t.status==='done'?'✓':''}
       </div>
       <div class="task-body">
@@ -20532,20 +20537,21 @@ function renderTasks(){
           <span class="task-datetime ${overdue?'overdue':''}">📅 ${dtLabel}${overdue?' — просрочена!':''}</span>
           <span>👤 ${t.manager||'—'}</span>
           <span class="${pc.textCls}">${pc.icon} ${pc.label}</span>
-          ${lead?`<span class="task-lead-link" onclick="openCrmLeadModal(${lead.id})">🔗 ${lead.name}</span>`:''}
+          ${lead?`<span class="task-lead-link" onclick="openCrmLeadModal('${lead.id}')">🔗 ${lead.name}</span>`:''}
         </div>
       </div>
       <div class="task-actions">
-        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="openTaskModal(${t.id})">✏️</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="openTaskModal('${t.id}')">✏️</button>
       </div>
     </div>`;
   }).join('');
 }
 
 function toggleTask(taskId){
-  const t=tasksData.find(x=>x.id===taskId);
+  const t=tasksData.find(x=>String(x.id)===String(taskId));
   if(!t) return;
   t.status=t.status==='done'?'open':'done';
+  sbPatch('tasks', `id=eq.${taskId}`, {status:t.status}).catch(e=>console.warn('⚠️',e));
   renderTasks();
 }
 
@@ -20603,7 +20609,18 @@ function openTaskModal(taskId, prefillLeadId){
     if(mgrSel) mgrSel.value=t.manager||'';
     document.getElementById('task-priority').value=t.priority||'normal';
     document.getElementById('task-lead-id').value=t.leadId||'';
-    updateTaskLeadSelected(t.leadId);
+    // Восстанавливаем имя лида в поиске
+    if(t.leadId){
+      const lead=_taskAllLeads.find(l=>String(l.id)===String(t.leadId));
+      if(lead){
+        const srch=document.getElementById('task-lead-search');
+        if(srch) srch.value=lead.name;
+        selectTaskLead(String(t.leadId), lead.name, lead.phone||'');
+      }
+    } else {
+      const srch=document.getElementById('task-lead-search'); if(srch) srch.value='';
+      const sel=document.getElementById('task-lead-selected'); if(sel) sel.textContent='';
+    }
   } else {
     document.getElementById('task-modal-title').textContent='Новая задача';
     document.getElementById('task-title').value='';
@@ -20612,10 +20629,12 @@ function openTaskModal(taskId, prefillLeadId){
     if(mgrSel) mgrSel.value='';
     document.getElementById('task-priority').value='normal';
     document.getElementById('task-lead-id').value=prefillLeadId||'';
-    if(prefillLeadId) updateTaskLeadSelected(prefillLeadId);
-    else { const sel=document.getElementById('task-lead-selected'); if(sel) sel.textContent=''; }
-    // Очищаем поиск
     const srch=document.getElementById('task-lead-search'); if(srch) srch.value='';
+    const selEl=document.getElementById('task-lead-selected'); if(selEl) selEl.textContent='';
+    if(prefillLeadId){
+      const lead=_taskAllLeads.find(l=>String(l.id)===String(prefillLeadId));
+      if(lead) selectTaskLead(String(prefillLeadId), lead.name, lead.phone||'');
+    }
   }
   showModal('taskModal');
 }
@@ -20623,23 +20642,54 @@ function openTaskModal(taskId, prefillLeadId){
 let _taskAllLeads = [];
 function filterTaskLeadList(){
   const q=(document.getElementById('task-lead-search')?.value||'').toLowerCase();
-  const sel=document.getElementById('task-lead-id');
-  if(!sel) return;
-  const leads=q ? _taskAllLeads.filter(l=>(l.name||'').toLowerCase().includes(q)||(l.phone||'').includes(q)) : _taskAllLeads.slice(0,50);
-  const curVal=sel.value;
-  sel.innerHTML='<option value="">— без привязки —</option>'+
-    leads.slice(0,100).map(l=>`<option value="${l.id}">${l.name}${l.phone?' · '+l.phone:''}</option>`).join('');
-  if(curVal) sel.value=curVal;
-  sel.onchange=()=>updateTaskLeadSelected(sel.value);
+  const dropdown=document.getElementById('task-lead-dropdown');
+  if(!dropdown) return;
+
+  if(!q){ dropdown.style.display='none'; return; }
+
+  const leads=_taskAllLeads.filter(l=>
+    (l.name||'').toLowerCase().includes(q)||(l.phone||'').includes(q)
+  ).slice(0,30);
+
+  if(!leads.length){
+    dropdown.innerHTML='<div style="padding:8px 12px;font-size:12px;color:var(--text3)">Не найдено</div>';
+    dropdown.style.display='block';
+    return;
+  }
+
+  dropdown.innerHTML=leads.map(l=>`
+    <div onclick="selectTaskLead('${l.id}','${(l.name||'').replace(/'/g,"\\'")}','${(l.phone||'').replace(/'/g,"\\'")}');event.stopPropagation()"
+      style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border2)"
+      onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+      <b>${l.name||'—'}</b>
+      ${l.phone?`<span style="color:var(--text3);font-size:11px;margin-left:8px">${l.phone}</span>`:''}
+      ${l.status?`<span style="color:var(--accent);font-size:10px;margin-left:6px">${l.status}</span>`:''}
+    </div>`).join('');
+  dropdown.style.display='block';
 }
 
-function updateTaskLeadSelected(leadId){
+function selectTaskLead(id, name, phone){
+  document.getElementById('task-lead-id').value=id;
+  document.getElementById('task-lead-search').value=name;
+  document.getElementById('task-lead-dropdown').style.display='none';
   const el=document.getElementById('task-lead-selected');
-  if(!el) return;
-  if(!leadId){ el.textContent=''; return; }
-  const lead=_taskAllLeads.find(l=>String(l.id)===String(leadId));
-  el.textContent=lead?`✅ Лид: ${lead.name}${lead.phone?' · '+lead.phone:''}`:'';
+  if(el) el.innerHTML=`✅ Выбран: <b>${name}</b>${phone?' · '+phone:''}
+    <button onclick="clearTaskLead()" style="margin-left:8px;font-size:10px;background:none;
+      border:none;color:var(--text3);cursor:pointer">✕ убрать</button>`;
 }
+
+function clearTaskLead(){
+  document.getElementById('task-lead-id').value='';
+  document.getElementById('task-lead-search').value='';
+  const el=document.getElementById('task-lead-selected');
+  if(el) el.textContent='';
+}
+
+// Закрываем dropdown при клике вне
+document.addEventListener('click', e=>{
+  const dd=document.getElementById('task-lead-dropdown');
+  if(dd && !dd.contains(e.target) && e.target.id!=='task-lead-search') dd.style.display='none';
+});
 
 function saveTask(){
   const title=document.getElementById('task-title').value.trim();
@@ -20695,14 +20745,14 @@ async function loadTasksFromDB(){
     const data = await sbFetch('tasks','select=*&status=neq.deleted&order=created_at.desc');
     if(data && data.length>0){
       tasksData = data.map(t=>({
-        id: t.id,
-        title: t.title,
-        date: t.date||'',
-        time: t.time||'',
-        manager: t.manager||'',
+        id:       t.id,
+        title:    t.title,
+        date:     t.date||'',
+        time:     t.time||'',
+        manager:  t.manager||'',
         priority: t.priority||'normal',
-        status: t.status||'open',
-        leadId: t.lead_id||null,
+        status:   t.status||'open',
+        leadId:   t.lead_id||null,
       }));
       console.log('✅ Задачи загружены:', tasksData.length);
     }
@@ -21566,6 +21616,20 @@ function setLeadsView(mode){
   renderLeadsTab();
 }
 
+function onLeadsStatusFilterChange(){
+  const val = document.getElementById('leads-status-filter')?.value;
+  // Если выбрали won/lost/all — нужны все лиды включая закрытые
+  if(val==='won'||val==='lost'||val==='all'){
+    if(!leadsData.some(l=>l.status==='won'||l.status==='lost')){
+      // Перегружаем с all=true
+      _cacheLoaded.leads=false; leadsData=[];
+      loadLeadsFromDB({all:true}).then(()=>renderLeadsTab());
+      return;
+    }
+  }
+  renderLeadsTab();
+}
+
 function renderLeadsTab(){
   const search    = (document.getElementById('leads-search')?.value||'').toLowerCase();
   const statusF   = document.getElementById('leads-status-filter')?.value||'all';
@@ -21580,7 +21644,12 @@ function renderLeadsTab(){
     (l.phone||'').includes(search)||
     (l.interest||'').toLowerCase().includes(search)||
     (l.comment||'').toLowerCase().includes(search));
-  if(statusF!=='all') leads = leads.filter(l=>l.status===statusF);
+  if(statusF==='active' || statusF==='all' || !statusF){
+    if(statusF==='active') leads = leads.filter(l=>l.status!=='won'&&l.status!=='lost');
+    // all — показываем всех
+  } else {
+    leads = leads.filter(l=>l.status===statusF);
+  }
   if(sourceF!=='all') leads = leads.filter(l=>l.source===sourceF);
   if(budgetMin>0)     leads = leads.filter(l=>(l.budget||0)>=budgetMin);
 
@@ -21955,11 +22024,11 @@ function hideLoading(){
   setTimeout(()=>{ el.style.display='none'; }, 300);
 }
 
-async function loadLeadsFromDB(){
+async function loadLeadsFromDB(opts={}){
   const ch = getChannelFilter();
   const isDealer = ch && ch.startsWith('dealer_');
 
-  // Дилеры не видят лиды вообще
+  // Дилеры не видят лиды
   if(isDealer){
     leadsData = [];
     _cacheLoaded.leads = true;
@@ -21967,48 +22036,56 @@ async function loadLeadsFromDB(){
     return true;
   }
 
-  // Для офиса и салонов — грузим все лиды (без фильтра по каналу)
-  // Кеш валиден если уже загружен без фильтра дилера
-  if(_cacheLoaded.leads && leadsData.length > 0 && !(_leadsLoadedForChannel||'').startsWith('dealer_')){
+  // Кеш валиден если уже загружен
+  if(!opts.force && _cacheLoaded.leads && leadsData.length > 0 && !(_leadsLoadedForChannel||'').startsWith('dealer_')){
     console.log('📦 Лиды из кеша: '+leadsData.length);
     return true;
   }
-  try {
-    showLoading('Загрузка лидов...', 'Подключение к базе данных');
-    const pageSize = 1000;
-    // Лиды грузим без фильтра по каналу — видны всем кроме дилеров
 
-    updateLoading(15, 'Загрузка лидов...');
-    const page0 = await sbFetch('leads',
-      `select=*&order=created_at.desc&limit=${pageSize}&offset=0`);
+  try {
+    const pageSize = 1000;
+
+    // Фильтры на сервере — берём активные лиды (не won/lost) + за последний год
+    const yearAgo = new Date();
+    yearAgo.setFullYear(yearAgo.getFullYear()-1);
+    const yearAgoISO = yearAgo.toISOString();
+
+    // Базовый фильтр: только активные лиды за последний год
+    const baseFilter = opts.all
+      ? `select=*&order=created_at.desc&limit=${pageSize}&offset=0`
+      : `select=*&status=not.in.(won,lost)&order=created_at.desc&limit=${pageSize}&offset=0`;
+
+    updateLoading && updateLoading(15, 'Загрузка лидов...');
+    const page0 = await sbFetch('leads', baseFilter);
 
     if(!page0 || page0.length === 0){
-      hideLoading();
       _cacheLoaded.leads = true;
+      _leadsLoadedForChannel = ch||'';
       return true;
     }
 
     let allLeads = [...page0];
 
-    // Если есть ещё страницы — грузим параллельно начиная с offset=pageSize
+    // Если есть ещё — догружаем параллельно
     if(page0.length === pageSize){
-      updateLoading(40, `Загружено ${allLeads.length}, грузим остальные...`);
       const offsets = [];
-      for(let off = pageSize; off < 10000; off += pageSize) offsets.push(off);
-
-      const pages = await Promise.all(offsets.map(off =>
-        sbFetch('leads', `select=*&order=created_at.desc&limit=${pageSize}&offset=${off}`)
+      for(let off = pageSize; off < 6000; off += pageSize) offsets.push(off);
+      const baseQ = opts.all
+        ? `select=*&order=created_at.desc&limit=${pageSize}`
+        : `select=*&status=not.in.(won,lost)&order=created_at.desc&limit=${pageSize}`;
+      const pages = await Promise.all(offsets.map(off=>
+        sbFetch('leads', `${baseQ}&offset=${off}`)
       ));
-
       for(const page of pages){
-        if(!page || page.length === 0) break;
+        if(!page || page.length===0) break;
         allLeads = allLeads.concat(page);
         if(page.length < pageSize) break;
       }
     }
 
-    // Дедупликация по id на случай если что-то пошло не так
+    // Дедупликация
     const seen = new Set();
+    allLeads = allLeads.filter(l=>{ if(seen.has(l.id)) return false; seen.add(l.id); return true; });
     allLeads = allLeads.filter(l=>{ if(seen.has(l.id)) return false; seen.add(l.id); return true; });
 
     updateLoading(85, `Обработка ${allLeads.length} лидов...`);
