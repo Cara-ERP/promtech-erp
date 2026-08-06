@@ -15632,7 +15632,7 @@ function openWagePaymentModal(empId){
     </div>`;
 
   document.getElementById('wp-amount').value = row.debt || row.net;
-  document.getElementById('wp-date').value = new Date(2026,5,25).toISOString().slice(0,10);
+  document.getElementById('wp-date').value = new Date().toISOString().slice(0,10);
   document.getElementById('wp-comment').value = '';
   document.getElementById('wp-method').value = 'cash';
 
@@ -16799,7 +16799,7 @@ function openPurchaseModal(id){
     purCurrentItems=r.items.map(it=>({...it}));
   } else {
     document.getElementById('pur-modal-title').textContent='Новая закупка';
-    document.getElementById('pur-date').value=new Date(2026,5,25).toISOString().slice(0,10);
+    document.getElementById('pur-date').value=new Date().toISOString().slice(0,10);
     document.getElementById('pur-invoice').value='';
     document.getElementById('pur-supplier').value='';
     document.getElementById('pur-paid').value='';
@@ -19928,7 +19928,7 @@ function renderCrmKanban(){
   // Row-label sticky column
   html+='<div class="crm-row-labels"><div class="crm-row-label-header">Клиент</div>';
   leads.forEach(l=>{
-    const today=new Date(2026,5,22);
+    const today=new Date(); today.setHours(0,0,0,0);
     const overdue=l.nextDate && new Date(l.nextDate)<today && l.stage!=='won' && l.stage!=='lost';
     html+=`<div class="crm-row-label">
       <div class="crm-row-label-name" onclick="openCrmLeadModal(${l.id})" title="Открыть карточку">${l.name}</div>
@@ -20374,7 +20374,7 @@ function toggleCommAddForm(){
   const visible=form.style.display!=='none';
   form.style.display=visible?'none':'block';
   if(!visible){
-    document.getElementById('crm-comm-date').value=new Date(2026,5,22).toISOString().slice(0,10);
+    document.getElementById('crm-comm-date').value=new Date().toISOString().slice(0,10);
     document.getElementById('crm-comm-text').value='';
     selectedCommType='call';
     document.querySelectorAll('#crm-comm-type-btns .comm-type-btn').forEach(b=>b.classList.remove('active'));
@@ -20437,7 +20437,7 @@ let tasksData=[
 let editingTaskId=null;
 let tasksSubtab='lead'; // 'lead' | 'general'
 
-const TODAY_ISO=new Date(2026,5,22).toISOString().slice(0,10);
+const TODAY_ISO=new Date().toISOString().slice(0,10);
 
 function isTaskOverdue(t){
   if(t.status==='done') return false;
@@ -23613,7 +23613,7 @@ function exportDailyTasks(){
   // Инициализируем stageQty для всех позиций
   ordersData.forEach(o=>o.items.forEach(it=>ensureStageQty(it)));
 
-  const today = new Date(2026,5,25).toLocaleDateString('ru-RU');
+  const today = new Date().toLocaleDateString('ru-RU');
   const rows  = buildTaskRows();
 
   if(!rows.length){
@@ -23662,7 +23662,7 @@ function exportDailyTasks(){
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, TASK_SHEET_NAME);
-  const filename=`PromTech_Zadaniya_${new Date(2026,5,25).toISOString().slice(0,10)}.xlsx`;
+  const filename=`PromTech_Zadaniya_${new Date().toISOString().slice(0,10)}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
 
@@ -25073,7 +25073,7 @@ function ensureDefaultReportPeriod(){
   const toEl=document.getElementById('sf-report-to');
   if(!fromEl || !toEl) return;
   if(!fromEl.value && !toEl.value){
-    const today=new Date(2026,5,18); // app's current system date
+    const today=new Date(); today.setHours(0,0,0,0);
     const monthAgo=new Date(today); monthAgo.setDate(monthAgo.getDate()-30);
     toEl.value=today.toISOString().slice(0,10);
     fromEl.value=monthAgo.toISOString().slice(0,10);
