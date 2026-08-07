@@ -26172,46 +26172,41 @@ function onCoDesignerChange(){
 }
 
 function saveCustOrder(){
-  const type=document.getElementById('co-type').value;
   const date=document.getElementById('co-date').value;
   const resp=document.getElementById('co-resp').value;
   const payment=Math.max(0,Math.min(100,parseInt(document.getElementById('co-payment').value)||0));
   const err=document.getElementById('custorder-form-error');
 
-  if(!type){err.textContent='Выберите тип покупателя';return;}
   if(!date){err.textContent='Укажите срок выполнения';return;}
 
-  // Resolve customer metadata — store TYPE + ID, not just a text snapshot,
-  // so renaming the client/dealer/salon later still resolves correctly.
-  let customer='', customerType=type, customerId=null, seller='—', salonName='', sellerId=null, salonClientId=null, salonClientName='';
+  // Определяем покупателя из новых полей
+  let customer='', channel='office', seller=resp||'—', salonClientName='';
 
-  if(type==='client'){
-    const id=parseInt(document.getElementById('co-client-select').value);
-    const c=clientsData.find(x=>x.id===id);
-    if(!c){err.textContent='Выберите клиента';return;}
-    const p=findPerson(c.personId);
-    customer=p?p.name:'—'; customerId=c.id;
-    const sellerVal=document.getElementById('co-client-seller').value;
-    if(sellerVal) seller=sellerVal;
-  } else if(type==='dealer'){
-    const id=parseInt(document.getElementById('co-dealer-select').value);
-    const d=dealersData.find(x=>x.id===id);
-    if(!d){err.textContent='Выберите дилера';return;}
-    customer=d.name; customerId=d.id;
-  } else if(type==='salon'){
-    salonName=document.getElementById('co-salon-select').value;
-    sellerId=parseInt(document.getElementById('co-salon-seller').value);
-    if(!salonName){err.textContent='Выберите салон';return;}
-    if(!sellerId){err.textContent='Выберите продавца';return;}
-    const sel=(salonsData[salonName]?.sellers||[]).find(s=>s.id===sellerId);
-    if(!sel){err.textContent='Продавец не найден';return;}
-    seller=sel.name;
-    // Покупатель = Салон (не конечный клиент)
-    customer='Салон '+salonName;
-    // Конечный клиент — опционально
-    salonClientName=(document.getElementById('co-salon-client-name')?.value||'').trim();
-    salonClientId=null;
+  const activeMode = document.getElementById('co-customer-lead')?.style.display!=='none' ? 'lead'
+    : document.getElementById('co-customer-manual')?.style.display!=='none' ? 'manual'
+    : 'channel';
+
+  if(activeMode==='lead'){
+    customer = window._coSelectedCustomer||'';
+    channel  = window._coSelectedChannel||'office';
+    if(!customer){err.textContent='Выберите покупателя из лидов или введите вручную';return;}
+  } else if(activeMode==='manual'){
+    customer = (document.getElementById('co-customer-name')?.value||'').trim();
+    channel  = 'office';
+    if(!customer){err.textContent='Введите имя покупателя';return;}
+  } else {
+    const chSel = document.getElementById('co-channel-sel');
+    channel  = chSel?.value||'office';
+    customer = chSel?.options[chSel?.selectedIndex]?.text||'Прямой покупатель';
+    salonClientName = (document.getElementById('co-channel-client')?.value||'').trim();
+    if(!channel){err.textContent='Выберите канал продажи';return;}
   }
+
+  // Тип для совместимости
+  const type = channel.startsWith('salon_') ? 'salon'
+    : channel.startsWith('dealer_') ? 'dealer' : 'client';
+  let customerId=null, sellerId=null, salonName='';
+  if(type==='salon') salonName=channel;
 
   // Validate items
   const itemRows=document.querySelectorAll('#co-items .item-card');
