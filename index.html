@@ -4098,6 +4098,13 @@ window.onerror = function(msg, src, line, col){
         </div>
         <div id="custorder-form-error" style="color:var(--red);font-size:13px;margin-bottom:8px;min-height:18px"></div>
 
+        <!-- Покупатель — всегда видно -->
+        <div class="form-row" id="co-customer-row">
+          <label class="label">👤 Покупатель / Клиент</label>
+          <input type="text" id="co-customer-name" placeholder="Имя клиента, компания или ФИО..."
+            style="font-size:13px">
+        </div>
+
         <!-- Тип покупателя — скрыт для дилеров и салонов -->
         <div class="form-row" id="co-type-row">
           <label class="label">Тип покупателя</label>
@@ -4119,10 +4126,6 @@ window.onerror = function(msg, src, line, col){
             <label class="label">Продавец</label>
             <select id="co-client-seller">
               <option value="">—</option>
-              <option>Иванов И.И.</option>
-              <option>Петров С.А.</option>
-              <option>Сидоров М.В.</option>
-              <option>Козлов Д.О.</option>
             </select>
           </div>
         </div>
@@ -25679,6 +25682,7 @@ function buildItemRow(id, mode){
           '<span style="font-weight:700;font-size:15px;color:var(--green)" id="line-total-'+id+'">₸0</span>'+
         '</div>'+
       '</div>'+
+      '<div id="formula-'+id+'" style="display:none;font-size:11px;color:var(--text3);margin-top:4px;padding:4px 8px;background:var(--bg2);border-radius:5px"></div>'+
     '</div>'+
     '<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-bottom:8px">'+
       '<div><label class="label">Дата доставки</label><input type="date" class="oi-date"></div>'+
@@ -25692,21 +25696,31 @@ function buildItemRow(id, mode){
 }
 
 function addSurchargeRow(itemId, type2, pct, isDiscount, fixedAmt){
-  type2=type2||''; pct=pct||0; isDiscount=!!isDiscount; fixedAmt=fixedAmt||0;
+  type2=type2||''; pct=pct||0; isDiscount=isDiscount!==undefined?!!isDiscount:false; fixedAmt=fixedAmt||0;
   var cont=document.getElementById('surcharges-'+itemId);
   if(!cont) return;
   var sid='sc-'+Date.now();
   var row=document.createElement('div');
   row.id=sid;
-  row.style.cssText='display:grid;grid-template-columns:auto 1fr auto 70px auto 80px auto;gap:5px;align-items:center;margin-bottom:5px';
+  row.style.cssText='display:grid;grid-template-columns:auto auto 1fr auto 70px auto 80px auto;gap:5px;align-items:center;margin-bottom:5px';
 
-  // Checkbox
+  // Радиокнопки Наценка / Скидка
+  var radioName='sc-type-'+sid;
   var lbl=document.createElement('label');
   lbl.style.cssText='display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap';
-  var chk=document.createElement('input'); chk.type='checkbox'; chk.checked=isDiscount;
-  chk.onchange=function(){calcItemPrice(itemId);};
-  lbl.appendChild(chk); lbl.appendChild(document.createTextNode(' Скидка'));
+  var radioMarkup=document.createElement('input'); radioMarkup.type='radio'; radioMarkup.name=radioName;
+  radioMarkup.value='markup'; radioMarkup.checked=!isDiscount;
+  radioMarkup.onchange=function(){calcItemPrice(itemId);};
+  lbl.appendChild(radioMarkup); lbl.appendChild(document.createTextNode(' Наценка'));
   row.appendChild(lbl);
+
+  var lbl2=document.createElement('label');
+  lbl2.style.cssText='display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap';
+  var radioDiscount=document.createElement('input'); radioDiscount.type='radio'; radioDiscount.name=radioName;
+  radioDiscount.value='discount'; radioDiscount.checked=isDiscount;
+  radioDiscount.onchange=function(){calcItemPrice(itemId);};
+  lbl2.appendChild(radioDiscount); lbl2.appendChild(document.createTextNode(' Скидка'));
+  row.appendChild(lbl2);
 
   // Type select
   var sel=document.createElement('select'); sel.style.fontSize='12px';
@@ -25760,21 +25774,45 @@ function calcItemPrice(itemId){
   const basePrice = parseFloat(row.querySelector('.oi-price')?.value)||0;
   const qty       = parseFloat(row.querySelector('.oi-qty')?.value)||1;
   let finalPrice  = basePrice;
+  const formulaParts = [`₸${Math.round(basePrice).toLocaleString('ru-RU')} (база)`];
+
   row.querySelectorAll('#surcharges-'+itemId+' > div').forEach(sc=>{
-    const isDiscount = sc.querySelector('input[type="checkbox"]')?.checked;
+    // Читаем radio buttons вместо checkbox
+    const radioDiscount = sc.querySelector('input[type="radio"][value="discount"]');
+    const isDiscount = radioDiscount ? radioDiscount.checked : false;
     const pct   = parseFloat(sc.querySelector('.sc-pct')?.value)||0;
     const fixed = parseFloat(sc.querySelector('.sc-fixed')?.value)||0;
+    const typeLabel = sc.querySelector('select')?.options[sc.querySelector('select')?.selectedIndex]?.text||'';
     const delta = fixed>0 ? fixed : basePrice*pct/100;
-    if(isDiscount) finalPrice-=delta; else finalPrice+=delta;
+    if(isDiscount){
+      finalPrice -= delta;
+      const desc = fixed>0 ? `−₸${Math.round(fixed).toLocaleString('ru-RU')}` : `−${pct}%`;
+      formulaParts.push(`<span style="color:var(--red)">${desc} скидка${typeLabel?' ('+typeLabel+')':''}</span>`);
+    } else {
+      finalPrice += delta;
+      const desc = fixed>0 ? `+₸${Math.round(fixed).toLocaleString('ru-RU')}` : `+${pct}%`;
+      formulaParts.push(`<span style="color:var(--green)">${desc} наценка${typeLabel?' ('+typeLabel+')':''}</span>`);
+    }
   });
+
   finalPrice = Math.max(0, Math.round(finalPrice));
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+
   const fpEl=document.getElementById('final-price-'+itemId);
   const ltEl=document.getElementById('line-total-'+itemId);
   const qdEl=document.getElementById('qty-display-'+itemId);
+  const fmlaEl=document.getElementById('formula-'+itemId);
+
   if(fpEl) fpEl.textContent=fmt(finalPrice);
   if(ltEl) ltEl.textContent=fmt(finalPrice*qty);
   if(qdEl) qdEl.textContent=qty+' шт';
+  if(fmlaEl && formulaParts.length>1){
+    fmlaEl.innerHTML = formulaParts.join(' → ') + ` = <b>${fmt(finalPrice)}</b>`;
+    fmlaEl.style.display='';
+  } else if(fmlaEl){
+    fmlaEl.style.display='none';
+  }
+
   let h=row.querySelector('.oi-final-price');
   if(!h){h=document.createElement('input');h.type='hidden';h.className='oi-final-price';row.appendChild(h);}
   h.value=finalPrice;
@@ -25893,6 +25931,34 @@ function openNewCustOrderModal(){
   if(mrpBtn) mrpBtn.style.display = (ch&&(ch.startsWith('salon_')||ch.startsWith('dealer_'))) ? 'none' : '';
 
   if(respSel) respSel.innerHTML = '';
+
+  // Заполняем продавцов из реальных сотрудников
+  const fillSellers = ()=>{
+    ['co-client-seller','co-resp'].forEach(selId=>{
+      const sel=document.getElementById(selId);
+      if(!sel) return;
+      sel.innerHTML='<option value="">—</option>';
+      employeesData.filter(e=>e.pos&&(e.pos.includes('Менеджер')||e.pos.includes('Продавец')||e.pos.includes('салон'))).forEach(e=>{
+        const o=document.createElement('option');
+        o.value=e.name; o.textContent=e.name;
+        sel.appendChild(o);
+      });
+      // Если нет менеджеров — показываем всех
+      if(sel.options.length<=1){
+        employeesData.forEach(e=>{
+          const o=document.createElement('option');
+          o.value=e.name; o.textContent=e.name+(e.pos?' ('+e.pos+')':'');
+          sel.appendChild(o);
+        });
+      }
+    });
+  };
+  if(employeesData.length>0) fillSellers();
+  else loadStaffFromDB().then(fillSellers);
+
+  // Очищаем поле покупателя
+  const custName = document.getElementById('co-customer-name');
+  if(custName) custName.value='';
 
   if(ch && ch.startsWith('dealer_')){
     if(typeRow) typeRow.style.display='none';
