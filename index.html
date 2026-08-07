@@ -1558,6 +1558,13 @@ function doLogin(){
       var nav=document.querySelector(".nav-item[onclick*=\"showPage('"+first+"'\"]");
       showPage(first,nav);
       diagLog('✓✓ showPage вызвана успешно');
+      // Загружаем счётчик задач после логина
+      setTimeout(()=>{
+        loadTasksFromDB().then(()=>{
+          const el=document.getElementById('tasks-open-count');
+          if(el) el.textContent=tasksData.filter(t=>t.status==='open').length;
+        }).catch(()=>{});
+      }, 2000);
     } else if(attempts>200){
       clearInterval(timer); // сдаёмся через 10 секунд
       diagLog('❌ showPage НЕ ПОЯВИЛАСЬ за 10 секунд — основной скрипт не загрузился!', true);
@@ -20489,19 +20496,7 @@ const PRIORITY_CONFIG={
 };
 
 let taskSeq=1;
-let tasksData=[
-  // Lead-linked tasks
-  {id:taskSeq++, title:'Позвонить — уточнить решение по КП',            date:'2026-06-23', time:'10:00', manager:'Иванов И.И.',  priority:'high',   status:'open', leadId:3},
-  {id:taskSeq++, title:'Отправить финальное КП со скидкой 7%',          date:'2026-06-24', time:'12:00', manager:'Сидоров М.В.', priority:'high',   status:'open', leadId:4},
-  {id:taskSeq++, title:'Согласовать спецификацию с клиентом',            date:'2026-06-25', time:'14:00', manager:'Козлов Д.О.',  priority:'medium', status:'open', leadId:5},
-  {id:taskSeq++, title:'Перезвонить Айгерим',                            date:'2026-06-22', time:'11:00', manager:'Иванов И.И.',  priority:'medium', status:'open', leadId:1},
-  {id:taskSeq++, title:'Выслать каталог образцов',                       date:'2026-06-20', time:'09:00', manager:'Петров С.А.',  priority:'low',    status:'done', leadId:2},
-  // General tasks (no lead)
-  {id:taskSeq++, title:'Обновить прайс-лист за июнь',                   date:'2026-06-24', time:'09:00', manager:'Петров С.А.',  priority:'medium', status:'open', leadId:null},
-  {id:taskSeq++, title:'Подготовить отчёт по продажам за месяц',         date:'2026-06-30', time:'17:00', manager:'Иванов И.И.',  priority:'medium', status:'open', leadId:null},
-  {id:taskSeq++, title:'Провести планёрку отдела продаж',                date:'2026-06-25', time:'09:30', manager:'Иванов И.И.',  priority:'high',   status:'open', leadId:null},
-  {id:taskSeq++, title:'Проверить остатки на складе перед КП',           date:'2026-06-21', time:'08:00', manager:'Козлов Д.О.',  priority:'low',    status:'done', leadId:null},
-];
+let tasksData=[]; // загружается из Supabase
 
 let editingTaskId=null;
 let tasksSubtab='lead'; // 'lead' | 'general'
@@ -20630,32 +20625,27 @@ function openTaskModal(taskId, prefillLeadId){
   err.textContent='';
   document.getElementById('task-delete-btn').style.display=taskId?'block':'none';
 
-  // Заполняем менеджеров из реальных сотрудников
-  const mgrSel = document.getElementById('task-manager');
-  if(mgrSel){
-    const currentVal = mgrSel.value;
-    mgrSel.innerHTML='<option value="">— выберите —</option>';
-    const emps = employeesData.length > 0 ? employeesData :
-      [{name:'Директор'},{name:'Менеджер'},{name:'Бухгалтер'}];
-    emps.forEach(e=>{
-      const opt=document.createElement('option');
-      opt.value=e.name; opt.textContent=e.name+(e.pos?` (${e.pos})`:'');
-      mgrSel.appendChild(opt);
+  // Заполняем менеджеров — только сотрудники салонов
+  const fillSellers = ()=>{
+    const mgrSel2 = document.getElementById('task-manager');
+    if(!mgrSel2) return;
+    mgrSel2.innerHTML='<option value="">— выберите —</option>';
+    const salonStaff = employeesData.filter(e=>
+      (e.pos||'').includes('Менеджер')||
+      (e.pos||'').includes('салон')||
+      (e.comment||'').includes('Армада')||
+      (e.comment||'').includes('Назарбаева')
+    );
+    const list = salonStaff.length>0 ? salonStaff : employeesData;
+    list.forEach(e=>{
+      const o=document.createElement('option');
+      o.value=e.name;
+      o.textContent=e.name+(e.comment?' ('+e.comment+')':e.pos?' ('+e.pos+')':'');
+      mgrSel2.appendChild(o);
     });
-    if(currentVal) mgrSel.value=currentVal;
-    // Если сотрудники не загружены — подгружаем
-    if(employeesData.length===0){
-      loadStaffFromDB().then(()=>{
-        mgrSel.innerHTML='<option value="">— выберите —</option>';
-        employeesData.forEach(e=>{
-          const opt=document.createElement('option');
-          opt.value=e.name; opt.textContent=e.name+(e.pos?` (${e.pos})`:'');
-          mgrSel.appendChild(opt);
-        });
-        if(taskId){ const t=tasksData.find(x=>String(x.id)===String(taskId)); if(t) mgrSel.value=t.manager||''; }
-      });
-    }
-  }
+  };
+  if(employeesData.length>0) fillSellers();
+  else loadStaffFromDB().then(fillSellers);
 
   // Заполняем список лидов — берём из leadsData или crmLeads
   _taskAllLeads = leadsData.length>0 ? leadsData : (crmLeads.length>0 ? crmLeads : []);
@@ -27352,13 +27342,8 @@ renderPersons();
 renderOrders();
 recalcAllCustomerTurnover();
 renderMrpOrdersJournal();
-// Update tasks badge after loading from DB
-setTimeout(()=>{
-  loadTasksFromDB().then(()=>{
-    const el=document.getElementById('tasks-open-count');
-    if(el) el.textContent=tasksData.filter(t=>t.status==='open').length;
-  });
-},1000);
+// Задачи загружаются при открытии вкладки Задачи (после логина)
+// не при старте — иначе Supabase ещё не авторизован
 
 // override showModal
 const _origShowModal=showModal;
