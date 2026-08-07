@@ -25815,60 +25815,76 @@ async function createNewFabric(inputId, fabricName, dropId){
   }
 }
 
-function searchFabric(input, dropId){
+// Поиск тканей из warehouse
+async function searchFabric(input, dropId){
   const q = (input.value||'').toLowerCase().trim();
   const drop = document.getElementById(dropId);
   if(!drop) return;
   if(q.length < 1){ drop.style.display='none'; return; }
 
-  // Ищем в каталоге по категории "ткань обивочная" + в attrCatalog['Ткань']
-  const catalogFabrics = catalogData.filter(p=>
-    (p.category||'').toLowerCase().includes('ткань')||
-    (p.name||'').toLowerCase().includes('ткань')||
-    (p.name||'').toLowerCase().includes('велюр')||
-    (p.name||'').toLowerCase().includes('шенилл')||
-    (p.name||'').toLowerCase().includes('рогожк')||
-    (p.name||'').toLowerCase().includes('экокожа')
-  ).filter(p=>(p.name||'').toLowerCase().includes(q)).slice(0,10);
+  // Сначала ищем в локальном кеше warehouseData
+  let matches = (warehouseData||[]).filter(w=>
+    (w.name||'').toLowerCase().includes(q) &&
+    ((w.category||'').toLowerCase().includes('ткань')||
+     (w.category||'').toLowerCase().includes('обивоч')||
+     (w.name||'').toLowerCase().includes('велюр')||
+     (w.name||'').toLowerCase().includes('шенилл')||
+     (w.name||'').toLowerCase().includes('рогожк'))
+  ).slice(0,15);
 
-  const attrFabrics = (attrCatalog['Ткань']||[]).filter(f=>f.toLowerCase().includes(q));
+  // Если кеш пустой — запрашиваем из Supabase
+  if(!matches.length){
+    try {
+      const res = await sbFetch('warehouse',
+        `select=name,category&name=ilike.*${encodeURIComponent(q)}*&limit=15`);
+      if(res) matches = res;
+    } catch(e){}
+  }
 
-  const items = [
-    ...catalogFabrics.map(p=>`
-      <div onclick="document.querySelector('input[id][data-attr-key=\\'Ткань\\'][data-row]') ; this.closest('[id]')&&(this.closest('[id]').previousElementSibling.value='${p.name.replace(/'/g,"\\'")}');document.getElementById('${dropId}').style.display='none'"
-        onmousedown="event.preventDefault()"
-        style="padding:7px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border2)"
-        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-        📦 ${p.name} <span style="color:var(--text3);font-size:10px">— из каталога</span>
-      </div>`),
-    ...attrFabrics.map(f=>`
-      <div onmousedown="event.preventDefault()"
-        style="padding:7px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border2)"
-        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-        🧵 ${f}
-      </div>`),
-  ];
-
-  if(!items.length){
-    drop.innerHTML=`<div style="padding:8px 12px;font-size:12px;color:var(--text3)">
-      Не найдено в каталоге
-      <button onmousedown="event.preventDefault()" onclick="createNewFabric('${input.id||''}', ${JSON.stringify(input.value)}, '${dropId}')"
-        style="display:block;margin-top:6px;width:100%;padding:6px;background:rgba(79,142,247,.1);
-        border:1px solid var(--accent);border-radius:6px;cursor:pointer;color:var(--accent);font-size:12px">
-        ➕ Создать «${input.value}» в каталоге (Ткань обивочная)
+  if(!matches.length){
+    drop.innerHTML=`<div style="padding:8px 12px">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Не найдено в номенклатуре</div>
+      <button onmousedown="event.preventDefault()"
+        data-name="${input.value.replace(/"/g,'&quot;')}"
+        style="width:100%;padding:7px;background:rgba(79,142,247,.1);border:1px solid var(--accent);
+        border-radius:6px;cursor:pointer;color:var(--accent);font-size:12px;text-align:left">
+        ➕ Добавить «${input.value}» в номенклатуру (Ткань/Обивочные)
       </button>
     </div>`;
-  } else {
-    drop.innerHTML=items.join('');
-    // Добавим onclick через делегирование для корректного выбора
-    drop.querySelectorAll('div').forEach((el,i)=>{
-      el.onclick=()=>{
-        input.value = catalogFabrics[i]?.name || attrFabrics[i-catalogFabrics.length] || input.value;
-        drop.style.display='none';
-      };
-    });
+    drop.querySelector('button').onclick=()=>createNewFabricInWarehouse(input.value, dropId, input);
+    drop.style.display='block';
+    return;
   }
+
+  drop.innerHTML = matches.map(m=>`
+    <div onmousedown="event.preventDefault()"
+      style="padding:7px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border2)"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+      🧵 ${m.name}
+      <span style="color:var(--text3);font-size:10px;margin-left:6px">${m.category||''}</span>
+    </div>`).join('');
+
+  drop.querySelectorAll('div').forEach((el,i)=>{
+    el.onclick=()=>{ input.value=matches[i]?.name||input.value; drop.style.display='none'; };
+  });
   drop.style.display='block';
+}
+
+async function createNewFabricInWarehouse(fabricName, dropId, inputEl){
+  if(!fabricName||!fabricName.trim()) return;
+  const name = fabricName.trim();
+  try {
+    await sbPost('warehouse', {name, category:'Ткань/Обивочные', unit:'м.п.', qty:0});
+    if(!attrCatalog['Ткань'].includes(name)) attrCatalog['Ткань'].push(name);
+    const drop = document.getElementById(dropId);
+    if(inputEl) inputEl.value = name;
+    if(drop) drop.style.display='none';
+    const msg=document.createElement('div');
+    msg.textContent=`✅ «${name}» добавлена в номенклатуру`;
+    msg.style.cssText='position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999';
+    document.body.appendChild(msg);
+    setTimeout(()=>msg.remove(),3000);
+  } catch(e){ alert(`Ошибка: ${e.message}`); }
 }
 
 // Show/hide the "Ткань" field based on the row's selected category
