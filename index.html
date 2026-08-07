@@ -1072,11 +1072,23 @@ function selectCatalogItem(rowId, name, category, priceRetail, priceWholesale){
   var price = (role && role.channel && priceWholesale) ? priceWholesale : priceRetail;
   row.querySelector('.oi-name').value = name;
   row.querySelector('.oi-price').value = price;
+
+  // Автоматически ставим категорию и скрываем селект
   var catSel = row.querySelector('.oi-category');
+  var catWrap = row.querySelector('.oi-category-wrap');
+  var catLabel = row.querySelector('.oi-category-label');
   if(catSel){
     var opt = Array.from(catSel.options).find(function(o){ return o.value===category||o.text===category; });
     if(opt) catSel.value = opt.value;
+    else { // добавим опцию если нет
+      var o2=document.createElement('option'); o2.value=category; o2.textContent=category;
+      catSel.appendChild(o2); catSel.value=category;
+    }
   }
+  // Скрываем селект, показываем метку
+  if(catWrap) catWrap.style.display='none';
+  if(catLabel){ catLabel.textContent='📂 '+category; catLabel.style.display=''; }
+
   var drop = document.getElementById('drop-'+rowId);
   if(drop) drop.style.display='none';
   calcItemPrice(rowId);
@@ -4206,7 +4218,14 @@ window.onerror = function(msg, src, line, col){
         </div>
 
         <div class="form-row cols-2">
-          <div><label class="label">Дата доставки</label><input id="co-date" type="date"></div>
+          <div>
+            <label class="label">Дата доставки</label>
+            <input id="co-date" type="date">
+            <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="co-per-item-date" onchange="togglePerItemDates()">
+              У каждого товара своя дата доставки
+            </label>
+          </div>
           <div id="co-resp-row"><label class="label">Менеджер продаж</label><select id="co-resp"></select></div>
         </div>
 
@@ -25688,9 +25707,10 @@ function buildItemRow(id, mode){
   div.innerHTML=
     '<div class="item-card-main">'+
       nameField+
-      '<div><label class="label">Категория</label>'+
+      '<div class="oi-category-wrap"><label class="label">Категория</label>'+
         '<select class="oi-category" onchange="onItemCategoryChange(\''+id+'\')">'+categoryOptions+'</select>'+
       '</div>'+
+      '<div class="oi-category-label" style="display:none;font-size:12px;color:var(--text3);padding-top:4px"></div>'+
       '<div><label class="label">Кол-во</label>'+
         '<input type="number" placeholder="1" min="1" value="1" class="oi-qty" oninput="calcItemPrice(\''+id+'\')">'+
       '</div>'+
@@ -25717,8 +25737,11 @@ function buildItemRow(id, mode){
       '</div>'+
       '<div id="formula-'+id+'" style="display:none;font-size:11px;color:var(--text3);margin-top:4px;padding:4px 8px;background:var(--bg2);border-radius:5px"></div>'+
     '</div>'+
-    '<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-bottom:8px">'+
-      '<div><label class="label">Дата доставки</label><input type="date" class="oi-date"></div>'+
+    '<div class="oi-date-wrap" style="display:none;margin-bottom:8px">'+
+      '<label class="label">📅 Дата доставки этой позиции</label>'+
+      '<input type="date" class="oi-date">'+
+    '</div>'+
+    '<div style="text-align:right;margin-bottom:8px">'+
       '<button class="btn btn-ghost btn-sm tc-open-btn" style="font-size:11px;padding:6px 10px"'+
         ' onclick="openTechCardModal(\''+id+'\',\'new\')">📋 Техкарта</button>'+
     '</div>'+
@@ -25871,6 +25894,16 @@ function updateOrderTotal(){
 }
 
 // ===== ORDER FORM CASCADE LOGIC =====
+
+function togglePerItemDates(){
+  const perItem = document.getElementById('co-per-item-date')?.checked;
+  const generalDate = document.getElementById('co-date');
+  if(generalDate) generalDate.disabled = perItem;
+  // Показываем/скрываем дату в каждой позиции
+  document.querySelectorAll('#co-items .oi-date-wrap').forEach(w=>{
+    w.style.display = perItem ? '' : 'none';
+  });
+}
 
 function coCustomerMode(mode){
   document.getElementById('co-customer-lead').style.display    = mode==='lead'   ?'':'none';
