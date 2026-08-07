@@ -20507,6 +20507,17 @@ let tasksSubtab='lead'; // 'lead' | 'general'
 
 const TODAY_ISO=new Date().toISOString().slice(0,10);
 
+function showOverdueTasks(){
+  // Находим просроченные задачи и переключаемся на их subtab
+  const overdue = tasksData.filter(isTaskOverdue);
+  if(!overdue.length) return;
+  // Если есть просроченные с лидом — показываем вкладку По лидам
+  const hasLead = overdue.some(t=>t.leadId);
+  const targetTab = hasLead ? 'lead' : 'general';
+  const tabEl = document.querySelector(`#tasks-subtabs .tab[onclick*="${targetTab}"]`);
+  if(tabEl) showTasksSubtab(targetTab, tabEl);
+}
+
 function isTaskOverdue(t){
   if(t.status==='done') return false;
   if(!t.date) return false;
@@ -20559,7 +20570,10 @@ function renderTasks(){
   if(banner){
     if(overdueTasks.length>0){
       banner.style.display='block';
-      banner.textContent=`⚠ Просрочено задач: ${overdueTasks.length} — срочно обработайте!`;
+      banner.innerHTML=`⚠ Просрочено задач: ${overdueTasks.length} — срочно обработайте! `+
+        `<button onclick="showOverdueTasks()" style="margin-left:8px;font-size:11px;padding:2px 8px;
+        background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);border-radius:4px;
+        cursor:pointer;color:inherit">Показать все</button>`;
     } else { banner.style.display='none'; }
   }
 
