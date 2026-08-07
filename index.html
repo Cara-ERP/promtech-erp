@@ -3477,28 +3477,32 @@ window.onerror = function(msg, src, line, col){
 
       <!-- TAB: Клиенты -->
       <div class="orders-tab" id="orders-clients" style="display:none">
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-          <input type="search" id="clients-search" placeholder="🔍 Поиск по имени, телефону..."
-            style="font-size:13px;flex:1;max-width:280px" oninput="renderClientsTab()">
-          <select id="clients-type-filter" onchange="renderClientsTab()" style="font-size:13px">
-            <option value="all">Все клиенты</option>
-            <option value="permanent">⭐ Постоянные</option>
-            <option value="new">Новые</option>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+          <input type="search" id="clients-search" placeholder="🔍 Имя, телефон..."
+            style="font-size:13px;flex:1;min-width:180px;max-width:280px" oninput="renderClientsTab()">
+          <select id="clients-salon-filter" onchange="renderClientsTab()" style="font-size:13px">
+            <option value="">Все салоны</option>
+            <option value="salon_armada">🏬 Армада</option>
+            <option value="salon_nazarbayeva">🏪 Назарбаева</option>
           </select>
+          <input type="date" id="clients-date-from" onchange="renderClientsTab()" style="font-size:13px" title="Дата первого заказа от">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="clients-date-to" onchange="renderClientsTab()" style="font-size:13px" title="до">
           <span id="clients-count" style="font-size:12px;color:var(--text3)"></span>
-          <button class="btn btn-primary btn-sm" onclick="openPersonModal(null,'office')">+ Новый клиент</button>
         </div>
         <!-- KPI -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px" id="clients-kpi"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px" id="clients-kpi"></div>
         <div class="card" style="padding:0">
           <table class="data-table">
             <thead><tr>
-              <th>Клиент</th>
+              <th onclick="sortClients('name')" style="cursor:pointer;user-select:none">Клиент <span id="csort-name"></span></th>
               <th>Телефон</th>
-              <th>Адрес</th>
-              <th style="text-align:right">Заказов</th>
-              <th style="text-align:right">Сумма покупок</th>
-              <th>Статус</th>
+              <th>Салон</th>
+              <th onclick="sortClients('orders')" style="cursor:pointer;user-select:none;text-align:right">Заказов <span id="csort-orders">▼</span></th>
+              <th onclick="sortClients('turnover')" style="cursor:pointer;user-select:none;text-align:right">Оборот <span id="csort-turnover"></span></th>
+              <th onclick="sortClients('debt')" style="cursor:pointer;user-select:none;text-align:right">Долг <span id="csort-debt"></span></th>
+              <th onclick="sortClients('lastOrder')" style="cursor:pointer;user-select:none">Последний заказ <span id="csort-lastOrder"></span></th>
+              <th>Товары</th>
               <th></th>
             </tr></thead>
             <tbody id="clients-tbody"></tbody>
@@ -20589,19 +20593,28 @@ function renderTasks(){
     const pc=PRIORITY_CONFIG[t.priority]||PRIORITY_CONFIG.medium;
     const overdue=isTaskOverdue(t);
     const dtLabel=fmtTaskDateTime(t);
-    const lead=t.leadId ? crmLeads.find(l=>l.id===t.leadId) : null;
+    const lead=t.leadId ? (crmLeads.find(l=>String(l.id)===String(t.leadId))||leadsData.find(l=>String(l.id)===String(t.leadId))) : null;
     const cardCls=`task-card ${t.status==='done'?'task-done':pc.cls} ${overdue?'task-overdue':''}`;
-    return `<div class="${cardCls}">
+    const daysLeft=t.date?Math.ceil((new Date(t.date)-new Date())/(86400000)):null;
+    const dueLabel=overdue?`<span style="color:var(--red);font-weight:700">⚠️ ${dtLabel} — просрочена!</span>`
+      :daysLeft===0?`<span style="color:var(--amber)">📅 Сегодня ${t.time||''}</span>`
+      :daysLeft===1?`<span style="color:var(--amber)">📅 Завтра ${t.time||''}</span>`
+      :`<span class="task-datetime">📅 ${dtLabel}</span>`;
+    return `<div class="${cardCls}" style="position:relative">
       <div class="task-checkbox ${t.status==='done'?'checked':''}" onclick="toggleTask('${t.id}')" title="${t.status==='done'?'Переоткрыть':'Отметить выполненной'}">
         ${t.status==='done'?'✓':''}
       </div>
       <div class="task-body">
         <div class="task-title">${t.title}</div>
+        ${lead?`<div style="margin:3px 0 2px;font-size:12px">
+          <span style="color:var(--accent);cursor:pointer;font-weight:500" onclick="openCrmLeadModal('${lead.id}')">
+            🔗 ${lead.name}</span>${lead.phone?`<span style="color:var(--text3);margin-left:6px">${lead.phone}</span>`:''}
+          ${lead.interest?`<span style="color:var(--text3);margin-left:6px;font-size:11px">· ${lead.interest.slice(0,30)}</span>`:''}
+        </div>`:'<div style="font-size:11px;color:var(--text3);margin:2px 0">📋 Общая задача</div>'}
         <div class="task-meta">
-          <span class="task-datetime ${overdue?'overdue':''}">📅 ${dtLabel}${overdue?' — просрочена!':''}</span>
-          <span>👤 ${t.manager||'—'}</span>
+          ${dueLabel}
+          ${t.manager?`<span>👤 ${t.manager}</span>`:''}
           <span class="${pc.textCls}">${pc.icon} ${pc.label}</span>
-          ${lead?`<span class="task-lead-link" onclick="openCrmLeadModal('${lead.id}')">🔗 ${lead.name}</span>`:''}
         </div>
       </div>
       <div class="task-actions">
@@ -20665,7 +20678,7 @@ function openTaskModal(taskId, prefillLeadId){
     document.getElementById('task-title').value=t.title||'';
     document.getElementById('task-date').value=t.date||'';
     document.getElementById('task-time').value=t.time||'';
-    if(mgrSel) mgrSel.value=t.manager||'';
+    const mgrSelEdit=document.getElementById('task-manager'); if(mgrSelEdit) mgrSelEdit.value=t.manager||'';
     document.getElementById('task-priority').value=t.priority||'normal';
     document.getElementById('task-lead-id').value=t.leadId||'';
     // Восстанавливаем имя лида в поиске
@@ -27169,6 +27182,149 @@ function recalcAllCustomerTurnover(){
   });
   renderSalons();
 }
+
+let _cSortCol = 'orders';
+let _cSortAsc = false;
+
+function sortClients(col){
+  if(_cSortCol===col){ _cSortAsc=!_cSortAsc; }
+  else { _cSortCol=col; _cSortAsc=col==='name'; }
+  ['name','orders','turnover','debt','lastOrder'].forEach(c=>{
+    const el=document.getElementById('csort-'+c);
+    if(el) el.textContent=c===_cSortCol?(_cSortAsc?'▲':'▼'):'';
+  });
+  renderClientsTab();
+}
+
+function renderClientsTab(){
+  const tbody=document.getElementById('clients-tbody');
+  if(!tbody) return;
+  const kpiEl=document.getElementById('clients-kpi');
+  const search=(document.getElementById('clients-search')?.value||'').toLowerCase();
+  const salonF=document.getElementById('clients-salon-filter')?.value||'';
+  const dateFrom=document.getElementById('clients-date-from')?.value||'';
+  const dateTo=document.getElementById('clients-date-to')?.value||'';
+  const chFilter=getChannelFilter();
+  const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const toISO=d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10); const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
+
+  // Собираем клиентов из заказов salons (salonClientName)
+  const clientMap = {};
+  ordersData.filter(o=>{
+    if(!o.salonClientName) return false;
+    if(chFilter && o.channel!==chFilter) return false;
+    if(salonF && o.channel!==salonF) return false;
+    return true;
+  }).forEach(o=>{
+    const key = o.salonClientName.trim();
+    if(!key) return;
+    const iso = toISO(o.createdDate||o.date||'');
+    if(dateFrom && iso && iso<dateFrom) return;
+    if(dateTo   && iso && iso>dateTo)   return;
+    if(!clientMap[key]) clientMap[key]={
+      name:key, phone:'', channel:o.channel,
+      orders:0, turnover:0, paid:0, lastOrder:'', lastNum:'', products:[]
+    };
+    const c=clientMap[key];
+    const total=orderTotal(o);
+    c.orders++;
+    c.turnover+=total;
+    c.paid+=total*(o.payment||0)/100;
+    if(!c.lastOrder||iso>c.lastOrder){ c.lastOrder=iso; c.lastNum=o.num; }
+    (o.items||[]).forEach(it=>{ if(it.name&&!c.products.includes(it.name)) c.products.push(it.name); });
+  });
+
+  let clients=Object.values(clientMap);
+  if(search) clients=clients.filter(c=>c.name.toLowerCase().includes(search));
+
+  // Сортировка
+  clients.sort((a,b)=>{
+    const va=a[_cSortCol]||0, vb=b[_cSortCol]||0;
+    if(typeof va==='number') return _cSortAsc?va-vb:vb-va;
+    return _cSortAsc?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
+  });
+
+  const countEl=document.getElementById('clients-count');
+  if(countEl) countEl.textContent=`${clients.length} клиентов`;
+
+  // KPI
+  const totalT=clients.reduce((s,c)=>s+c.turnover,0);
+  const totalD=clients.reduce((s,c)=>s+(c.turnover-c.paid),0);
+  if(kpiEl) kpiEl.innerHTML=[
+    {label:'👥 Клиентов',val:clients.length,color:'var(--accent)'},
+    {label:'💰 Оборот',val:fmt(totalT),color:'var(--green)'},
+    {label:'⚠️ Долг',val:fmt(totalD),color:totalD>0?'var(--red)':'var(--green)'},
+  ].map(k=>`<div class="pl-kpi"><div class="pl-kpi-label">${k.label}</div>
+    <div class="pl-kpi-value" style="color:${k.color}">${k.val}</div></div>`).join('');
+
+  const SALON_LABEL={'salon_armada':'🏬 Армада','salon_nazarbayeva':'🏪 Назарбаева'};
+
+  tbody.innerHTML=clients.map(c=>{
+    const debt=Math.max(0,c.turnover-c.paid);
+    const products=c.products.slice(0,3).join(', ')+(c.products.length>3?` +${c.products.length-3}`:'');
+    return `<tr>
+      <td style="font-weight:600">${c.name}</td>
+      <td style="font-size:12px;color:var(--text3)">${c.phone||'—'}</td>
+      <td style="font-size:11px">${SALON_LABEL[c.channel]||c.channel||'—'}</td>
+      <td style="text-align:right;font-family:monospace">${c.orders}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(c.turnover)}</td>
+      <td style="text-align:right;font-family:monospace;color:${debt>0?'var(--red)':'var(--text3)'}">${debt>0?fmt(debt):'✅'}</td>
+      <td style="font-size:12px;color:var(--text3)">${c.lastOrder?c.lastOrder+' · '+c.lastNum:'—'}</td>
+      <td style="font-size:11px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.products.join(', ')}">${products||'—'}</td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
+        onclick="openClientCard(${JSON.stringify(c.name)})">👤 Карточка</button></td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">Нет клиентов</td></tr>';
+}
+
+function openClientCard(clientName){
+  const toISO=d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10); const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
+  const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const orders=ordersData.filter(o=>o.salonClientName===clientName);
+  const totalT=orders.reduce((s,o)=>s+orderTotal(o),0);
+  const totalPaid=orders.reduce((s,o)=>s+orderTotal(o)*(o.payment||0)/100,0);
+  const debt=Math.max(0,totalT-totalPaid);
+  const products=[...new Set(orders.flatMap(o=>(o.items||[]).map(it=>it.name)))];
+
+  const html=`<div style="padding:16px;max-width:600px">
+    <h3 style="margin:0 0 12px">👤 ${clientName}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+      <div class="pl-kpi"><div class="pl-kpi-label">Заказов</div><div class="pl-kpi-value">${orders.length}</div></div>
+      <div class="pl-kpi"><div class="pl-kpi-label">Оборот</div><div class="pl-kpi-value" style="color:var(--green)">${fmt(totalT)}</div></div>
+      <div class="pl-kpi"><div class="pl-kpi-label">Долг</div><div class="pl-kpi-value" style="color:${debt>0?'var(--red)':'var(--green)'}">${debt>0?fmt(debt):'Нет'}</div></div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-weight:600;margin-bottom:6px;font-size:13px">📦 Заказанные товары</div>
+      <div style="font-size:12px;color:var(--text2)">${products.join(', ')||'—'}</div>
+    </div>
+    <div>
+      <div style="font-weight:600;margin-bottom:8px;font-size:13px">📋 История заказов</div>
+      ${orders.map(o=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+        <span style="color:var(--accent);cursor:pointer" onclick="openEditOrderModal('${o.num}')">${o.num}</span>
+        <span>${toISO(o.date||'')||'—'}</span>
+        <span style="color:var(--green)">${fmt(orderTotal(o))}</span>
+        <span class="badge ${STATUS_BADGE[o.status]}">${STATUS_LABELS[o.status]}</span>
+        <span style="color:${(o.payment||0)>=100?'var(--green)':'var(--red)'}">${o.payment||0}%</span>
+      </div>`).join('')||'<div style="color:var(--text3)">Нет заказов</div>'}
+    </div>
+  </div>`;
+
+  // Показываем в модале
+  let modal=document.getElementById('client-card-modal');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='client-card-modal';
+    modal.className='modal-overlay';
+    modal.innerHTML=`<div class="modal" style="max-width:640px;max-height:80vh;overflow-y:auto">
+      <div class="modal-header"><span id="client-card-title"></span>
+        <button class="modal-close" onclick="closeModal('client-card-modal')">✕</button></div>
+      <div id="client-card-body"></div></div>`;
+    document.body.appendChild(modal);
+  }
+  document.getElementById('client-card-body').innerHTML=html;
+  showModal('client-card-modal');
+}
+
 
 // ===== UPDATED RENDER FUNCTIONS (use _turnover/_orders from orders) =====
 
