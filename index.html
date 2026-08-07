@@ -27352,12 +27352,13 @@ renderPersons();
 renderOrders();
 recalcAllCustomerTurnover();
 renderMrpOrdersJournal();
-// Update tasks open-count badge on the tab (tasks module isn't rendered until tab is opened,
-// but the badge on the tab itself should be correct from the start)
+// Update tasks badge after loading from DB
 setTimeout(()=>{
-  const el=document.getElementById('tasks-open-count');
-  if(el) el.textContent=tasksData.filter(t=>t.status==='open').length;
-},0);
+  loadTasksFromDB().then(()=>{
+    const el=document.getElementById('tasks-open-count');
+    if(el) el.textContent=tasksData.filter(t=>t.status==='open').length;
+  });
+},1000);
 
 // override showModal
 const _origShowModal=showModal;
