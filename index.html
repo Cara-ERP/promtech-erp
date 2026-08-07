@@ -4100,13 +4100,47 @@ window.onerror = function(msg, src, line, col){
 
         <!-- Покупатель — всегда видно -->
         <div class="form-row" id="co-customer-row">
-          <label class="label">👤 Покупатель / Клиент</label>
-          <input type="text" id="co-customer-name" placeholder="Имя клиента, компания или ФИО..."
-            style="font-size:13px">
+          <label class="label">👤 Покупатель</label>
+          <div style="display:flex;gap:8px;margin-bottom:6px">
+            <button class="btn btn-ghost btn-sm" onclick="coCustomerMode('lead')" id="co-btn-lead">🎯 Из лидов</button>
+            <button class="btn btn-ghost btn-sm" onclick="coCustomerMode('manual')" id="co-btn-manual">✏️ Вручную</button>
+            <button class="btn btn-ghost btn-sm" onclick="coCustomerMode('channel')" id="co-btn-channel">🏬 Салон/Дилер</button>
+          </div>
+          <!-- Из лидов -->
+          <div id="co-customer-lead" style="display:none">
+            <input type="search" id="co-lead-search" placeholder="🔍 Поиск лида по имени..."
+              style="font-size:13px;width:100%;margin-bottom:4px" oninput="filterCoLeads()">
+            <div id="co-lead-dropdown" style="display:none;max-height:180px;overflow-y:auto;
+              background:var(--bg3);border:1px solid var(--border);border-radius:8px"></div>
+          </div>
+          <!-- Вручную -->
+          <div id="co-customer-manual" style="display:none">
+            <input type="text" id="co-customer-name" placeholder="Имя клиента или компания..."
+              style="font-size:13px;width:100%">
+          </div>
+          <!-- Канал -->
+          <div id="co-customer-channel" style="display:none">
+            <select id="co-channel-sel" style="font-size:13px;width:100%" onchange="onCoChannelChange()">
+              <option value="">— выберите —</option>
+              <option value="salon_armada">🏬 Салон Армада</option>
+              <option value="salon_nazarbayeva">🏪 Салон Назарбаева</option>
+              <option value="dealer_astana">🚚 Дилер Астана</option>
+              <option value="dealer_aktau">🚚 Дилер Актау</option>
+              <option value="dealer_atyrau">🚚 Дилер Атырау</option>
+              <option value="dealer_shymkent">🚚 Дилер Шымкент</option>
+              <option value="dealer_aktobe">🚚 Дилер Актобе</option>
+              <option value="office">🏢 Офис / Прямой</option>
+            </select>
+            <div id="co-channel-client-row" style="display:none;margin-top:6px">
+              <input type="text" id="co-channel-client" placeholder="Конечный клиент (необязательно)"
+                style="font-size:13px;width:100%">
+            </div>
+          </div>
+          <div id="co-customer-selected" style="font-size:12px;color:var(--accent);margin-top:4px;min-height:16px"></div>
         </div>
 
-        <!-- Тип покупателя — скрыт для дилеров и салонов -->
-        <div class="form-row" id="co-type-row">
+        <!-- Тип покупателя — скрыт, управляется выше -->
+        <div class="form-row" id="co-type-row" style="display:none">
           <label class="label">Тип покупателя</label>
           <select id="co-type" onchange="onCoTypeChange()">
             <option value="">— выберите —</option>
@@ -22053,12 +22087,12 @@ async function loadLeadsFromDB(opts={}){
     yearAgo.setFullYear(yearAgo.getFullYear()-1);
     const yearAgoISO = yearAgo.toISOString();
 
-    // Базовый фильтр: только активные лиды за последний год
+    // Базовый фильтр: только активные лиды (не won/lost)
+    const activeFilter = 'status=neq.won&status=neq.lost';
     const baseFilter = opts.all
       ? `select=*&order=created_at.desc&limit=${pageSize}&offset=0`
-      : `select=*&status=not.in.(won,lost)&order=created_at.desc&limit=${pageSize}&offset=0`;
+      : `select=*&${activeFilter}&order=created_at.desc&limit=${pageSize}&offset=0`;
 
-    updateLoading && updateLoading(15, 'Загрузка лидов...');
     const page0 = await sbFetch('leads', baseFilter);
 
     if(!page0 || page0.length === 0){
@@ -22075,7 +22109,7 @@ async function loadLeadsFromDB(opts={}){
       for(let off = pageSize; off < 6000; off += pageSize) offsets.push(off);
       const baseQ = opts.all
         ? `select=*&order=created_at.desc&limit=${pageSize}`
-        : `select=*&status=not.in.(won,lost)&order=created_at.desc&limit=${pageSize}`;
+        : `select=*&${activeFilter}&order=created_at.desc&limit=${pageSize}`;
       const pages = await Promise.all(offsets.map(off=>
         sbFetch('leads', `${baseQ}&offset=${off}`)
       ));
@@ -25839,6 +25873,60 @@ function updateOrderTotal(){
 
 // ===== ORDER FORM CASCADE LOGIC =====
 
+function coCustomerMode(mode){
+  document.getElementById('co-customer-lead').style.display    = mode==='lead'   ?'':'none';
+  document.getElementById('co-customer-manual').style.display  = mode==='manual' ?'':'none';
+  document.getElementById('co-customer-channel').style.display = mode==='channel'?'':'none';
+  ['lead','manual','channel'].forEach(m=>{
+    const btn=document.getElementById('co-btn-'+m);
+    if(btn) btn.classList.toggle('btn-primary', m===mode);
+  });
+  if(mode==='lead' && leadsData.length===0){
+    loadLeadsFromDB().then(()=>{});
+  }
+  if(mode==='channel'){
+    const ch=getChannelFilter();
+    if(ch){ const sel=document.getElementById('co-channel-sel'); if(sel) sel.value=ch; onCoChannelChange(); }
+  }
+}
+
+function filterCoLeads(){
+  const q=(document.getElementById('co-lead-search')?.value||'').toLowerCase();
+  const dd=document.getElementById('co-lead-dropdown');
+  if(!dd) return;
+  if(!q){ dd.style.display='none'; return; }
+  const leads=leadsData.filter(l=>
+    (l.name||'').toLowerCase().includes(q)||(l.phone||'').includes(q)
+  ).slice(0,20);
+  if(!leads.length){ dd.innerHTML='<div style="padding:8px;font-size:12px;color:var(--text3)">Не найдено</div>'; dd.style.display='block'; return; }
+  dd.innerHTML=leads.map(l=>`
+    <div onclick="selectCoLead('${l.id}','${(l.name||'').replace(/'/g,"\\'")}','${(l.phone||'').replace(/'/g,"\\'")}','${l.channel||''}')"
+      style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border2)"
+      onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+      <b>${l.name}</b>${l.phone?` · <span style="color:var(--text3);font-size:11px">${l.phone}</span>`:''}
+    </div>`).join('');
+  dd.style.display='block';
+}
+
+function selectCoLead(id, name, phone, channel){
+  document.getElementById('co-lead-search').value=name;
+  document.getElementById('co-lead-dropdown').style.display='none';
+  const sel=document.getElementById('co-customer-selected');
+  if(sel) sel.innerHTML=`✅ <b>${name}</b>${phone?' · '+phone:''}`;
+  // Сохраняем для сохранения заказа
+  window._coSelectedLeadId=id;
+  window._coSelectedCustomer=name;
+  window._coSelectedChannel=channel||'office';
+}
+
+function onCoChannelChange(){
+  const ch=document.getElementById('co-channel-sel')?.value||'';
+  const clientRow=document.getElementById('co-channel-client-row');
+  if(clientRow) clientRow.style.display=ch.startsWith('salon_')?'':'none';
+  window._coSelectedChannel=ch;
+  window._coSelectedCustomer=document.getElementById('co-channel-sel')?.options[document.getElementById('co-channel-sel')?.selectedIndex]?.text||'';
+}
+
 function onCoTypeChange(){
   const type=document.getElementById('co-type').value;
   document.getElementById('co-row-client').style.display = type==='client'?'':'none';
@@ -25957,8 +26045,20 @@ function openNewCustOrderModal(){
   else loadStaffFromDB().then(fillSellers);
 
   // Очищаем поле покупателя
-  const custName = document.getElementById('co-customer-name');
+  window._coSelectedLeadId=null;
+  window._coSelectedCustomer='';
+  window._coSelectedChannel='office';
+  const custSel=document.getElementById('co-customer-selected');
+  if(custSel) custSel.textContent='';
+  const leadSearch=document.getElementById('co-lead-search');
+  if(leadSearch) leadSearch.value='';
+  const custName=document.getElementById('co-customer-name');
   if(custName) custName.value='';
+
+  // По умолчанию — режим из лидов
+  const coInitCh=getChannelFilter();
+  if(coInitCh&&coInitCh.startsWith('dealer_')) coCustomerMode('channel');
+  else coCustomerMode('lead');
 
   if(ch && ch.startsWith('dealer_')){
     if(typeRow) typeRow.style.display='none';
