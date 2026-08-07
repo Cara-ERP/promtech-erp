@@ -1048,7 +1048,20 @@ function onCatalogSearch(input, rowId){
   var matches = catalogData.filter(function(p){
     return p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
   }).slice(0, 12);
-  if(!matches.length){ drop.style.display='none'; return; }
+  if(!matches.length){
+    drop.innerHTML=`<div style="padding:8px 12px">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Не найдено в каталоге</div>
+      <button onmousedown="event.preventDefault()"
+        onclick="createNewProduct('${rowId}', this.dataset.name)"
+        data-name="${input.value.replace(/"/g,'&quot;')}"
+        style="width:100%;padding:7px;background:rgba(79,142,247,.1);border:1px solid var(--accent);
+        border-radius:6px;cursor:pointer;color:var(--accent);font-size:12px;text-align:left">
+        ➕ Создать «${input.value}» в каталоге
+      </button>
+    </div>`;
+    drop.style.display='block';
+    return;
+  }
   var role = getCurrentRole();
   var isWholesale = role && role.channel;
   drop.innerHTML = matches.map(function(p){
@@ -25614,13 +25627,248 @@ let orderItemSeq=0;
 function buildAttrFieldsHtml(rowId, currentAttrs){
   currentAttrs = currentAttrs || {};
   return ATTR_KEYS.map(key=>{
-    const opts=attrCatalog[key]||[];
-    const optionsHtml='<option value="">—</option>'+opts.map(o=>`<option value="${o}" ${currentAttrs[key]===o?'selected':''}>${o}</option>`).join('');
+    const opts = attrCatalog[key]||[];
+    const curVal = currentAttrs[key]||'';
+
+    if(key==='Прочее'){
+      // Свободный текст для прочего
+      return `<div class="attr-field" data-attr-key="${key}">
+        <label>${key}</label>
+        <textarea class="attr-select" data-attr-key="${key}" data-row="${rowId}"
+          rows="2" placeholder="Любое описание, особые пожелания..."
+          style="width:100%;font-size:12px;padding:6px;background:var(--bg2);border:1px solid var(--border);
+          border-radius:6px;color:var(--text1);resize:vertical">${curVal}</textarea>
+      </div>`;
+    }
+
+    if(key==='Ткань'){
+      // Поиск из каталога тканей
+      const fabricDropId = 'fabric-drop-'+rowId;
+      return `<div class="attr-field" data-attr-key="${key}">
+        <label>${key}</label>
+        <div style="position:relative">
+          <input type="text" class="attr-select attr-fabric-input" data-attr-key="${key}" data-row="${rowId}"
+            placeholder="🔍 Поиск ткани из каталога или введите вручную..."
+            value="${curVal}" style="font-size:12px;width:100%"
+            oninput="searchFabric(this,'${fabricDropId}')"
+            onblur="setTimeout(()=>{const d=document.getElementById('${fabricDropId}');if(d)d.style.display='none'},200)">
+          <div id="${fabricDropId}" style="display:none;position:absolute;z-index:999;width:100%;max-height:160px;
+            overflow-y:auto;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 8px 8px;
+            box-shadow:0 4px 12px rgba(0,0,0,.2)"></div>
+        </div>
+      </div>`;
+    }
+
+    // Остальные — select + кнопка добавить
+    const optionsHtml = '<option value="">—</option>'+
+      opts.map(o=>`<option value="${o}" ${curVal===o?'selected':''}>${o}</option>`).join('')+
+      `<option value="__custom__">✏️ Ввести вручную...</option>`;
+
     return `<div class="attr-field" data-attr-key="${key}">
       <label>${key}</label>
-      <select class="attr-select" data-attr-key="${key}" data-row="${rowId}">${optionsHtml}</select>
+      <div style="display:flex;gap:4px;align-items:center">
+        <select class="attr-select" data-attr-key="${key}" data-row="${rowId}"
+          style="flex:1" onchange="onAttrSelectChange(this,'${rowId}','${key}')">${optionsHtml}</select>
+        <button onclick="addAttrOption('${key}','${rowId}')" title="Добавить новое значение"
+          style="padding:4px 8px;background:none;border:1px solid var(--border);border-radius:6px;
+          cursor:pointer;color:var(--accent);font-size:12px;white-space:nowrap">+</button>
+      </div>
+      <input type="text" class="attr-custom-input" data-attr-key="${key}" data-row="${rowId}"
+        style="display:none;margin-top:4px;font-size:12px" placeholder="Введите значение...">
     </div>`;
   }).join('');
+}
+
+function onAttrSelectChange(sel, rowId, key){
+  const customInput = sel.closest('.attr-field')?.querySelector('.attr-custom-input');
+  if(sel.value==='__custom__'){
+    if(customInput){ customInput.style.display=''; customInput.focus(); }
+    sel.value='';
+  } else {
+    if(customInput) customInput.style.display='none';
+  }
+}
+
+function addAttrOption(key, rowId){
+  const val = prompt(`Добавить новое значение для «${key}»:`);
+  if(!val || !val.trim()) return;
+  const v = val.trim();
+  // Добавляем в справочник
+  if(!attrCatalog[key]) attrCatalog[key]=[];
+  if(!attrCatalog[key].includes(v)) attrCatalog[key].push(v);
+  // Добавляем в текущий селект
+  const row = document.getElementById(rowId);
+  if(!row) return;
+  const sel = row.querySelector(`.attr-select[data-attr-key="${key}"]`);
+  if(sel){
+    const opt=document.createElement('option');
+    opt.value=v; opt.textContent=v; opt.selected=true;
+    // Вставляем перед последней опцией (✏️ Ввести вручную)
+    const lastOpt = sel.querySelector('option[value="__custom__"]');
+    if(lastOpt) sel.insertBefore(opt, lastOpt);
+    else sel.appendChild(opt);
+    sel.value=v;
+  }
+}
+
+// Поиск тканей из каталога
+async function createNewProduct(rowId, productName){
+  if(!productName||!productName.trim()) return;
+  const name = productName.trim();
+
+  // Спрашиваем категорию
+  const cats = productCategories.length>0 ? productCategories : Object.keys(attrCatalog);
+  const catList = cats.map((c,i)=>`${i+1}. ${c}`).join('\n');
+  const catInput = prompt(`Категория для «${name}»:\n${catList}\n\nВведите номер или название:`);
+  if(!catInput) return;
+
+  const catIdx = parseInt(catInput)-1;
+  const category = (catIdx>=0 && catIdx<cats.length) ? cats[catIdx] : catInput.trim();
+
+  try {
+    const res = await sbPost('products', {
+      name,
+      category,
+      unit: 'шт',
+      price_retail: 0,
+      price_wholesale: 0,
+      active: true,
+    });
+
+    const newProd = res?.[0] || {name, category, price_retail:0, price_wholesale:0, unit:'шт'};
+    catalogData.push(newProd);
+
+    // Вставляем в строку заказа
+    const row = document.getElementById(rowId);
+    if(row){
+      const nameInput = row.querySelector('.oi-name');
+      if(nameInput) nameInput.value = name;
+      const drop = document.getElementById('drop-'+rowId);
+      if(drop) drop.style.display='none';
+      // Устанавливаем категорию
+      const catWrap = row.querySelector('.oi-category-wrap');
+      const catLabel = row.querySelector('.oi-category-label');
+      const catSel = row.querySelector('.oi-category');
+      if(catSel){
+        let opt = Array.from(catSel.options).find(o=>o.value===category);
+        if(!opt){ opt=document.createElement('option'); opt.value=category; opt.textContent=category; catSel.appendChild(opt); }
+        catSel.value=category;
+      }
+      if(catWrap) catWrap.style.display='none';
+      if(catLabel){ catLabel.textContent='📂 '+category; catLabel.style.display=''; }
+    }
+
+    // Уведомление
+    const msg = document.createElement('div');
+    msg.textContent = `✅ «${name}» добавлен в каталог (${category})`;
+    msg.style.cssText='position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999';
+    document.body.appendChild(msg);
+    setTimeout(()=>msg.remove(), 3000);
+
+  } catch(e){
+    alert(`Ошибка при создании: ${e.message}`);
+  }
+}
+
+async function createNewFabric(inputId, fabricName, dropId){
+  if(!fabricName||!fabricName.trim()) return;
+  const name = fabricName.trim();
+
+  // Сохраняем в Supabase
+  try {
+    const res = await sbPost('products', {
+      name,
+      category: 'Ткань обивочная',
+      unit: 'м.п.',
+      price_retail: 0,
+      price_wholesale: 0,
+      active: true,
+    });
+    // Добавляем в локальный каталог
+    if(res && res[0]){
+      catalogData.push(res[0]);
+    } else {
+      catalogData.push({name, category:'Ткань обивочная', price_retail:0, price_wholesale:0});
+    }
+    // Добавляем в справочник атрибутов
+    if(!attrCatalog['Ткань'].includes(name)) attrCatalog['Ткань'].push(name);
+
+    // Устанавливаем значение в поле
+    const inp = document.querySelector(`.attr-fabric-input[data-row]`);
+    // Ищем по dropId — находим соответствующий input
+    const drop = document.getElementById(dropId);
+    if(drop){
+      const parent = drop.parentElement;
+      const inpEl = parent?.querySelector('.attr-fabric-input');
+      if(inpEl) inpEl.value = name;
+      drop.style.display='none';
+    }
+
+    // Уведомление
+    const msg = document.createElement('div');
+    msg.textContent = `✅ «${name}» добавлена в каталог (Ткань обивочная)`;
+    msg.style.cssText='position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999';
+    document.body.appendChild(msg);
+    setTimeout(()=>msg.remove(), 3000);
+  } catch(e){
+    alert(`Ошибка при создании: ${e.message}`);
+  }
+}
+
+function searchFabric(input, dropId){
+  const q = (input.value||'').toLowerCase().trim();
+  const drop = document.getElementById(dropId);
+  if(!drop) return;
+  if(q.length < 1){ drop.style.display='none'; return; }
+
+  // Ищем в каталоге по категории "ткань обивочная" + в attrCatalog['Ткань']
+  const catalogFabrics = catalogData.filter(p=>
+    (p.category||'').toLowerCase().includes('ткань')||
+    (p.name||'').toLowerCase().includes('ткань')||
+    (p.name||'').toLowerCase().includes('велюр')||
+    (p.name||'').toLowerCase().includes('шенилл')||
+    (p.name||'').toLowerCase().includes('рогожк')||
+    (p.name||'').toLowerCase().includes('экокожа')
+  ).filter(p=>(p.name||'').toLowerCase().includes(q)).slice(0,10);
+
+  const attrFabrics = (attrCatalog['Ткань']||[]).filter(f=>f.toLowerCase().includes(q));
+
+  const items = [
+    ...catalogFabrics.map(p=>`
+      <div onclick="document.querySelector('input[id][data-attr-key=\\'Ткань\\'][data-row]') ; this.closest('[id]')&&(this.closest('[id]').previousElementSibling.value='${p.name.replace(/'/g,"\\'")}');document.getElementById('${dropId}').style.display='none'"
+        onmousedown="event.preventDefault()"
+        style="padding:7px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border2)"
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+        📦 ${p.name} <span style="color:var(--text3);font-size:10px">— из каталога</span>
+      </div>`),
+    ...attrFabrics.map(f=>`
+      <div onmousedown="event.preventDefault()"
+        style="padding:7px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border2)"
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+        🧵 ${f}
+      </div>`),
+  ];
+
+  if(!items.length){
+    drop.innerHTML=`<div style="padding:8px 12px;font-size:12px;color:var(--text3)">
+      Не найдено в каталоге
+      <button onmousedown="event.preventDefault()" onclick="createNewFabric('${input.id||''}', ${JSON.stringify(input.value)}, '${dropId}')"
+        style="display:block;margin-top:6px;width:100%;padding:6px;background:rgba(79,142,247,.1);
+        border:1px solid var(--accent);border-radius:6px;cursor:pointer;color:var(--accent);font-size:12px">
+        ➕ Создать «${input.value}» в каталоге (Ткань обивочная)
+      </button>
+    </div>`;
+  } else {
+    drop.innerHTML=items.join('');
+    // Добавим onclick через делегирование для корректного выбора
+    drop.querySelectorAll('div').forEach((el,i)=>{
+      el.onclick=()=>{
+        input.value = catalogFabrics[i]?.name || attrFabrics[i-catalogFabrics.length] || input.value;
+        drop.style.display='none';
+      };
+    });
+  }
+  drop.style.display='block';
 }
 
 // Show/hide the "Ткань" field based on the row's selected category
@@ -26271,12 +26519,14 @@ function saveCustOrder(){
   }
 
   const newOrder={
-    num, customer, customerType, customerId, seller, resp, createdDate, date:dateStr, rawDate,
+    num, customer, channel,
+    customerType: type||'client',
+    customerId: customerId||null,
+    seller, resp, createdDate, date:dateStr, rawDate,
     payment, status:'queue', items,
-    channel: getChannelFilter()||'office',
     salonName: salonName||null,
     sellerId: sellerId||null,
-    salonClientId: salonClientId||null,
+    salonClientId: null,
     salonClientName: salonClientName||null,
     designer: designerName||null,
     designerPct: designerPct||null,
