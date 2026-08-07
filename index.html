@@ -20698,7 +20698,7 @@ function openTaskModal(taskId, prefillLeadId){
     document.getElementById('task-title').value='';
     document.getElementById('task-date').value=TODAY_ISO||new Date().toISOString().slice(0,10);
     document.getElementById('task-time').value='10:00';
-    if(mgrSel) mgrSel.value='';
+    const mgrSelNew=document.getElementById('task-manager'); if(mgrSelNew) mgrSelNew.value='';
     document.getElementById('task-priority').value='normal';
     document.getElementById('task-lead-id').value=prefillLeadId||'';
     const srch=document.getElementById('task-lead-search'); if(srch) srch.value='';
