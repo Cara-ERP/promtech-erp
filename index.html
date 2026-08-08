@@ -1144,12 +1144,15 @@ function renderWhRemains(){ renderWarehouse(); }
 // Загрузить заказы из Supabase
 async function loadOrdersFromDB(){
 let _ordersLoadedForChannel = null;
+  const chFilter = getChannelFilter();
+  // __salons__ и null — оба загружают все заказы, считаем одним кешем
+  const cacheKey = chFilter==='__salons__' ? '' : (chFilter||'');
 
-  if(_cacheLoaded.orders && ordersData.length > 0 && _ordersLoadedForChannel === (getChannelFilter()||'')){
+  if(_cacheLoaded.orders && ordersData.length > 0 && _ordersLoadedForChannel === cacheKey){
     console.log('📦 Заказы из кеша: '+ordersData.length);
     return true;
   }
-  if(_ordersLoadedForChannel !== (getChannelFilter()||'')){
+  if(_ordersLoadedForChannel !== cacheKey){
     ordersData = []; _cacheLoaded.orders = false;
   }
   try {
@@ -3493,8 +3496,8 @@ window.onerror = function(msg, src, line, col){
           <table class="data-table">
             <thead><tr>
               <th onclick="sortClients('name')" style="cursor:pointer;user-select:none">Клиент <span id="csort-name"></span></th>
-              <th>Телефон</th>
               <th>Салон</th>
+              <th>Продавец</th>
               <th onclick="sortClients('orders')" style="cursor:pointer;user-select:none;text-align:right">Заказов <span id="csort-orders">▼</span></th>
               <th onclick="sortClients('turnover')" style="cursor:pointer;user-select:none;text-align:right">Оборот <span id="csort-turnover"></span></th>
               <th onclick="sortClients('debt')" style="cursor:pointer;user-select:none;text-align:right">Долг <span id="csort-debt"></span></th>
@@ -21862,77 +21865,85 @@ function renderOrdersKanban(){
 // ════════════════════════════════════════════════════════════════
 
 function renderClientsTab(){
-  const search = (document.getElementById('clients-search')?.value||'').toLowerCase();
-  const typeF  = document.getElementById('clients-type-filter')?.value||'all';
-  const ch     = getChannelFilter();
+  const search  = (document.getElementById('clients-search')?.value||'').toLowerCase();
+  const salonF  = document.getElementById('clients-salon-filter')?.value||'';
+  const dateFrom= document.getElementById('clients-date-from')?.value||'';
+  const dateTo  = document.getElementById('clients-date-to')?.value||'';
+  const ch      = getChannelFilter();
+  const fmt     = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const toISO   = d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10);
+    const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
+  const SALON   = {'salon_armada':'🏬 Армада','salon_nazarbayeva':'🏪 Назарбаева'};
 
-  // CRM Клиенты = конечные клиенты салонов (из поля end_client в заказах)
-  // Собираем уникальных конечных клиентов
-  const clientMap = {}; // name → {orders, sum, permanent}
-  ordersData.forEach(o=>{
-    const name = o.salonClientName||o.end_client||'';
-    if(!name) return;
-    // Для салонных логинов — только свои клиенты
-    if(ch && !channelMatches(o.channel, ch)) return;
-    // Только из салонов
-    if(!o.channel.startsWith('salon_')) return;
-    if(!clientMap[name]) clientMap[name]={name, count:0, sum:0, channel:o.channel, phone:''};
-    clientMap[name].count++;
-    clientMap[name].sum += orderTotal(o)||0;
+  // Собираем клиентов из заказов салонов
+  const clientMap = {};
+  ordersData.filter(o=>{
+    if(!o.channel?.startsWith('salon_')) return false;
+    if(ch && !channelMatches(o.channel, ch)) return false;
+    if(salonF && o.channel!==salonF) return false;
+    return true;
+  }).forEach(o=>{
+    const name = (o.salonClientName||o.end_client||'').trim();
+    if(!name || name==='NaT') return;
+    const iso = toISO(o.createdDate||o.date||'');
+    if(dateFrom && iso && iso<dateFrom) return;
+    if(dateTo   && iso && iso>dateTo)   return;
+    if(!clientMap[name]) clientMap[name]={
+      name, channel:o.channel, orders:0, turnover:0, paid:0,
+      lastOrder:'', lastNum:'', sellers:new Set(), products:[]
+    };
+    const c=clientMap[name];
+    const total=orderTotal(o);
+    c.orders++;
+    c.turnover+=total;
+    c.paid+=total*(o.payment||0)/100;
+    if(!c.lastOrder||iso>c.lastOrder){ c.lastOrder=iso; c.lastNum=o.num; }
+    if(o.seller) c.sellers.add(o.seller);
+    (o.items||[]).forEach(it=>{ if(it.name&&!c.products.includes(it.name)) c.products.push(it.name); });
   });
 
   let clients = Object.values(clientMap);
+  if(search) clients=clients.filter(c=>c.name.toLowerCase().includes(search));
 
-  if(search) clients = clients.filter(c=>
-    c.name.toLowerCase().includes(search));
+  clients.sort((a,b)=>b.orders-a.orders);
 
-  if(typeF==='permanent') clients = clients.filter(c=>c.count>=2);
-  if(typeF==='new')       clients = clients.filter(c=>c.count<2);
+  const countEl=document.getElementById('clients-count');
+  if(countEl) countEl.textContent=`${clients.length} клиентов`;
 
-  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-  const permanent = clients.filter(c=>c.count>=2).length;
-  const totalSum  = clients.reduce((s,c)=>s+c.sum,0);
+  const kpiEl=document.getElementById('clients-kpi');
+  if(kpiEl) kpiEl.innerHTML=[
+    {label:'👥 Клиентов',val:clients.length,color:'var(--accent)'},
+    {label:'💰 Оборот',val:fmt(clients.reduce((s,c)=>s+c.turnover,0)),color:'var(--green)'},
+    {label:'⚠️ Долг',val:fmt(clients.reduce((s,c)=>s+Math.max(0,c.turnover-c.paid),0)),color:'var(--red)'},
+  ].map(k=>`<div class="pl-kpi"><div class="pl-kpi-label">${k.label}</div>
+    <div class="pl-kpi-value" style="color:${k.color}">${k.val}</div></div>`).join('');
 
-  // KPI
-  const kpiEl = document.getElementById('clients-kpi');
-  if(kpiEl){
-    kpiEl.innerHTML=[
-      {label:'Клиентов салонов', value:clients.length,               color:'var(--accent)'},
-      {label:'Постоянных (2+)',  value:permanent,                    color:'var(--green)'},
-      {label:'Новых',           value:clients.length-permanent,      color:'var(--amber)'},
-      {label:'Общий оборот',    value:'₸'+Math.round(totalSum/1000)+'К', color:'var(--purple)'},
-    ].map(k=>`<div class="card" style="padding:14px 16px">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${k.label}</div>
-      <div style="font-size:20px;font-weight:700;color:${k.color}">${k.value}</div>
-    </div>`).join('');
-  }
-
-  const countEl = document.getElementById('clients-count');
-  if(countEl) countEl.textContent = clients.length + ' клиентов';
-
-  const tbody = document.getElementById('clients-tbody');
+  const tbody=document.getElementById('clients-tbody');
   if(!tbody) return;
-
-  tbody.innerHTML = clients.map(c=>{
-    const salonLabel = c.channel==='salon_armada'?'Армада':'Назарбаева';
-    const isPermanent = c.count>=2;
+  tbody.innerHTML=clients.map(c=>{
+    const debt=Math.max(0,c.turnover-c.paid);
+    const sellers=[...c.sellers].join(', ')||'—';
+    const products=c.products.slice(0,2).join(', ')+(c.products.length>2?` +${c.products.length-2}`:'');
     return `<tr>
-      <td>
-        <div style="font-weight:600">${c.name}</div>
-        ${isPermanent?'<span class="badge badge-green" style="font-size:10px">⭐ Постоянный</span>':''}
-      </td>
-      <td style="font-size:13px">${c.phone||'—'}</td>
-      <td style="font-size:12px;color:var(--text3)">Салон ${salonLabel}</td>
-      <td style="text-align:right;font-family:monospace">${c.count}</td>
-      <td style="text-align:right;font-family:monospace;color:var(--green);font-weight:600">${fmt(c.sum)}</td>
-      <td>
-        <span class="badge ${isPermanent?'badge-green':''}" style="font-size:10px">
-          ${isPermanent?'Постоянный':'Новый'}
-        </span>
-      </td>
-      <td></td>
+      <td style="font-weight:600">${c.name}</td>
+      <td style="font-size:11px">${SALON[c.channel]||c.channel||'—'}</td>
+      <td style="font-size:11px;color:var(--text3)">${sellers}</td>
+      <td style="text-align:right;font-family:monospace">${c.orders}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(c.turnover)}</td>
+      <td style="text-align:right;font-family:monospace;color:${debt>0?'var(--red)':'var(--text3)'}">
+        ${debt>0?fmt(debt):'✅'}</td>
+      <td style="font-size:11px;color:var(--text3)">${c.lastOrder?c.lastOrder+' · '+c.lastNum:'—'}</td>
+      <td style="font-size:11px;color:var(--text3);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${c.products.join(', ')}">${products||'—'}</td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
+        data-name="${c.name.replace(/"/g,'&quot;')}"
+        onclick="openClientCard(this.dataset.name)">👤</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Нет клиентов</td></tr>';
+  }).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">Нет клиентов</td></tr>';
+
+  // Обновляем счётчик вкладки
+  const tabCount=document.getElementById('tab-count-clients');
+  if(tabCount) tabCount.textContent=clients.length;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -27532,86 +27543,6 @@ function sortClients(col){
   renderClientsTab();
 }
 
-function renderClientsTab(){
-  const tbody=document.getElementById('clients-tbody');
-  if(!tbody) return;
-  const kpiEl=document.getElementById('clients-kpi');
-  const search=(document.getElementById('clients-search')?.value||'').toLowerCase();
-  const salonF=document.getElementById('clients-salon-filter')?.value||'';
-  const dateFrom=document.getElementById('clients-date-from')?.value||'';
-  const dateTo=document.getElementById('clients-date-to')?.value||'';
-  const chFilter=getChannelFilter();
-  const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-  const toISO=d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10); const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
-
-  // Собираем клиентов из заказов salons (salonClientName)
-  const clientMap = {};
-  ordersData.filter(o=>{
-    if(!o.salonClientName) return false;
-    if(!channelMatches(o.channel,chFilter)) return false;
-    if(salonF && o.channel!==salonF) return false;
-    return true;
-  }).forEach(o=>{
-    const key = o.salonClientName.trim();
-    if(!key) return;
-    const iso = toISO(o.createdDate||o.date||'');
-    if(dateFrom && iso && iso<dateFrom) return;
-    if(dateTo   && iso && iso>dateTo)   return;
-    if(!clientMap[key]) clientMap[key]={
-      name:key, phone:'', channel:o.channel,
-      orders:0, turnover:0, paid:0, lastOrder:'', lastNum:'', products:[]
-    };
-    const c=clientMap[key];
-    const total=orderTotal(o);
-    c.orders++;
-    c.turnover+=total;
-    c.paid+=total*(o.payment||0)/100;
-    if(!c.lastOrder||iso>c.lastOrder){ c.lastOrder=iso; c.lastNum=o.num; }
-    (o.items||[]).forEach(it=>{ if(it.name&&!c.products.includes(it.name)) c.products.push(it.name); });
-  });
-
-  let clients=Object.values(clientMap);
-  if(search) clients=clients.filter(c=>c.name.toLowerCase().includes(search));
-
-  // Сортировка
-  clients.sort((a,b)=>{
-    const va=a[_cSortCol]||0, vb=b[_cSortCol]||0;
-    if(typeof va==='number') return _cSortAsc?va-vb:vb-va;
-    return _cSortAsc?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));
-  });
-
-  const countEl=document.getElementById('clients-count');
-  if(countEl) countEl.textContent=`${clients.length} клиентов`;
-
-  // KPI
-  const totalT=clients.reduce((s,c)=>s+c.turnover,0);
-  const totalD=clients.reduce((s,c)=>s+(c.turnover-c.paid),0);
-  if(kpiEl) kpiEl.innerHTML=[
-    {label:'👥 Клиентов',val:clients.length,color:'var(--accent)'},
-    {label:'💰 Оборот',val:fmt(totalT),color:'var(--green)'},
-    {label:'⚠️ Долг',val:fmt(totalD),color:totalD>0?'var(--red)':'var(--green)'},
-  ].map(k=>`<div class="pl-kpi"><div class="pl-kpi-label">${k.label}</div>
-    <div class="pl-kpi-value" style="color:${k.color}">${k.val}</div></div>`).join('');
-
-  const SALON_LABEL={'salon_armada':'🏬 Армада','salon_nazarbayeva':'🏪 Назарбаева'};
-
-  tbody.innerHTML=clients.map(c=>{
-    const debt=Math.max(0,c.turnover-c.paid);
-    const products=c.products.slice(0,3).join(', ')+(c.products.length>3?` +${c.products.length-3}`:'');
-    return `<tr>
-      <td style="font-weight:600">${c.name}</td>
-      <td style="font-size:12px;color:var(--text3)">${c.phone||'—'}</td>
-      <td style="font-size:11px">${SALON_LABEL[c.channel]||c.channel||'—'}</td>
-      <td style="text-align:right;font-family:monospace">${c.orders}</td>
-      <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(c.turnover)}</td>
-      <td style="text-align:right;font-family:monospace;color:${debt>0?'var(--red)':'var(--text3)'}">${debt>0?fmt(debt):'✅'}</td>
-      <td style="font-size:12px;color:var(--text3)">${c.lastOrder?c.lastOrder+' · '+c.lastNum:'—'}</td>
-      <td style="font-size:11px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.products.join(', ')}">${products||'—'}</td>
-      <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-        data-name="${c.name.replace(/"/g,'&quot;')}" onclick="openClientCard(this.dataset.name)">👤 Карточка</button></td>
-    </tr>`;
-  }).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">Нет клиентов</td></tr>';
-}
 
 function openClientCard(clientName){
   const toISO=d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10); const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
