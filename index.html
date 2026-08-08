@@ -9494,7 +9494,8 @@ function renderSalonReport(){
     if(ch && !channelMatches(o.channel, ch)) return false;
     if(salonF && o.channel!==salonF) return false;
     const d = toISO(o.createdDate||o.date||'');
-    if(!d || d<dateFrom || d>dateTo) return false;
+    if(!d) return true; // без даты — показываем
+    if(d<dateFrom || d>dateTo) return false;
     return true;
   });
 
@@ -9638,7 +9639,14 @@ function showPage(id, el){
   if(id==='suppliers'){
     loadSuppliersFromDB().then(()=>renderSupplierList());
   }
-  if(id==='salon_report'){ initSalonReport(); renderSalonReport(); }
+  if(id==='salon_report'){
+    initSalonReport();
+    if(ordersData.length < 100){
+      loadOrdersFromDB().then(()=>renderSalonReport());
+    } else {
+      renderSalonReport();
+    }
+  }
 
   if(id==='money_salon'){ renderSalonMoney(); }
   if(id==='reconcile'){
