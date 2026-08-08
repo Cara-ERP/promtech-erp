@@ -1354,15 +1354,15 @@ async function updateOrderInDB(num, fields){
     pages:['dashboard','purchases','suppliers','warehouse','mycabinet']},
   salon_armada:     {name:'Салон Армада',    initials:'АР', color:'#8b5cf6', label:'Салон Армада',
     channel:'salon_armada', cashAccountId:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', isManager:false,
-    pages:['catalog','sales','crm','money_salon','reconcile'],
+    pages:['catalog','sales','crm','money_salon'],
     canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
   salon_nazarbayeva:{name:'Салон Назарбаева',initials:'НЗ', color:'#ec4899', label:'Салон Назарбаева',
     channel:'salon_nazarbayeva', cashAccountId:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', isManager:false,
-    pages:['catalog','sales','crm','money_salon','reconcile'],
+    pages:['catalog','sales','crm','money_salon'],
     canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
   salon_armada_mgr: {name:'Черепухина Олеся', initials:'ЧО', color:'#8b5cf6', label:'Начальник салонов',
     channel:null, cashAccountId:null, isManager:true,
-    pages:['catalog','sales','crm','money_salon','reconcile'],
+    pages:['catalog','sales','crm','money_salon','salon_report','hr'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
   dealer_astana:  {name:'Дилер Астана',  initials:'АС', color:'#06b6d4', label:'Дилер — Астана',
     channel:'dealer_astana',  pages:['catalog','sales','reconcile'],
@@ -1845,6 +1845,10 @@ window.onerror = function(msg, src, line, col){
     <div class="nav-item" onclick="showPage('reconcile',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       <span>Сверка с офисом</span>
+    </div>
+    <div class="nav-item" onclick="showPage('salon_report',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      <span>Отчёт салонов</span>
     </div>
     <div class="nav-item" onclick="showPage('hr',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -6523,6 +6527,68 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- ===== MY CABINET ===== -->
+    <!-- ═══ СТРАНИЦА: Отчёт по салонам ═══ -->
+    <div class="page" id="page-salon_report">
+      <div class="page-header">
+        <h2>📊 Отчёт по салонам</h2>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+        <select id="sr-month" onchange="renderSalonReport()" style="font-size:13px">
+          <option value="1">Январь</option><option value="2">Февраль</option>
+          <option value="3">Март</option><option value="4">Апрель</option>
+          <option value="5">Май</option><option value="6">Июнь</option>
+          <option value="7">Июль</option><option value="8">Август</option>
+          <option value="9">Сентябрь</option><option value="10">Октябрь</option>
+          <option value="11">Ноябрь</option><option value="12">Декабрь</option>
+        </select>
+        <select id="sr-year" onchange="renderSalonReport()" style="font-size:13px">
+          <option value="2026">2026</option>
+          <option value="2025">2025</option>
+          <option value="2024">2024</option>
+        </select>
+        <select id="sr-salon" onchange="renderSalonReport()" style="font-size:13px">
+          <option value="">Оба салона</option>
+          <option value="salon_armada">🏬 Армада</option>
+          <option value="salon_nazarbayeva">🏪 Назарбаева</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="renderSalonReport()">🔄 Обновить</button>
+      </div>
+      <!-- KPI -->
+      <div id="sr-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px"></div>
+      <!-- По продавцам -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:12px">👤 По ответственным продавцам</div>
+        <table class="data-table" id="sr-sellers-table">
+          <thead><tr>
+            <th>Продавец</th>
+            <th style="text-align:right">Заказов</th>
+            <th style="text-align:right">Сумма</th>
+            <th style="text-align:right">Оплачено</th>
+            <th style="text-align:right">Долг</th>
+          </tr></thead>
+          <tbody id="sr-sellers-tbody"></tbody>
+        </table>
+      </div>
+      <!-- Все заказы за месяц -->
+      <div class="card" style="padding:0">
+        <div style="padding:12px 16px;font-weight:700;font-size:14px;border-bottom:1px solid var(--border)">
+          📋 Все заказы за период
+        </div>
+        <table class="data-table">
+          <thead><tr>
+            <th>Заказ</th>
+            <th>Дата</th>
+            <th>Клиент</th>
+            <th>Продавец</th>
+            <th style="text-align:right">Сумма</th>
+            <th style="text-align:right">Оплачено</th>
+            <th>Статус</th>
+          </tr></thead>
+          <tbody id="sr-orders-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="page" id="page-mycabinet">
       <div id="pin-screen" style="max-width:320px;margin:60px auto;text-align:center">
         <div style="font-size:20px;font-weight:500;margin-bottom:8px">Личный кабинет</div>
@@ -9475,7 +9541,89 @@ function showPage(id, el){
   if(id==='suppliers'){
     loadSuppliersFromDB().then(()=>renderSupplierList());
   }
+  if(id==='salon_report'){ initSalonReport(); renderSalonReport(); }
+
   if(id==='money_salon'){ renderSalonMoney(); }
+function renderSalonReport(){
+  const month = parseInt(document.getElementById('sr-month')?.value||new Date().getMonth()+1);
+  const year  = parseInt(document.getElementById('sr-year')?.value||new Date().getFullYear());
+  const salonF= document.getElementById('sr-salon')?.value||'';
+  const ch    = getChannelFilter();
+  const fmt   = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+
+  const toISO = d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10);
+    const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
+
+  const monthStr = String(month).padStart(2,'0');
+  const dateFrom = `${year}-${monthStr}-01`;
+  const dateToD  = new Date(year, month, 0);
+  const dateTo   = dateToD.toISOString().slice(0,10);
+
+  // Фильтруем заказы
+  let orders = ordersData.filter(o=>{
+    if(!o.channel?.startsWith('salon_')) return false;
+    if(ch && !channelMatches(o.channel, ch)) return false;
+    if(salonF && o.channel!==salonF) return false;
+    const d = toISO(o.createdDate||o.date||'');
+    if(!d || d<dateFrom || d>dateTo) return false;
+    return true;
+  });
+
+  const totalSum  = orders.reduce((s,o)=>s+orderTotal(o),0);
+  const totalPaid = orders.reduce((s,o)=>s+orderTotal(o)*(o.payment||0)/100,0);
+  const totalDebt = totalSum-totalPaid;
+
+  // KPI
+  const kpiEl = document.getElementById('sr-kpi');
+  if(kpiEl) kpiEl.innerHTML=[
+    {label:'📋 Заказов',val:orders.length,color:'var(--accent)'},
+    {label:'💰 Продажи',val:fmt(totalSum),color:'var(--green)'},
+    {label:'✅ Оплачено',val:fmt(totalPaid),color:'var(--green)'},
+    {label:'⚠️ Долг',val:fmt(totalDebt),color:totalDebt>0?'var(--red)':'var(--text3)'},
+  ].map(k=>`<div class="pl-kpi"><div class="pl-kpi-label">${k.label}</div>
+    <div class="pl-kpi-value" style="color:${k.color}">${k.val}</div></div>`).join('');
+
+  // По продавцам (seller field)
+  const sellerMap = {};
+  orders.forEach(o=>{
+    const seller = o.seller||o.manager||'—';
+    if(!sellerMap[seller]) sellerMap[seller]={name:seller,count:0,sum:0,paid:0};
+    sellerMap[seller].count++;
+    sellerMap[seller].sum  += orderTotal(o);
+    sellerMap[seller].paid += orderTotal(o)*(o.payment||0)/100;
+  });
+  const sellers = Object.values(sellerMap).sort((a,b)=>b.sum-a.sum);
+  const selTbody = document.getElementById('sr-sellers-tbody');
+  if(selTbody) selTbody.innerHTML = sellers.map(s=>`<tr>
+    <td style="font-weight:600">${s.name}</td>
+    <td style="text-align:right">${s.count}</td>
+    <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(s.sum)}</td>
+    <td style="text-align:right;font-family:monospace">${fmt(s.paid)}</td>
+    <td style="text-align:right;font-family:monospace;color:${s.sum-s.paid>0?'var(--red)':'var(--text3)'}">
+      ${s.sum-s.paid>0?fmt(s.sum-s.paid):'✅'}</td>
+  </tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3)">Нет данных</td></tr>';
+
+  // Все заказы
+  const STATUS={queue:'⏳ Очередь',production:'🔨 В работе',ready:'📦 Готов',
+    delivered:'🚚 Доставлен',done:'✅ Завершён',cancelled:'❌ Отменён'};
+  const SALON={'salon_armada':'🏬 Армада','salon_nazarbayeva':'🏪 Назарбаева'};
+  const ordTbody = document.getElementById('sr-orders-tbody');
+  if(ordTbody) ordTbody.innerHTML = orders
+    .sort((a,b)=>(toISO(b.createdDate||b.date||'')).localeCompare(toISO(a.createdDate||a.date||'')))
+    .map(o=>{
+      const total=orderTotal(o), paid=total*(o.payment||0)/100;
+      const client=o.salonClientName||o.end_client||o.customer||'—';
+      return `<tr onclick="openEditOrderModal('${o.num}')" style="cursor:pointer">
+        <td style="font-family:monospace;color:var(--accent);font-size:12px">${o.num}</td>
+        <td style="font-size:12px">${toISO(o.createdDate||o.date||'')||'—'}</td>
+        <td style="font-size:12px">${client}</td>
+        <td style="font-size:11px;color:var(--text3)">${o.seller||'—'}</td>
+        <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(total)}</td>
+        <td style="text-align:right;font-family:monospace;color:${(o.payment||0)>=100?'var(--green)':'var(--amber)'}">${o.payment||0}%</td>
+        <td style="font-size:11px">${STATUS[o.status]||o.status}</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3)">Нет заказов за период</td></tr>';
+}
   if(id==='reconcile'){
     loadOrdersFromDB().then(()=>renderReconcile());
   }
