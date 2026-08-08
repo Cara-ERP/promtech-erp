@@ -8661,7 +8661,15 @@ function getCurrentRole(){
 }
 function getChannelFilter(){
   const role=getCurrentRole();
-  return role?.channel||null;
+  if(!role) return null;
+  if(role.isManager && !role.channel) return '__salons__';
+  return role.channel||null;
+}
+
+function channelMatches(orderChannel, chFilter){
+  if(!chFilter) return true;
+  if(chFilter==='__salons__') return orderChannel==='salon_armada'||orderChannel==='salon_nazarbayeva';
+  return orderChannel===chFilter;
 }
 
 function renderSalonMoney(){
@@ -21091,7 +21099,7 @@ function renderOrders(){
   if(countEl){
     const hasFilter = search||dateFrom||dateTo||statusF||channelF||paymentF||sellerF||amountMin||amountMax;
     countEl.textContent = hasFilter
-      ? `Найдено: ${visibleOrders.length} из ${ordersData.filter(o=>!chFilter||o.channel===chFilter).length}`
+      ? `Найдено: ${visibleOrders.length} из ${ordersData.filter(o=>channelMatches(o.channel,chFilter)).length}`
       : '';
 
     // Заполняем селект продавцов из данных
@@ -21584,7 +21592,7 @@ function renderOrdersKanban(){
       return true;
     });
   }
-  if(chFilter) orders=orders.filter(o=>o.channel===chFilter);
+  if(chFilter) orders=orders.filter(o=>channelMatches(o.channel,chFilter));
 
   const countEl=document.getElementById('ok-count');
   if(countEl) countEl.textContent=`${orders.length} активных заказов`;
@@ -22455,7 +22463,7 @@ function getReportOrders(){
   }
   const chFilter = getChannelFilter();
   return ordersData.filter(o=>{
-    if(chFilter && o.channel!==chFilter) return false;
+    if(!channelMatches(o.channel,chFilter)) return false;
     if(status!=='all' && o.status!==status) return false;
     if(from||to){
       const d=parseRu(o.createdDate||o.date);
@@ -27350,7 +27358,7 @@ function renderClientsTab(){
   const clientMap = {};
   ordersData.filter(o=>{
     if(!o.salonClientName) return false;
-    if(chFilter && o.channel!==chFilter) return false;
+    if(!channelMatches(o.channel,chFilter)) return false;
     if(salonF && o.channel!==salonF) return false;
     return true;
   }).forEach(o=>{
