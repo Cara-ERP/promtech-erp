@@ -9544,6 +9544,19 @@ function showPage(id, el){
   if(id==='salon_report'){ initSalonReport(); renderSalonReport(); }
 
   if(id==='money_salon'){ renderSalonMoney(); }
+function initSalonReport(){
+  const now = new Date();
+  const mSel = document.getElementById('sr-month');
+  const ySel = document.getElementById('sr-year');
+  if(mSel && !mSel._init){ mSel.value=now.getMonth()+1; mSel._init=true; }
+  if(ySel && !ySel._init){ ySel.value=now.getFullYear(); ySel._init=true; }
+  const ch = getChannelFilter();
+  const salonSel = document.getElementById('sr-salon');
+  if(salonSel && ch && ch!=='__salons__'){
+    salonSel.value=ch; salonSel.style.display='none';
+  }
+}
+
 function renderSalonReport(){
   const month = parseInt(document.getElementById('sr-month')?.value||new Date().getMonth()+1);
   const year  = parseInt(document.getElementById('sr-year')?.value||new Date().getFullYear());
