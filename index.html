@@ -1354,19 +1354,15 @@ async function updateOrderInDB(num, fields){
     pages:['dashboard','purchases','suppliers','warehouse','mycabinet']},
   salon_armada:     {name:'Салон Армада',    initials:'АР', color:'#8b5cf6', label:'Салон Армада',
     channel:'salon_armada', cashAccountId:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', isManager:false,
-    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
+    pages:['catalog','sales','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
   salon_nazarbayeva:{name:'Салон Назарбаева',initials:'НЗ', color:'#ec4899', label:'Салон Назарбаева',
     channel:'salon_nazarbayeva', cashAccountId:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', isManager:false,
-    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
+    pages:['catalog','sales','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true, canTransferToOffice:true},
-  salon_armada_mgr:     {name:'Сукачева Ольга', initials:'СО', color:'#8b5cf6', label:'Нач. салонов Армада/Назарбаева',
-    channel:'salon_armada', cashAccountId:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', isManager:true,
-    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
-    canCreateOrders:true, canCashIn:true, canViewRS:true},
-  salon_nazarbayeva_mgr:{name:'Сукачева Ольга', initials:'СО', color:'#ec4899', label:'Нач. салона Назарбаева',
-    channel:'salon_nazarbayeva', cashAccountId:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', isManager:true,
-    pages:['catalog','sales','customers','crm','money_salon','reconcile'],
+  salon_armada_mgr: {name:'Черепухина Олеся', initials:'ЧО', color:'#8b5cf6', label:'Начальник салонов',
+    channel:null, cashAccountId:null, isManager:true,
+    pages:['catalog','sales','crm','money_salon','reconcile'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
   dealer_astana:  {name:'Дилер Астана',  initials:'АС', color:'#06b6d4', label:'Дилер — Астана',
     channel:'dealer_astana',  pages:['catalog','sales','reconcile'],
@@ -1389,7 +1385,7 @@ var _PWD={
   foreman:'prod2026', accountant:'fin2026', hr:'hr2026', buyer:'buy2026',
   // Салоны
   salon_armada:'arm2026', salon_nazarbayeva:'naz2026',
-  salon_armada_mgr:'arm_mgr2026', salon_nazarbayeva_mgr:'naz_mgr2026',
+  salon_armada_mgr:'arm_mgr2026',
   // Дилеры
   dealer_astana:'ast2026', dealer_aktau:'akt2026', dealer_shymkent:'shy2026',
   dealer_atyrau:'atr2026', dealer_aktobe:'akb2026',
@@ -1746,9 +1742,9 @@ window.onerror = function(msg, src, line, col){
         <span class="login-hint-role">🏪 Салон Назарбаева</span>
         <span class="login-hint-cred">salon_nazarbayeva / naz2026</span>
       </div>
-      <div class="login-hint-row" onclick="fillLogin('salon_nazarbayeva_mgr','naz_mgr2026')">
-        <span class="login-hint-role">🏪 Нач. салона Назарбаева</span>
-        <span class="login-hint-cred">salon_nazarbayeva_mgr / naz_mgr2026</span>
+      <div class="login-hint-row" onclick="fillLogin('salon_armada_mgr','arm_mgr2026')">
+        <span class="login-hint-role">👑 Начальник салонов (оба)</span>
+        <span class="login-hint-cred">salon_armada_mgr / arm_mgr2026</span>
       </div>
       <div style="font-size:10px;color:var(--text3);margin:6px 0 2px;font-weight:600">ДИЛЕРЫ</div>
       <div class="login-hint-row" onclick="fillLogin('dealer_astana','ast2026')">
@@ -8674,10 +8670,18 @@ function getChannelFilter(){
 
 function renderSalonMoney(){
   const role=getCurrentRole(); if(!role) return;
-  const ch=role.channel, cashAccId=role.cashAccountId;
+  const ch=role.channel;
   const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const titleEl=document.getElementById('salon-money-title');
-  if(titleEl) titleEl.textContent='Касса — '+role.name;
+
+  // Начальник видит оба салона
+  const cashAccIds = ch ? [role.cashAccountId] : [
+    'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', // Армада
+    '701d7d6d-3dda-4403-ac3c-e4a3987836ea',  // Назарбаева
+  ];
+  const cashAccId = cashAccIds[0]; // основной для заголовка
+
+  if(titleEl) titleEl.textContent = ch ? 'Касса — '+role.name : 'Касса — Армада + Назарбаева';
   if(!cashAccId) return;
 
   const localTx = moneyTx.filter(t=>t.accountId===cashAccId);
@@ -20957,6 +20961,19 @@ function resolveCustomerName(order){
   if(order.customerType==='salon'){
     return 'Салон '+order.salonName;
   }
+  // Для заказов салонов по каналу — показываем название канала
+  const CHANNEL_LABELS = {
+    'salon_armada':     'Салон Армада',
+    'salon_nazarbayeva':'Салон Назарбаева',
+    'dealer_astana':    'Дилер Астана',
+    'dealer_aktau':     'Дилер Актау',
+    'dealer_atyrau':    'Дилер Атырау',
+    'dealer_shymkent':  'Дилер Шымкент',
+    'dealer_aktobe':    'Дилер Актобе',
+  };
+  if(order.channel && CHANNEL_LABELS[order.channel]){
+    return CHANNEL_LABELS[order.channel];
+  }
   return order._frozenLabel || order.customer || '—';
 }
 
@@ -21398,7 +21415,11 @@ function renderSalesJournal(){
 
     // Находим заказ для фильтра по каналу и оплате
     const order = ordersData.find(o=>o.num===r.order_num);
-    if(chFilter && order && order.channel!==chFilter) return;
+    // Для салонов — показываем только свои заказы
+    if(chFilter){
+      if(!order) return; // если заказ не найден — не показываем
+      if(order.channel!==chFilter) return;
+    }
     if(channel  && order && order.channel!==channel)  return;
 
     // Фильтр оплаты
@@ -22436,7 +22457,9 @@ function getReportOrders(){
     to  =new Date(document.getElementById('rep-date-to').value);
     if(to) to.setHours(23,59,59);
   }
+  const chFilter = getChannelFilter();
   return ordersData.filter(o=>{
+    if(chFilter && o.channel!==chFilter) return false;
     if(status!=='all' && o.status!==status) return false;
     if(from||to){
       const d=parseRu(o.createdDate||o.date);
