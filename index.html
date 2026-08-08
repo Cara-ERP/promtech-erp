@@ -3611,7 +3611,12 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-primary btn-sm" onclick="openLeadModal(null)">+ Новый лид</button>
           <span id="leads-count-label" style="font-size:12px;color:var(--text3)"></span>
         </div>
-        <div id="leads-body"></div>
+        <div id="leads-body">
+          <div id="leads-loading" style="text-align:center;padding:40px;color:var(--text3)">
+            <div style="font-size:24px;margin-bottom:8px">⏳</div>
+            <div style="font-size:14px">Загрузка лидов...</div>
+          </div>
+        </div>
       </div>
 
       <!-- MODAL: Лид -->
@@ -21225,6 +21230,9 @@ function showOrdersTab(tab, el){
     });
   }
   if(tab==='leads'){
+    // Показываем индикатор загрузки
+    const loadingEl = document.getElementById('leads-loading');
+    if(loadingEl) loadingEl.style.display='';
     // Лиды грузим напрямую — не ждём загрузку клиентов
     loadLeadsFromDB().then(()=>{
       const periodSel = document.getElementById('leads-period');
@@ -21717,6 +21725,10 @@ function onLeadsStatusFilterChange(){
 }
 
 function renderLeadsTab(){
+  // Скрываем индикатор загрузки
+  const loadingEl = document.getElementById('leads-loading');
+  if(loadingEl) loadingEl.style.display='none';
+
   const search    = (document.getElementById('leads-search')?.value||'').toLowerCase();
   const statusF   = document.getElementById('leads-status-filter')?.value||'all';
   const sourceF   = document.getElementById('leads-source-filter')?.value||'all';
@@ -27286,7 +27298,7 @@ function renderClientsTab(){
       <td style="font-size:12px;color:var(--text3)">${c.lastOrder?c.lastOrder+' · '+c.lastNum:'—'}</td>
       <td style="font-size:11px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.products.join(', ')}">${products||'—'}</td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="openClientCard(${JSON.stringify(c.name)})">👤 Карточка</button></td>
+        data-name="${c.name.replace(/"/g,'&quot;')}" onclick="openClientCard(this.dataset.name)">👤 Карточка</button></td>
     </tr>`;
   }).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">Нет клиентов</td></tr>';
 }
