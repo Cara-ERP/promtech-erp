@@ -9861,8 +9861,11 @@ function showPage(id, el){
   }
   if(id==='salon_report'){
     initSalonReport();
-    if(ordersData.length < 100){
-      loadOrdersFromDB().then(()=>renderSalonReport());
+    const load = [];
+    if(ordersData.length < 100) load.push(loadOrdersFromDB());
+    if(employeesData.length === 0) load.push(loadStaffFromDB());
+    if(load.length > 0){
+      Promise.all(load).then(()=>renderSalonReport());
     } else {
       renderSalonReport();
     }
