@@ -8678,34 +8678,69 @@ function renderSalonMoney(){
   const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const titleEl=document.getElementById('salon-money-title');
   if(titleEl) titleEl.textContent='Касса — '+role.name;
-  if(cashAccId){
-    const stats=calcAccountStats(cashAccId);
-    const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-    set('salon-cash-balance',fmt(stats.balance));
-    set('salon-income',fmt(stats.income));
-    const sentToOffice=moneyTx
-      .filter(t=>t.accountId===cashAccId&&t.flow==='expense'&&
-        (t.desc.toLowerCase().includes('офис')||t.category==='transfer'))
-      .reduce((s,t)=>s+t.amount,0);
-    set('salon-sent-to-office',fmt(sentToOffice));
-    const tbody=document.getElementById('salon-cash-tbody');
-    if(tbody){
-      const txs=moneyTx.filter(t=>t.accountId===cashAccId).sort((a,b)=>b.date.localeCompare(a.date));
-      let running=stats.balance;
-      tbody.innerHTML=txs.map(t=>{
-        const bal=running; running+=t.flow==='income'?-t.amount:t.amount;
-        return '<tr>'+
-          '<td style="font-size:12px">'+t.date+'</td>'+
-          '<td><span class="badge '+(t.flow==='income'?'badge-green':'badge-red')+'">'+(t.flow==='income'?'📥':'📤')+'</span></td>'+
-          '<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'+
-          '<td style="font-size:12px">'+t.desc+'</td>'+
-          '<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmt(t.amount):'—')+'</td>'+
-          '<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmt(t.amount):'—')+'</td>'+
-          '<td style="text-align:right;font-family:monospace;font-weight:600">'+fmt(bal)+'</td>'+
-          '</tr>';
-      }).join('')||'<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text3)">Операций нет</td></tr>';
-    }
+  if(!cashAccId) return;
+
+  const localTx = moneyTx.filter(t=>t.accountId===cashAccId);
+  const tbody=document.getElementById('salon-cash-tbody');
+
+  if(localTx.length===0){
+    if(tbody) tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">⏳ Загрузка...</td></tr>';
+    sbFetch('money_tx',
+      `select=*&account_id=eq.${cashAccId}&order=date.desc&limit=500`
+    ).then(data=>{
+      if(data && data.length>0){
+        data.forEach(t=>{
+          if(!moneyTx.find(m=>m.sbId===t.id)){
+            moneyTx.push({
+              id: Date.now()+Math.random(),
+              sbId: t.id,
+              date: t.date,
+              amount: t.amount,
+              flow: t.flow,
+              category: t.category,
+              desc: t.description||t.counterparty||'',
+              counterparty: t.counterparty||'',
+              accountId: t.account_id,
+              orderNum: t.order_num||'',
+            });
+          }
+        });
+      }
+      renderSalonMoney();
+    }).catch(e=>{
+      console.warn('Ошибка кассы:', e.message);
+      if(tbody) tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--red)">Ошибка загрузки</td></tr>';
+    });
+    return;
   }
+
+  const stats=calcAccountStats(cashAccId);
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('salon-cash-balance',fmt(stats.balance));
+  set('salon-income',fmt(stats.income));
+  const sentToOffice=moneyTx
+    .filter(t=>t.accountId===cashAccId&&t.flow==='expense'&&
+      ((t.desc||'').toLowerCase().includes('офис')||t.category==='transfer'))
+    .reduce((s,t)=>s+t.amount,0);
+  set('salon-sent-to-office',fmt(sentToOffice));
+
+  if(tbody){
+    const txs=moneyTx.filter(t=>t.accountId===cashAccId).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    let running=stats.balance;
+    tbody.innerHTML=txs.map(t=>{
+      const bal=running; running+=t.flow==='income'?-t.amount:t.amount;
+      return '<tr>'+
+        '<td style="font-size:12px">'+t.date+'</td>'+
+        '<td><span class="badge '+(t.flow==='income'?'badge-green':'badge-red')+'">'+(t.flow==='income'?'📥':'📤')+'</span></td>'+
+        '<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'+
+        '<td style="font-size:12px">'+(t.desc||t.counterparty||'—')+'</td>'+
+        '<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmt(t.amount):'—')+'</td>'+
+        '<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmt(t.amount):'—')+'</td>'+
+        '<td style="text-align:right;font-family:monospace;font-weight:600">'+fmt(bal)+'</td>'+
+        '</tr>';
+    }).join('')||'<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text3)">Операций нет</td></tr>';
+  }
+
   // Комиссии сотрудников — только для директора, бухгалтера и начальника салона
   const commissionsEl = document.getElementById('salon-commissions-body');
   const canSeeCommissions = ['director','accountant'].includes(window._currentUser) ||
