@@ -21715,6 +21715,31 @@ function setLeadsView(mode){
   renderLeadsTab();
 }
 
+function quickChangeLeadStatus(leadId, newStatus){
+  const lead = leadsData.find(l=>String(l.id)===String(leadId));
+  if(!lead) return;
+
+  if(newStatus==='won'){
+    leadWon(String(leadId));
+    return;
+  }
+  if(newStatus==='lost'){
+    leadLost(String(leadId));
+    return;
+  }
+
+  lead.status = newStatus;
+  // Обновляем stage для воронки
+  const stageMap = {qualify:'qualify', proposal:'proposal', negotiation:'negotiation'};
+  lead.stage = stageMap[newStatus]||lead.stage;
+
+  sbPatch('leads', `id=eq.${leadId}`, {status: newStatus})
+    .then(()=>console.log(`✅ Лид ${lead.name} → ${newStatus}`))
+    .catch(e=>console.warn('⚠️', e));
+
+  renderLeadsTab();
+}
+
 function onLeadsStatusFilterChange(){
   const val = document.getElementById('leads-status-filter')?.value;
   // Если выбрали won/lost/all — нужны все лиды включая закрытые
@@ -21814,10 +21839,16 @@ function renderLeadsTab(){
             <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(l.budget)}</td>
             <td style="font-size:12px;color:var(--text3)">${LEAD_SOURCES[l.source]||l.source||'—'}</td>
             <td style="font-size:12px;color:var(--text3)">${l.created||'—'}</td>
-            <td style="display:flex;gap:4px">
+            <td style="display:flex;gap:4px;align-items:center">
+              <select style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border);
+                background:var(--bg2);color:var(--text1);cursor:pointer"
+                onchange="quickChangeLeadStatus('${l.id}',this.value);this.blur()">
+                ${Object.entries(LEAD_STATUSES).map(([k,v])=>
+                  `<option value="${k}" ${l.status===k?'selected':''}>${v.label}</option>`
+                ).join('')}
+              </select>
               <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openLeadModal('${l.id}')">✏️</button>
-              ${l.status!=='won'&&l.status!=='lost'
-                ?`<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="convertLeadToClient('${l.id}')">→</button>`:''}
+            </td>
             </td>
           </tr>`;
         }).join('')}</tbody>
