@@ -6533,7 +6533,7 @@ window.onerror = function(msg, src, line, col){
         <h2>📊 Отчёт по салонам</h2>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
-        <select id="sr-month" onchange="if(typeof renderSalonReport==='function')renderSalonReport()" style="font-size:13px">
+        <select id="sr-month" onchange="window.renderSalonReport&&window.renderSalonReport()" style="font-size:13px">
           <option value="1">Январь</option><option value="2">Февраль</option>
           <option value="3">Март</option><option value="4">Апрель</option>
           <option value="5">Май</option><option value="6">Июнь</option>
@@ -6541,17 +6541,17 @@ window.onerror = function(msg, src, line, col){
           <option value="9">Сентябрь</option><option value="10">Октябрь</option>
           <option value="11">Ноябрь</option><option value="12">Декабрь</option>
         </select>
-        <select id="sr-year" onchange="if(typeof renderSalonReport==='function')renderSalonReport()" style="font-size:13px">
+        <select id="sr-year" onchange="window.renderSalonReport&&window.renderSalonReport()" style="font-size:13px">
           <option value="2026">2026</option>
           <option value="2025">2025</option>
           <option value="2024">2024</option>
         </select>
-        <select id="sr-salon" onchange="if(typeof renderSalonReport==='function')renderSalonReport()" style="font-size:13px">
+        <select id="sr-salon" onchange="window.renderSalonReport&&window.renderSalonReport()" style="font-size:13px">
           <option value="">Оба салона</option>
           <option value="salon_armada">🏬 Армада</option>
           <option value="salon_nazarbayeva">🏪 Назарбаева</option>
         </select>
-        <button class="btn btn-ghost btn-sm" onclick="renderSalonReport()">🔄 Обновить</button>
+        <button class="btn btn-ghost btn-sm" onclick="window.renderSalonReport&&window.renderSalonReport()">🔄 Обновить</button>
       </div>
       <!-- KPI -->
       <div id="sr-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px"></div>
@@ -9553,6 +9553,9 @@ function renderSalonReport(){
       </tr>`;
     }).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3)">Нет заказов за период</td></tr>';
 }
+window.initSalonReport = initSalonReport;
+window.renderSalonReport = renderSalonReport;
+
 function showPage(id, el){
   const page = document.getElementById('page-'+id);
   if(!page) return;
