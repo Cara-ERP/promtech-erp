@@ -21569,17 +21569,29 @@ function renderOrdersKanban(){
     setOKPeriod('month'); return;
   }
 
-  const chFilter = document.getElementById('ok-channel-filter')?.value||getChannelFilter()||'';
+  const chFilter = document.getElementById('ok-channel-filter')?.value ||
+    document.getElementById('ok-channel-filter-pay')?.value ||
+    getChannelFilter()||'';
+
+  // Скрываем фильтр канала для салонов
+  const isSalon = getChannelFilter() && getChannelFilter()!==null;
+  ['ok-channel-filter','ok-channel-filter-pay'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.style.display=isSalon?'none':'';
+  });
+
   const toISO = d=>{ if(!d) return ''; if(d.includes('-')) return d.slice(0,10);
     const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const today = new Date().toISOString().slice(0,10);
 
-  // Фильтрация
+  // Фильтрация — для По оплате показываем все незакрытые + частично оплаченные
+  const isPay = payTabActive;
   let orders = ordersData.filter(o=>{
-    // Исключаем полностью закрытые (done + 100% оплата)
-    if(o.status==='done' && (o.payment||0)>=100) return false;
     if(o.status==='cancelled') return false;
+    // По производству: исключаем done+100%
+    // По оплате: показываем всё кроме cancelled
+    if(!isPay && o.status==='done' && (o.payment||0)>=100) return false;
     return true;
   });
 
