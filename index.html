@@ -21145,7 +21145,12 @@ function renderOrders(){
   setCount('tab-count-queue',    statusCounts.queue||0);
   setCount('tab-count-progress', statusCounts.progress||0);
   setCount('tab-count-done',     statusCounts.done||0);
-  setCount('tab-count-clients',  clientsData.length||personsData.filter(p=>p.typ==='client').length);
+  // Клиентов считаем из заказов салонов (salonClientName)
+  const salonClientsInit = new Set(
+    ordersData.filter(o=>o.channel&&o.channel.startsWith('salon_')&&o.salonClientName)
+      .map(o=>o.salonClientName)
+  );
+  setCount('tab-count-clients', salonClientsInit.size||clientsData.length);
   setCount('tab-count-leads',    leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length);
 }
 
