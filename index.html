@@ -21565,8 +21565,8 @@ function renderOrders(){
   const statusCounts={queue:0,production:0,ready:0,delivered:0,done:0,cancelled:0};
 
   let visibleOrders = ordersData.filter(order=>{
-    if(chFilter  && order.channel!==chFilter)  return false;
-    if(channelF  && order.channel!==channelF)  return false;
+    if(chFilter && !channelMatches(order.channel, chFilter)) return false;
+    if(channelF  && !channelMatches(order.channel, channelF))  return false;
     if(statusF   && order.status!==statusF)    return false;
     if(sellerF   && (order.seller||'')!==sellerF) return false;
     if(paymentF==='paid'    && (order.payment||0)<100) return false;
