@@ -13978,6 +13978,16 @@ function renderHRStaff(){
   const q=(document.getElementById('hr-staff-search')?.value||'').toLowerCase();
   const dept=document.getElementById('hr-staff-dept')?.value||'all';
   let emps=[...employeesData];
+  // Начальник салонов видит только сотрудников салонов
+  const role = getCurrentRole();
+  if(role?.isManager && !role.channel){
+    emps = emps.filter(e=>
+      (e.comment||'').includes('Армада')||
+      (e.comment||'').includes('Назарбаева')||
+      (e.pos||'').toLowerCase().includes('салон')||
+      (e.pos||'').toLowerCase().includes('менеджер')&&(e.comment||'')
+    );
+  }
   if(q) emps=emps.filter(e=>(e.name+e.pos).toLowerCase().includes(q));
   if(dept!=='all') emps=emps.filter(e=>e.type===dept);
 
