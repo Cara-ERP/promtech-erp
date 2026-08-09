@@ -685,11 +685,13 @@ async function loadStaffFromDB(){
         const exists=employeesData.find(e=>e.name===s.name);
         if(!exists){
           employeesData.push({
-            id:empSeq++, name:s.name, pos:s.pos||'',
+            id:s.id, name:s.name, pos:s.pos||'',
             type:s.type||'prod', ws:s.ws||'',
             salary:s.salary||0, phone:s.phone||'',
             iin:s.iin||'', hired:s.hired||'',
             comment:s.comment||'',
+            commissionPct:s.commission_pct||0,
+            commissionMethod:s.commission_method||'sales',
             initials:s.name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(),
             color:'rgba(79,142,247,.15)', tc:'var(--accent)',
           });
@@ -6568,14 +6570,7 @@ window.onerror = function(msg, src, line, col){
       <div class="card" style="margin-bottom:16px;border:1px solid var(--accent)44">
         <div style="font-weight:700;font-size:15px;margin-bottom:14px">💰 Расчёт зарплаты продавца</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
-          <div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Метод</div>
-            <select id="sr-salary-method" onchange="window.renderSalonReport&&window.renderSalonReport()" style="font-size:13px">
-              <option value="sales">% от суммы продаж</option>
-              <option value="paid">% от оплаченной суммы</option>
-            </select>
-          </div>
-          <div id="sr-salary-inputs" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+          <div id="sr-salary-inputs"></div>
         </div>
         <div id="sr-salary-result"></div>
       </div>
@@ -9676,48 +9671,34 @@ function renderSalonReport(){
       ${s.sum-s.paid>0?fmt(s.sum-s.paid):'✅'}</td>
   </tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3)">Нет данных</td></tr>';
 
-  // ── Расчёт ЗП ─────────────────────────────────────────────────
-  const method = document.getElementById('sr-salary-method')?.value||'sales';
+  // ── Расчёт ЗП — берём % и метод из staff ─────────────────────
+  const method = null; // определяется индивидуально по каждому продавцу
   const inputsEl = document.getElementById('sr-salary-inputs');
   const resultEl = document.getElementById('sr-salary-result');
   const sellersList = sellers.filter(s=>s.name!=='—');
 
-  if(inputsEl && sellersList.length>0){
-    sellersList.forEach(s=>{
-      const inputId='sr-pct-'+s.name.replace(/\s/g,'_');
-      if(!document.getElementById(inputId)){
-        const div=document.createElement('div');
-        div.innerHTML=`<div style="font-size:11px;color:var(--text3);margin-bottom:4px">${s.name}</div>
-          <div style="display:flex;align-items:center;gap:4px">
-            <input id="${inputId}" type="number" min="0" max="100" step="0.1" value="1"
-              style="width:65px;font-size:14px;font-weight:700;text-align:center"
-              oninput="window.renderSalonReport&&window.renderSalonReport()">
-            <span style="color:var(--text3)">%</span>
-          </div>`;
-        inputsEl.appendChild(div);
-      }
-    });
-  }
+  // Убираем поля ввода % — теперь из staff
+  if(inputsEl) inputsEl.innerHTML = '<div style="font-size:12px;color:var(--text3)">% и метод настраиваются в разделе Сотрудники → Комиссии</div>';
 
   if(resultEl && sellersList.length>0){
     // Подгружаем сотрудников если нет
     const doRender = ()=>{
       const rows=sellersList.map(s=>{
-        const inputId='sr-pct-'+s.name.replace(/\s/g,'_');
-        const pct=parseFloat(document.getElementById(inputId)?.value||1)||1;
-        const base=method==='paid'?s.paid:s.sum;
-        const commission=Math.round(base*pct/100);
         const emp=employeesData.find(e=>e.name===s.name);
+        const pct = emp?.commissionPct||0;
+        const empMethod = emp?.commissionMethod||'sales';
+        const base = empMethod==='paid' ? s.paid : s.sum;
+        const commission=Math.round(base*pct/100);
         const salary=emp?.salary||0;
         const total=salary+commission;
-        return {name:s.name,salary,pct,base,commission,total,count:s.count};
+        return {name:s.name,salary,pct,base,commission,total,count:s.count,method:empMethod};
       });
     resultEl.innerHTML=`<div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:var(--bg2)">
           <th style="padding:8px 12px;text-align:left">Продавец</th>
           <th style="padding:8px 12px;text-align:right">Заказов</th>
-          <th style="padding:8px 12px;text-align:right">${method==='paid'?'Оплачено':'Продажи'}</th>
+          <th style="padding:8px 12px;text-align:right">База расчёта</th>
           <th style="padding:8px 12px;text-align:center">%</th>
           <th style="padding:8px 12px;text-align:right">Комиссия</th>
           <th style="padding:8px 12px;text-align:right">Оклад</th>
@@ -9725,7 +9706,9 @@ function renderSalonReport(){
         </tr></thead>
         <tbody>
           ${rows.map(r=>`<tr style="border-top:1px solid var(--border)">
-            <td style="padding:10px 12px;font-weight:600">${r.name}</td>
+            <td style="padding:10px 12px;font-weight:600">${r.name}
+              <div style="font-size:10px;color:var(--text3)">${r.method==='paid'?'% от оплаты':'% от продаж'}</div>
+            </td>
             <td style="padding:10px 12px;text-align:right">${r.count}</td>
             <td style="padding:10px 12px;text-align:right;font-family:monospace">${fmt(r.base)}</td>
             <td style="padding:10px 12px;text-align:center;color:var(--accent);font-weight:600">${r.pct}%</td>
@@ -9742,7 +9725,7 @@ function renderSalonReport(){
         </tbody>
       </table>
       <div style="font-size:11px;color:var(--text3);margin-top:6px">
-        ${method==='sales'?'Расчёт по сумме заказов за период':'✅ Расчёт по фактически оплаченным суммам'}
+        Метод расчёта указан для каждого продавца в разделе Сотрудники → Комиссии
       </div>
     </div>`;
     }; // end doRender
@@ -13806,107 +13789,184 @@ function renderSalonCommissionsSettings(){
   const el=document.getElementById('hr-tab-salon_commissions');
   if(!el) return;
 
-  const canEdit=['director','accountant'].includes(window._currentUser) ||
-    getCurrentRole()?.isManager;
+  const canEdit=['director','accountant'].includes(window._currentUser)||getCurrentRole()?.isManager;
+  const fmt=n=>n>0?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
 
-  const renderSalonBlock=(salonName)=>{
-    const salon=salonsData[salonName];
-    const sellers=salon?.sellers||[];
-    const manager=salon?.manager;
-    const designers=salon?.designers||[];
+  const renderSalon=(channel, label, icon)=>{
+    const staff = employeesData.filter(e=>
+      (e.comment||'').includes(label) ||
+      (e.comment||'').includes('Армада, Назарбаева')
+    );
+    const manager = staff.find(e=>e.pos&&(e.pos.includes('Начальник')||e.name==='Сукачева Ольга'));
+    const sellers = staff.filter(e=>e.pos&&(e.pos.includes('Менеджер')||e.pos.includes('салон'))&&e!==manager);
 
-    return `
-      <div style="margin-bottom:24px">
-        <div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--accent)">
-          ${salonName==='Армада'?'🏬':'🏪'} Салон ${salonName}
-        </div>
+    const staffRow=(emp)=>`<tr>
+      <td style="font-weight:600">${emp.name}</td>
+      <td style="text-align:right">
+        ${canEdit
+          ?`<input type="number" value="${emp.salary||0}" style="width:110px;text-align:right"
+              onblur="saveStaffField('${emp.id}','salary',this.value)">`
+          :fmt(emp.salary||0)}
+      </td>
+      <td style="text-align:right">
+        ${canEdit
+          ?`<input type="number" value="${emp.commissionPct||0}" step="0.5" style="width:60px;text-align:right"
+              onblur="saveStaffField('${emp.id}','commission_pct',this.value)"> %`
+          :`${emp.commissionPct||0}%`}
+      </td>
+      <td>
+        ${canEdit
+          ?`<select style="font-size:12px" onchange="saveStaffFieldDirect('${emp.id}','commission_method',this.value)">
+              <option value="sales" ${(emp.commissionMethod||'sales')==='sales'?'selected':''}>% от продаж</option>
+              <option value="paid"  ${emp.commissionMethod==='paid'?'selected':''}>% от оплаты</option>
+            </select>`
+          :`${emp.commissionMethod==='paid'?'% от оплаты':'% от продаж'}`}
+      </td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
+        onclick="showSalaryHistory('${emp.id}','${emp.name.replace(/'/g,"\\'")}')">📅 История</button></td>
+    </tr>`;
 
-        <!-- Начальник салона -->
-        <div style="margin-bottom:12px">
-          <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">Начальник салона</div>
-          <table class="data-table">
-            <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">% от заказов</th>${canEdit?'<th></th>':''}</tr></thead>
-            <tbody>
-              <tr>
-                <td style="font-weight:600">${manager?.name||'—'}</td>
-                <td style="text-align:right">
-                  ${canEdit
-                    ?`<input type="number" value="${manager?.salary||0}" style="width:120px;text-align:right"
-                        onchange="salonsData['${salonName}'].manager.salary=parseInt(this.value)||0">`
-                    :`₸${(manager?.salary||0).toLocaleString('ru-RU')}`}
-                </td>
-                <td style="text-align:right">
-                  ${canEdit
-                    ?`<input type="number" value="${manager?.commissionPct||0}" step="0.5" style="width:80px;text-align:right"
-                        onchange="salonsData['${salonName}'].manager.commissionPct=parseFloat(this.value)||0"> %`
-                    :`${manager?.commissionPct||0}%`}
-                </td>
-                ${canEdit?'<td></td>':''}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Менеджеры продаж -->
-        <div style="margin-bottom:12px">
-          <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">Менеджеры продаж</div>
-          <table class="data-table">
-            <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">% от заказа</th></tr></thead>
-            <tbody>
-              ${sellers.map((s,i)=>`<tr>
-                <td style="font-weight:500">${s.name}</td>
-                <td style="text-align:right">
-                  ${canEdit
-                    ?`<input type="number" value="${s.salary||0}" style="width:120px;text-align:right"
-                        onchange="salonsData['${salonName}'].sellers[${i}].salary=parseInt(this.value)||0">`
-                    :`₸${(s.salary||0).toLocaleString('ru-RU')}`}
-                </td>
-                <td style="text-align:right">
-                  ${canEdit
-                    ?`<input type="number" value="${s.commissionPct||0}" step="0.5" style="width:80px;text-align:right"
-                        onchange="salonsData['${salonName}'].sellers[${i}].commissionPct=parseFloat(this.value)||0"> %`
-                    :`${s.commissionPct||0}%`}
-                </td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Штатные дизайнеры -->
-        <div>
-          <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">
-            Штатные дизайнеры
-          </div>
-          ${designers.length?`<table class="data-table">
-            <thead><tr><th>ФИО</th><th style="text-align:right">% от заказа</th></tr></thead>
-            <tbody>
-              ${designers.map((d,i)=>`<tr>
-                <td>${d.name}</td>
-                <td style="text-align:right">
-                  ${canEdit
-                    ?`<input type="number" value="${d.commissionPct||0}" step="0.5" style="width:80px;text-align:right"
-                        onchange="salonsData['${salonName}'].designers[${i}].commissionPct=parseFloat(this.value)||0"> %`
-                    :`${d.commissionPct||0}%`}
-                </td>
-              </tr>`).join('')}
-            </tbody>
-          </table>`:'<div style="font-size:13px;color:var(--text3)">Нет штатных дизайнеров</div>'}
-        </div>
-      </div>`;
+    return `<div style="margin-bottom:24px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--accent)">${icon} Салон ${label}</div>
+      ${manager?`
+        <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">Начальник салона</div>
+        <table class="data-table" style="margin-bottom:12px">
+          <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">%</th><th>Метод</th><th></th></tr></thead>
+          <tbody>${staffRow(manager)}</tbody>
+        </table>`:''}
+      ${sellers.length?`
+        <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">Менеджеры продаж</div>
+        <table class="data-table">
+          <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">%</th><th>Метод</th><th></th></tr></thead>
+          <tbody>${sellers.map(staffRow).join('')}</tbody>
+        </table>`:''}
+    </div>`;
   };
 
-  el.innerHTML=`
-    <div style="max-width:700px">
+  const doRender=()=>{
+    el.innerHTML=`<div style="max-width:700px">
       <div style="font-size:13px;color:var(--text3);margin-bottom:16px">
         ${canEdit
-          ?'Изменения применяются сразу — для нового заказа. Для сохранения между сессиями нужна база данных.'
-          :'Только просмотр. Изменения доступны директору и бухгалтеру.'}
+          ?'✅ Изменения сохраняются в базу данных.'
+          :'Только просмотр.'}
       </div>
-      ${renderSalonBlock('Армада')}
+      ${renderSalon('salon_armada','Армада','🏬')}
       <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
-      ${renderSalonBlock('Назарбаева')}
+      ${renderSalon('salon_nazarbayeva','Назарбаева','🏪')}
     </div>`;
+  };
+
+  if(employeesData.length>0) doRender();
+  else loadStaffFromDB().then(doRender);
 }
+
+async function saveStaffFieldDirect(empId, field, value){
+  try {
+    await sbPatch('staff', `id=eq.${empId}`, {[field]: value});
+    const emp = employeesData.find(e=>String(e.id)===String(empId));
+    if(emp && field==='commission_method') emp.commissionMethod = value;
+    console.log(`✅ ${field}=${value}`);
+  } catch(e){ alert('Ошибка: '+e.message); }
+}
+
+async function showSalaryHistory(staffId, name){
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  try {
+    const data = await sbFetch('staff_salary_history',
+      `select=*&staff_id=eq.${staffId}&order=valid_from.desc`);
+
+    let modal = document.getElementById('salary-history-modal');
+    if(!modal){
+      modal = document.createElement('div');
+      modal.id = 'salary-history-modal';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `<div class="modal" style="max-width:500px">
+        <div class="modal-header">
+          <span id="shr-title"></span>
+          <button class="modal-close" onclick="closeModal('salary-history-modal')">✕</button>
+        </div>
+        <div id="shr-body" style="padding:16px"></div>
+      </div>`;
+      document.body.appendChild(modal);
+    }
+
+    document.getElementById('shr-title').textContent = `📅 История ЗП — ${name}`;
+    document.getElementById('shr-body').innerHTML = data?.length
+      ? `<table class="data-table">
+          <thead><tr>
+            <th>С месяца</th>
+            <th style="text-align:right">Оклад</th>
+            <th style="text-align:right">%</th>
+            <th>Примечание</th>
+          </tr></thead>
+          <tbody>${data.map(r=>`<tr>
+            <td style="font-family:monospace">${(r.valid_from||'').slice(0,7)}</td>
+            <td style="text-align:right;font-family:monospace">${fmt(r.salary||0)}</td>
+            <td style="text-align:right">${r.commission_pct||0}%</td>
+            <td style="font-size:12px;color:var(--text3)">${r.note||'—'}</td>
+          </tr>`).join('')}</tbody>
+        </table>`
+      : '<div style="color:var(--text3);text-align:center;padding:20px">История изменений не найдена</div>';
+
+    showModal('salary-history-modal');
+  } catch(e){
+    alert('Ошибка загрузки истории: '+e.message);
+  }
+}
+
+async function saveStaffField(empId, field, value){
+  const num = parseFloat(value)||0;
+  const emp = employeesData.find(e=>String(e.id)===String(empId));
+
+  // Спрашиваем с какого периода
+  const today = new Date().toISOString().slice(0,7); // ГГГГ-ММ
+  const fromMonth = prompt(
+    `С какого месяца действует изменение для ${emp?.name||''}?\n(формат: ГГГГ-ММ, например ${today})`,
+    today
+  );
+  if(!fromMonth) return; // отмена
+
+  // Валидация формата
+  if(!/^\d{4}-\d{2}$/.test(fromMonth)){
+    alert('Неверный формат. Введите ГГГГ-ММ, например 2026-08');
+    return;
+  }
+  const validFrom = fromMonth + '-01';
+
+  try {
+    // Обновляем текущее значение в staff
+    await sbPatch('staff', `id=eq.${empId}`, {[field]: num});
+
+    // Сохраняем в историю
+    const historyRow = {
+      staff_id: empId,
+      salary: field==='salary' ? num : (emp?.salary||0),
+      commission_pct: field==='commission_pct' ? num : (emp?.commissionPct||0),
+      valid_from: validFrom,
+      note: `Изменено: ${field==='salary'?'оклад':'% комиссии'} → ${num}`,
+    };
+    await sbPost('staff_salary_history', historyRow);
+
+    // Обновляем локально
+    if(emp){
+      if(field==='salary') emp.salary=num;
+      if(field==='commission_pct') emp.commissionPct=num;
+    }
+    console.log(`✅ ${emp?.name}: ${field}=${num} с ${validFrom}`);
+
+    // Показываем подтверждение
+    const msg = document.createElement('div');
+    msg.textContent = `✅ ${emp?.name}: ${field==='salary'?'оклад':'%'} = ${num} с ${fromMonth}`;
+    msg.style.cssText='position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999';
+    document.body.appendChild(msg);
+    setTimeout(()=>msg.remove(), 3000);
+
+  } catch(e){
+    console.warn('⚠️', e);
+    alert('Ошибка сохранения: '+e.message);
+  }
+}
+
 
 // ── Штат ─────────────────────────────────────────────────────────────────────
 function renderHRStaff(){
