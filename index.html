@@ -1144,11 +1144,11 @@ function onWhTypeFilterChange(){
 function renderWhRemains(){ renderWarehouse(); }
 
 // Загрузить заказы из Supabase
-async function loadOrdersFromDB(){
 let _ordersLoadedForChannel = null;
+async function loadOrdersFromDB(){
   const chFilter = getChannelFilter();
   // __salons__ и null — оба загружают все заказы, считаем одним кешем
-  const cacheKey = chFilter==='__salons__' ? '' : (chFilter||'');
+  const cacheKey = (chFilter==='__salons__' || !chFilter) ? '' : chFilter;
 
   if(_cacheLoaded.orders && ordersData.length > 0 && _ordersLoadedForChannel === cacheKey){
     console.log('📦 Заказы из кеша: '+ordersData.length);
@@ -1263,7 +1263,7 @@ let _ordersLoadedForChannel = null;
 
     console.log(`✅ Загружено из Supabase: ${ordersData.length} заказов, ${(items||[]).length} позиций`);
     _cacheLoaded.orders = true;
-    _ordersLoadedForChannel = getChannelFilter()||'';
+    _ordersLoadedForChannel = cacheKey;
     hideLoading();
     return true;
 
@@ -13821,13 +13821,13 @@ function renderSalonCommissionsSettings(){
       <td style="text-align:right">
         ${canEdit
           ?`<input type="number" value="${emp.salary||0}" style="width:110px;text-align:right"
-              onblur="saveStaffField('${emp.id}','salary',this.value)">`
+              onchange="saveStaffField('${emp.id}','salary',this.value)">`
           :fmt(emp.salary||0)}
       </td>
       <td style="text-align:right">
         ${canEdit
           ?`<input type="number" value="${emp.commissionPct||0}" step="0.5" style="width:60px;text-align:right"
-              onblur="saveStaffField('${emp.id}','commission_pct',this.value)"> %`
+              onchange="saveStaffField('${emp.id}','commission_pct',this.value)"> %`
           :`${emp.commissionPct||0}%`}
       </td>
       <td>
