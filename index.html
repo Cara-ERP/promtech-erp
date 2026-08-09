@@ -965,6 +965,106 @@ async function loadCatalogFromDB(){
   }
 }
 
+let _editingProductId = null;
+
+function openProductModal(id){
+  _editingProductId = id||null;
+  const isNew = !id;
+  const p = id ? catalogData.find(p=>String(p.id)===String(id)) : null;
+  const currentUser = getCurrentRole()?.name || window._currentUser || '';
+  const isAccountant = ['director','accountant'].includes(window._currentUser);
+  const canEdit = isNew || !p?.created_by || p?.created_by===currentUser || isAccountant;
+
+  document.getElementById('product-modal-title').textContent = isNew ? '+ Новый товар' : 'Редактировать товар';
+  document.getElementById('pm-name').value = p?.name||'';
+  document.getElementById('pm-name').disabled = !canEdit;
+  document.getElementById('pm-category').value = p?.category||'';
+  document.getElementById('pm-category').disabled = !canEdit;
+  document.getElementById('pm-price-retail').value = p?.price_retail||0;
+  document.getElementById('pm-price-retail').disabled = !canEdit;
+  document.getElementById('pm-price-wholesale').value = p?.price_wholesale||0;
+  document.getElementById('pm-price-wholesale').disabled = !canEdit;
+  document.getElementById('pm-unit').value = p?.unit||'шт';
+  document.getElementById('pm-unit').disabled = !canEdit;
+  document.getElementById('pm-sku').value = p?.sku||'';
+  document.getElementById('pm-sku').disabled = !canEdit;
+  document.getElementById('pm-desc').value = p?.description||'';
+  document.getElementById('pm-desc').disabled = !canEdit;
+  document.getElementById('pm-error').textContent = '';
+
+  const metaEl = document.getElementById('pm-meta');
+  if(p){
+    const parts = [];
+    if(p.created_by) parts.push(`Добавил: ${p.created_by}`);
+    if(p.created_at) parts.push(new Date(p.created_at).toLocaleDateString('ru-RU'));
+    if(p.updated_by) parts.push(`Изменил: ${p.updated_by}`);
+    if(p.delete_requested) parts.push(`⚠️ Помечен на удаление (${p.delete_requested_by})`);
+    metaEl.textContent = parts.join(' · ');
+  } else { metaEl.textContent = ''; }
+
+  document.getElementById('pm-delete-btn-wrap').style.display = (!isNew && isAccountant) ? '' : 'none';
+  const delReq = document.getElementById('pm-delete-request');
+  if(!isNew && !isAccountant){
+    delReq.style.display = '';
+    document.getElementById('pm-delete-check').checked = p?.delete_requested||false;
+  } else { delReq.style.display = 'none'; }
+
+  const cats = [...new Set(catalogData.map(p=>p.category).filter(Boolean))].sort();
+  document.getElementById('pm-cat-list').innerHTML = cats.map(c=>`<option value="${c}">`).join('');
+  showModal('productModal');
+}
+
+async function saveProduct(){
+  const name = document.getElementById('pm-name').value.trim();
+  const category = document.getElementById('pm-category').value.trim();
+  const errEl = document.getElementById('pm-error');
+  if(!name){ errEl.textContent='Введите наименование'; return; }
+  if(!category){ errEl.textContent='Введите категорию'; return; }
+  const currentUser = getCurrentRole()?.name || window._currentUser || '';
+  const deleteRequested = document.getElementById('pm-delete-check')?.checked||false;
+  const data = {
+    name, category,
+    price_retail: parseFloat(document.getElementById('pm-price-retail').value)||0,
+    price_wholesale: parseFloat(document.getElementById('pm-price-wholesale').value)||0,
+    unit: document.getElementById('pm-unit').value||'шт',
+    sku: document.getElementById('pm-sku').value.trim()||null,
+    description: document.getElementById('pm-desc').value.trim()||null,
+    delete_requested: deleteRequested,
+    delete_requested_by: deleteRequested ? currentUser : null,
+    updated_by: currentUser,
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    if(!_editingProductId){
+      data.created_by = currentUser;
+      data.created_at = new Date().toISOString();
+      const res = await sbPost('products', data);
+      if(res?.[0]) catalogData.push(res[0]);
+    } else {
+      await sbPatch('products', `id=eq.${_editingProductId}`, data);
+      const idx = catalogData.findIndex(p=>String(p.id)===String(_editingProductId));
+      if(idx>=0) catalogData[idx] = {...catalogData[idx], ...data};
+    }
+    closeModal('productModal');
+    renderCatalog();
+    const msg=document.createElement('div');
+    msg.textContent=`✅ Товар ${_editingProductId?'обновлён':'добавлен'}`;
+    msg.style.cssText='position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999';
+    document.body.appendChild(msg); setTimeout(()=>msg.remove(),3000);
+  } catch(e){ errEl.textContent='Ошибка: '+e.message; }
+}
+
+async function deleteProduct(){
+  if(!_editingProductId) return;
+  if(!confirm('Удалить товар из каталога?')) return;
+  try {
+    await sbPatch('products', `id=eq.${_editingProductId}`, {active:false});
+    catalogData = catalogData.filter(p=>String(p.id)!==String(_editingProductId));
+    closeModal('productModal');
+    renderCatalog();
+  } catch(e){ alert('Ошибка: '+e.message); }
+}
+
 function renderCatalog(){
   const cat    = document.getElementById('catalog-cat-filter')?.value||'';
   const search = (document.getElementById('catalog-search')?.value||'').toLowerCase();
@@ -1007,21 +1107,26 @@ function renderCatalog(){
   tbody.innerHTML = filtered.map((p,i)=>{
     const disc = p.price_retail && p.price_wholesale
       ? Math.round((1 - p.price_wholesale/p.price_retail)*100)+'%' : '—';
+    const delMark = p.delete_requested ? ' <span style="color:var(--red);font-size:10px">🗑</span>' : '';
+    const createdBy = p.created_by ? `<span style="font-size:10px;color:var(--text3)">${p.created_by}</span>` : '—';
     return `<tr>
       <td style="color:var(--text3);font-size:12px">${i+1}</td>
-      <td style="font-weight:500">${p.name}</td>
+      <td style="font-weight:500">${p.name}${delMark}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${p.category}</span></td>
       <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(p.price_retail)}</td>
       <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(p.price_wholesale)}</td>
       <td style="text-align:right;font-size:12px;color:var(--amber)">${disc}</td>
-      <td>
+      <td>${createdBy}</td>
+      <td style="display:flex;gap:4px">
+        <button class="btn btn-ghost btn-sm" style="font-size:11px"
+          onclick="openProductModal('${p.id}')">✏️</button>
         <button class="btn btn-ghost btn-sm" style="font-size:11px"
           onclick="addProductToOrder('${p.id}','${p.name.replace(/'/g,"\\'")}',${p.price_retail},${p.price_wholesale})">
           + В заказ
         </button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Ничего не найдено</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Ничего не найдено</td></tr>';
 }
 
 function addProductToOrder(id, name, priceRetail, priceWholesale){
@@ -2924,6 +3029,7 @@ window.onerror = function(msg, src, line, col){
           <input id="catalog-search" type="search" placeholder="🔍 Поиск по названию..."
             oninput="renderCatalog()" style="font-size:13px;width:220px">
           <span id="catalog-count" style="font-size:12px;color:var(--text3)"></span>
+          <button class="btn btn-primary btn-sm" onclick="openProductModal(null)">+ Добавить товар</button>
         </div>
       </div>
 
@@ -2940,10 +3046,62 @@ window.onerror = function(msg, src, line, col){
             <th style="text-align:right">Розница (₸)</th>
             <th style="text-align:right">Опт (₸)</th>
             <th style="text-align:right">Скидка</th>
+            <th>Добавил</th>
             <th></th>
           </tr></thead>
           <tbody id="catalog-tbody"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Модал: карточка товара -->
+    <div class="modal-overlay" id="productModal" style="display:none">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <span id="product-modal-title">Новый товар</span>
+          <button class="modal-close" onclick="closeModal('productModal')">✕</button>
+        </div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+          <div><label class="label">Наименование *</label>
+            <input id="pm-name" type="text" placeholder="Название товара..."></div>
+          <div><label class="label">Категория *</label>
+            <input id="pm-category" type="text" list="pm-cat-list" placeholder="Категория...">
+            <datalist id="pm-cat-list"></datalist></div>
+          <div class="form-row cols-2">
+            <div><label class="label">Розничная цена (₸)</label>
+              <input id="pm-price-retail" type="number" min="0" placeholder="0"></div>
+            <div><label class="label">Оптовая цена (₸)</label>
+              <input id="pm-price-wholesale" type="number" min="0" placeholder="0"></div>
+          </div>
+          <div class="form-row cols-2">
+            <div><label class="label">Единица</label>
+              <select id="pm-unit">
+                <option value="шт">шт</option>
+                <option value="м.п.">м.п.</option>
+                <option value="м²">м²</option>
+                <option value="компл">компл</option>
+              </select></div>
+            <div><label class="label">Артикул</label>
+              <input id="pm-sku" type="text" placeholder="Необязательно"></div>
+          </div>
+          <div><label class="label">Описание</label>
+            <textarea id="pm-desc" rows="2" style="width:100%;resize:vertical" placeholder="Необязательно"></textarea></div>
+          <div id="pm-meta" style="font-size:11px;color:var(--text3)"></div>
+          <div id="pm-delete-request" style="display:none">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--red)">
+              <input type="checkbox" id="pm-delete-check"> Пометить на удаление
+            </label>
+          </div>
+          <div id="pm-error" style="color:var(--red);font-size:12px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <div id="pm-delete-btn-wrap" style="display:none">
+              <button class="btn btn-ghost btn-sm" style="color:var(--red)"
+                onclick="deleteProduct()">🗑 Удалить</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="closeModal('productModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveProduct()">Сохранить</button>
+          </div>
+        </div>
       </div>
     </div>
 
