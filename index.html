@@ -6316,8 +6316,12 @@ window.onerror = function(msg, src, line, col){
               <option value="">— не указан —</option>
             </select>
           </div>
-          <div class="form-row">
-            <label class="label">Оклад (₸)</label>
+          <div class="form-row" id="emp-salary-row">
+            <label class="label">Оклад (₸) 
+              <span style="font-size:10px;color:var(--text3);font-weight:400">
+                — для истории изменяйте в Комиссиях
+              </span>
+            </label>
             <input id="emp-card-salary" type="number" min="0" placeholder="0">
           </div>
           <div class="form-row">
@@ -14125,6 +14129,13 @@ function openEmployeeCard(id){
   wsSel.innerHTML='<option value="">— не указан —</option>'+
     WORKSHOPS.map(w=>`<option value="${w.id}" ${emp?.ws===w.id?'selected':''}>${w.icon} ${w.name}</option>`).join('');
   document.getElementById('emp-card-name')._editId=id||null;
+  // Скрываем оклад для начальника салона — меняется только через Комиссии (с историей)
+  const salaryRow = document.getElementById('emp-salary-row');
+  if(salaryRow){
+    const isSalonMgr = getCurrentRole()?.isManager && !getCurrentRole()?.channel;
+    salaryRow.style.display = isSalonMgr ? 'none' : '';
+  }
+
   showModal('employeeCardModal');
 }
 
