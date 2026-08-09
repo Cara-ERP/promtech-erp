@@ -9700,16 +9700,18 @@ function renderSalonReport(){
   }
 
   if(resultEl && sellersList.length>0){
-    const rows=sellersList.map(s=>{
-      const inputId='sr-pct-'+s.name.replace(/\s/g,'_');
-      const pct=parseFloat(document.getElementById(inputId)?.value||1)||1;
-      const base=method==='paid'?s.paid:s.sum;
-      const commission=Math.round(base*pct/100);
-      const emp=employeesData.find(e=>e.name===s.name);
-      const salary=emp?.salary||0;
-      const total=salary+commission;
-      return {name:s.name,salary,pct,base,commission,total,count:s.count};
-    });
+    // Подгружаем сотрудников если нет
+    const doRender = ()=>{
+      const rows=sellersList.map(s=>{
+        const inputId='sr-pct-'+s.name.replace(/\s/g,'_');
+        const pct=parseFloat(document.getElementById(inputId)?.value||1)||1;
+        const base=method==='paid'?s.paid:s.sum;
+        const commission=Math.round(base*pct/100);
+        const emp=employeesData.find(e=>e.name===s.name);
+        const salary=emp?.salary||0;
+        const total=salary+commission;
+        return {name:s.name,salary,pct,base,commission,total,count:s.count};
+      });
     resultEl.innerHTML=`<div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:var(--bg2)">
@@ -9743,6 +9745,9 @@ function renderSalonReport(){
         ${method==='sales'?'Расчёт по сумме заказов за период':'✅ Расчёт по фактически оплаченным суммам'}
       </div>
     </div>`;
+    }; // end doRender
+    if(employeesData.length>0){ doRender(); }
+    else { loadStaffFromDB().then(doRender); }
   } else if(resultEl){
     resultEl.innerHTML='<div style="color:var(--text3)">Нет продавцов за период</div>';
   }
