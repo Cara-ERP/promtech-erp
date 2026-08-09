@@ -7568,7 +7568,7 @@ function renderAdvances(){
     const balColor = Math.abs(bal)<0.5 ? 'var(--green)' : bal>0 ? 'var(--amber)' : 'var(--red)';
     const balLabel = Math.abs(bal)<0.5 ? '✓' : bal>0 ? fmt(bal) : '+ '+fmt(-bal);
 
-    return `<tr onclick="openAdvanceModal(${a.id})" style="cursor:pointer">
+    return `<tr onclick="openAdvanceModal('${a.id}')" style="cursor:pointer">
       <td style="font-family:monospace;color:var(--accent);font-size:12px">АО-${String(a.id).padStart(3,'0')}</td>
       <td style="font-size:12px">${a.date}</td>
       <td style="font-weight:500">${a.empName}</td>
@@ -7583,7 +7583,7 @@ function renderAdvances(){
         ${balLabel}</td>
       <td><span class="badge ${si.cls}" style="font-size:10px">${si.label}</span></td>
       <td onclick="event.stopPropagation()">
-        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAdvanceModal(${a.id})">✏️</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAdvanceModal('${a.id}')">✏️</button>
       </td>
     </tr>`;
   }).join('') || `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text3)">Авансовых отчётов нет</td></tr>`;
@@ -7778,7 +7778,7 @@ function renderAllTx(){
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
-      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,${t.id})">✏️</button></td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,'${t.id}')">✏️</button></td>
     </tr>`;
   }).join('');
 }
@@ -9430,7 +9430,7 @@ function renderChDirectTable(){
       }
     </td>
     <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-      onclick="chDirectCosts=chDirectCosts.filter(x=>x.id!==${c.id});renderChannelPL()">✕</button></td>
+      onclick="chDirectCosts=chDirectCosts.filter(x=>x.id!=='${c.id}');renderChannelPL()">✕</button></td>
   </tr>`).join('');
 }
 
@@ -9455,7 +9455,7 @@ function renderChOPZTable(){
         onchange="chOPZData.find(o=>o.id===${opz.id}).amount=parseFloat(this.value)||0;renderChannelPL()">
     </td>
     <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-      onclick="chOPZData=chOPZData.filter(o=>o.id!==${opz.id});renderChannelPL()">✕</button></td>
+      onclick="chOPZData=chOPZData.filter(o=>o.id!=='${opz.id}');renderChannelPL()">✕</button></td>
   </tr>`).join('');
 }
 
@@ -10341,7 +10341,7 @@ function renderTariffs(){
       <td>${editableCell(t.id,'op',t.op,'text','tariff')}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${editableCell(t.id,'grade',t.grade,'number','tariff')}</td>
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--green)">₸${editableCell(t.id,'rate',t.rate,'number','tariff')}</td>
-      <td><button class="row-delete-btn" onclick="deleteTariffRow(${t.id})" title="Удалить">✕</button></td>`;
+      <td><button class="row-delete-btn" onclick="deleteTariffRow('${t.id}')" title="Удалить">✕</button></td>`;
     tbody.appendChild(tr);
   });
   // refresh operation dropdown in wage modal
@@ -10576,7 +10576,7 @@ function renderPieceWages(){
     const ws = wsh(emp.workshop);
     const st = PIECE_STAGES.find(s=>s.id===emp.stage);
 
-    return `<tr style="cursor:pointer" onclick="showPieceDetail(${emp.id})">
+    return `<tr style="cursor:pointer" onclick="showPieceDetail('${emp.id}')">
       <td style="font-family:monospace;color:var(--text3);font-size:12px">${idx+1}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px">
@@ -10605,7 +10605,7 @@ function renderPieceWages(){
       </td>
       <td style="text-align:right;font-family:monospace;font-weight:700;color:var(--green)">${fmt(earned)}</td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="event.stopPropagation();showPieceDetail(${emp.id})">📋</button></td>
+        onclick="event.stopPropagation();showPieceDetail('${emp.id}')">📋</button></td>
     </tr>`;
   }).join('') || `<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Нет сотрудников</td></tr>`;
 
@@ -10701,7 +10701,7 @@ function renderPieceTariffs(){
       </td>
       <td style="padding:7px 12px">
         <button class="btn btn-ghost btn-sm" style="font-size:11px"
-          onclick="deleteTariffRow(${t.id})">✕</button>
+          onclick="deleteTariffRow('${t.id}')">✕</button>
       </td>
     </tr>`).join('');
     return header+rows;
@@ -10736,7 +10736,7 @@ function renderWageEmployees(){
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--text3)">${editableCell(emp.id,'goal',emp.goal,'number','wage')}</td>
       <td><div style="display:flex;align-items:center;gap:8px;min-width:110px"><div class="progress" style="flex:1"><div class="progress-fill ${progColor}" style="width:${pct}%"></div></div><span style="font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace">${pct}%</span></div></td>
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--green)">₸${editableCell(emp.id,'earned',emp.earned,'number','wage')}</td>
-      <td><button class="row-delete-btn" onclick="deleteWageEmployeeRow(${emp.id})" title="Удалить">✕</button></td>`;
+      <td><button class="row-delete-btn" onclick="deleteWageEmployeeRow('${emp.id}')" title="Удалить">✕</button></td>`;
     tbody.appendChild(tr);
   });
 
@@ -11096,7 +11096,7 @@ function renderSupplierList(){
 
   tbody.innerHTML=rows.map(s=>{
     const r=calcSupRating(s);
-    return `<tr onclick="openSupplierCard(${s.id})" style="cursor:pointer">
+    return `<tr onclick="openSupplierCard('${s.id}')" style="cursor:pointer">
       <td><div style="font-weight:600">${s.name}</div>
           <div style="font-size:11px;color:var(--text3)">${s.addr||''}</div></td>
       <td style="font-size:12px;color:var(--text2)">${s.category||'—'}</td>
@@ -11109,7 +11109,7 @@ function renderSupplierList(){
       <td style="text-align:center;font-size:12px;color:var(--amber)" title="${r}/5">${stars(r)}</td>
       <td><span class="badge ${supStatusCls(s.status)}">${supStatusLabel(s.status)}</span></td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="event.stopPropagation();openSupplierCard(${s.id})">✏️</button></td>
+        onclick="event.stopPropagation();openSupplierCard('${s.id}')">✏️</button></td>
     </tr>`;
   }).join('');
 }
@@ -11132,7 +11132,7 @@ function renderSupCategories(){
       </div>
       <div style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
         ${sups.map(s=>`<div style="background:var(--bg3);border:1px solid var(--border);
-          border-radius:8px;padding:10px;cursor:pointer" onclick="openSupplierCard(${s.id})">
+          border-radius:8px;padding:10px;cursor:pointer" onclick="openSupplierCard('${s.id}')">
           <div style="font-weight:600;font-size:13px;margin-bottom:2px">${s.name}</div>
           <div style="font-size:11px;color:var(--text3)">${s.contact||''} ${s.phone?'· '+s.phone:''}</div>
           <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px">
@@ -11153,7 +11153,7 @@ function renderSupRating(){
     '☆'.repeat(5-n)+'</span>'; };
   tbody.innerHTML=sorted.map((s,i)=>{
     const r=calcSupRating(s);
-    return `<tr onclick="openSupplierCard(${s.id})" style="cursor:pointer">
+    return `<tr onclick="openSupplierCard('${s.id}')" style="cursor:pointer">
       <td style="text-align:center;font-weight:600;color:${i<3?'var(--amber)':'var(--text3)'}">${i+1}</td>
       <td><span style="font-weight:600">${s.name}</span></td>
       <td style="font-size:12px;color:var(--text2)">${s.category||'—'}</td>
@@ -11382,13 +11382,13 @@ function renderPersons(){
     const turnover = stat.reduce((s,o)=>s+orderTotal(o),0);
     const tr=document.createElement('tr');
     tr.innerHTML=`
-      <td style="font-weight:500;cursor:pointer" onclick="openPersonModal(${p.id})">${p.name}</td>
+      <td style="font-weight:500;cursor:pointer" onclick="openPersonModal('${p.id}')">${p.name}</td>
       <td><span class="badge ${typeBadge}">${typeLabel}</span></td>
       <td style="font-family:monospace;font-size:12px">${p.idNum||'—'}</td>
       <td style="font-family:monospace;font-size:12px">${p.phone||'—'}</td>
       <td style="text-align:right;font-family:monospace;color:var(--green);font-size:12px">${turnover>0?fmt(turnover):'—'}</td>
       <td style="text-align:right;font-size:12px">${stat.length||'—'}</td>
-      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPersonModal(${p.id})">✏️</button></td>`;
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPersonModal('${p.id}')">✏️</button></td>`;
     tbody.appendChild(tr);
   });
   setEl('person-count', data.length);
@@ -11879,7 +11879,7 @@ function renderDealers(){
       <td style="font-family:'IBM Plex Mono',monospace">${editableCell(d.id,'orders',d.orders,'number','dealer')}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${editableCell(d.id,'turnover',d.turnover,'number','dealer')}</td>
       <td>${editableSelectCell(d.id,'status',d.status,['Активен','На паузе'],'dealer')}</td>
-      <td><button class="row-delete-btn" onclick="deleteDealer(${d.id})">✕</button></td>`;
+      <td><button class="row-delete-btn" onclick="deleteDealer('${d.id}')">✕</button></td>`;
     tbody.appendChild(tr);
   });
   setEl('dealer-count', dealersData.length);
@@ -11921,7 +11921,7 @@ function renderSalons(){
           <td>${editableCell(cl.id,'name',cl.name,'text','salonClient')}${navLink}</td>
           <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${editableCell(cl.id,'phone',cl.phone,'text','salonClient')}</td>
           <td style="font-family:'IBM Plex Mono',monospace">${editableCell(cl.id,'turnover',cl.turnover,'number','salonClient')}</td>
-          <td><button class="row-delete-btn" onclick="deleteSalonClient('${salonName}',${seller.id},${cl.id})">✕</button></td>
+          <td><button class="row-delete-btn" onclick="deleteSalonClient('${salonName}','${seller.id}','${cl.id}')">✕</button></td>
         </tr>`;}).join('');
       div.innerHTML=`
         <div class="salon-seller-header" onclick="toggleSeller('${selId}')">
@@ -11930,8 +11930,8 @@ function renderSalons(){
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:12px;color:var(--text3)">${seller.clients.length} кл. · ₸${(selTotal/1000000).toFixed(1)}М</span>
-            <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();addSalonClient('${salonName}',${seller.id})">+ Клиент</button>
-            <button class="row-delete-btn" onclick="event.stopPropagation();deleteSeller('${salonName}',${seller.id})">✕</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();addSalonClient('${salonName}','${seller.id}')">+ Клиент</button>
+            <button class="row-delete-btn" onclick="event.stopPropagation();deleteSeller('${salonName}','${seller.id}')">✕</button>
           </div>
         </div>
         <div class="salon-seller-clients" id="${selId}" style="display:${wasOpen?'block':'none'}">
@@ -13532,7 +13532,7 @@ function renderOrgChart(){
             </td>
             <td>
               <button class="btn btn-ghost btn-sm" style="font-size:11px"
-                onclick="openStaffPositionModal(${pos.id})">✏️</button>
+                onclick="openStaffPositionModal('${pos.id}')">✏️</button>
             </td>
           </tr>`;
         }).join('')}</tbody>
@@ -14808,7 +14808,7 @@ function renderOPZTable(){
         onchange="opzData.find(o=>o.id===${opz.id}).amount=parseFloat(this.value)||0;renderActivityPL()">
     </td>
     <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-      onclick="opzData=opzData.filter(o=>o.id!==${opz.id});renderActivityPL()">✕</button></td>
+      onclick="opzData=opzData.filter(o=>o.id!=='${opz.id}');renderActivityPL()">✕</button></td>
   </tr>`).join('');
 }
 
@@ -15743,7 +15743,7 @@ function openPayrollCard(staffId, period, dateFrom, dateTo){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div style="font-weight:600;font-size:13px">📉 Удержания</div>
       <button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="openPayrollEntryModal(${staff.id},'${period}')">± Добавить</button>
+        onclick="openPayrollEntryModal('${staff.id}','${period}')">± Добавить</button>
     </div>
     <table class="data-table" style="margin-bottom:16px">
       <thead><tr><th>Вид</th><th>Основание</th><th style="text-align:right">Сумма</th></tr></thead>
@@ -15777,7 +15777,7 @@ function openPayrollCard(staffId, period, dateFrom, dateTo){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div style="font-weight:600;font-size:13px">💳 Выплаты за период</div>
       <button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="openWagePaymentModal(${staff.id})">+ Добавить выплату</button>
+        onclick="openWagePaymentModal('${staff.id}')">+ Добавить выплату</button>
     </div>
     ${periodPayments.length?`
     <table class="data-table" style="margin-bottom:16px">
@@ -15811,7 +15811,7 @@ function openPayrollCard(staffId, period, dateFrom, dateTo){
         </div>
       </div>
       ${row.debt>0?`<button class="btn btn-primary btn-sm"
-        onclick="openWagePaymentModal(${staff.id})">💳 Выплатить ${fmtCurrency(row.debt)}</button>`:''}
+        onclick="openWagePaymentModal('${staff.id}')">💳 Выплатить ${fmtCurrency(row.debt)}</button>`:''}
     </div>
   `;
 
@@ -16083,7 +16083,7 @@ function renderPayrollEntryList(empId, period){
         ${isAcc?'+':'−'}₸${e.amount.toLocaleString('ru-RU')}
       </div>
       <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px"
-        onclick="deletePayrollEntry(${e.id})">✕</button>
+        onclick="deletePayrollEntry('${e.id}')">✕</button>
     </div>`;
   }).join('');
 }
@@ -16705,20 +16705,20 @@ function renderPurchKanban(){
       let btnHtml='';
       if(col==='todo'){
         btnHtml=`<button class="btn btn-primary btn-sm" style="width:100%;font-size:11px;margin-top:6px"
-          onclick="movePurchOrder(${p.id},'ordered')">📦 Заказать поставщику →</button>`;
+          onclick="movePurchOrder('${p.id}','ordered')">📦 Заказать поставщику →</button>`;
       } else if(col==='ordered'){
         btnHtml=`<div style="display:flex;gap:4px;margin-top:6px">
           <button class="btn btn-ghost btn-sm" style="flex:1;font-size:11px"
-            onclick="movePurchOrder(${p.id},'transit')">🚚 В пути</button>
+            onclick="movePurchOrder('${p.id}','transit')">🚚 В пути</button>
           <button class="btn btn-primary btn-sm" style="flex:1;font-size:11px"
-            onclick="movePurchOrder(${p.id},'received')">✅ Получено</button>
+            onclick="movePurchOrder('${p.id}','received')">✅ Получено</button>
         </div>`;
       }
 
       return `<div style="background:var(--bg2);border:1px solid ${urgent?'var(--red)':'var(--border)'};
         border-radius:8px;overflow:hidden;margin-bottom:2px">
         <!-- Кликабельная шапка карточки — открывает редактирование -->
-        <div style="padding:10px 12px;cursor:pointer" onclick="editPurchOrder(${p.id})">
+        <div style="padding:10px 12px;cursor:pointer" onclick="editPurchOrder('${p.id}')">
           <div style="font-weight:600;font-size:13px;margin-bottom:4px">${p.material}</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:6px">
             ${p.qty} ${p.unit}${p.supplier?' · '+p.supplier:''}
@@ -16994,7 +16994,7 @@ function renderPurchList(){
     const urgent=dl&&dl<=new Date(today.getTime()+3*86400000)&&p.status!=='received';
     const dlStr=dl?dl.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}):'—';
     const st=PURCH_STATUS[p.status]||PURCH_STATUS.todo;
-    return `<tr onclick="editPurchOrder(${p.id})" style="cursor:pointer">
+    return `<tr onclick="editPurchOrder('${p.id}')" style="cursor:pointer">
       <td style="font-weight:500">${p.material}</td>
       <td style="text-align:right">${p.qty}</td><td>${p.unit}</td>
       <td style="color:var(--text2)">${p.supplier||'—'}</td>
@@ -17003,7 +17003,7 @@ function renderPurchList(){
       <td style="font-size:12px;color:var(--accent)">${p.orderNum||'—'}</td>
       <td><span class="badge ${st.cls}">${st.label}</span></td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="event.stopPropagation();deletePurchOrder(${p.id})">✕</button></td>
+        onclick="event.stopPropagation();deletePurchOrder('${p.id}')">✕</button></td>
     </tr>`;
   }).join('');
 }
@@ -17099,9 +17099,9 @@ function renderPurchBom(){
           <td style="font-size:12px;color:var(--text3)">${b.note||''}</td>
           <td>
             <button class="btn btn-ghost btn-sm" style="font-size:11px"
-              onclick="openBomModal(${b.id})">✏️</button>
+              onclick="openBomModal('${b.id}')">✏️</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px"
-              onclick="deleteBomEntry(${b.id})">✕</button>
+              onclick="deleteBomEntry('${b.id}')">✕</button>
           </td>
         </tr>`).join('')}</tbody>
       </table>
@@ -17317,7 +17317,7 @@ function renderPurchasesTable(records){
     const postedBadge=r.posted
       ?'<span class="badge badge-green" style="font-size:10px">✓ проведено</span>'
       :'<span class="badge badge-amber" style="font-size:10px">ожидает</span>';
-    return `<tr style="cursor:pointer" onclick="openPurchaseModal(${r.id})" title="Редактировать">
+    return `<tr style="cursor:pointer" onclick="openPurchaseModal('${r.id}')" title="Редактировать">
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent)">${r.invoice||'—'}</td>
       <td style="font-size:12px">${r.date.split('-').reverse().join('.')}</td>
       <td style="font-size:13px;font-weight:500">${r.supplier}</td>
@@ -17332,7 +17332,7 @@ function renderPurchasesTable(records){
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--green)">${fmtCurrency(r.paid)}</td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${debt>0?'var(--red)':'var(--green)'}">${debt?fmtCurrency(debt):'✓'}</td>
       <td><span class="${purStatusCls(st)}" style="font-size:12px">${purStatusLabel(st)}</span> ${postedBadge}</td>
-      <td><button class="row-delete-btn" onclick="event.stopPropagation();confirmDeletePurchase(${r.id})" title="Удалить">✕</button></td>
+      <td><button class="row-delete-btn" onclick="event.stopPropagation();confirmDeletePurchase('${r.id}')" title="Удалить">✕</button></td>
     </tr>`;
   }).join('');
 
@@ -17457,7 +17457,7 @@ function renderPurchaseItems(){
       </select>
       <input type="number" min="0" placeholder="Цена/ед" value="${it.price}"
         oninput="purUpdateItem(${it.id},'price',+this.value);updatePurchasePayPreview()">
-      <button class="remove-item-btn" onclick="removePurchaseItem(${it.id})" title="Удалить позицию">✕</button>
+      <button class="remove-item-btn" onclick="removePurchaseItem('${it.id}')" title="Удалить позицию">✕</button>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px;padding-left:2px">
       Сумма: <strong style="font-family:'IBM Plex Mono',monospace">${fmtCurrency(it.qty*it.price)}</strong>
@@ -19307,7 +19307,7 @@ function renderWhDocs(){
     else if(d.type==='transfer') direction=`${fromWh?.icon||''} ${fromWh?.name||'Склад'} → ${toWs?.icon||''} ${toWs?.name||'Цех'}`;
     else direction=`${ws?.icon||''} ${ws?.name||'Цех'} ${d.writeoffType==='opr'?'→ ОПР':'→ Заказ '+d.orderNum}`;
 
-    return `<tr onclick="viewWhDoc(${d.id})" style="cursor:pointer">
+    return `<tr onclick="viewWhDoc('${d.id}')" style="cursor:pointer">
       <td style="font-size:12px">${d.date}</td>
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent);font-size:12px">${d.num}</td>
       <td><span class="badge ${typeCls[d.type]||'badge-blue'}">${typeLabel[d.type]||d.type}</span></td>
@@ -19317,7 +19317,7 @@ function renderWhDocs(){
       <td style="font-size:12px;color:var(--text2)">${d.note||'—'}</td>
       <td><span class="badge ${d.status==='done'?'badge-green':'badge-amber'}">${d.status==='done'?'Проведён':'Черновик'}</span></td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="event.stopPropagation();viewWhDoc(${d.id})">👁</button></td>
+        onclick="event.stopPropagation();viewWhDoc('${d.id}')">👁</button></td>
     </tr>`;
   }).join('');
 }
@@ -19701,7 +19701,7 @@ function renderWarehouse(filterCats){
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px">${editableCell(item.id,'price',item.price||0,'number')}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmtCurrency(sum)}</td>
       <td>${whStatusBadge(status)}</td>
-      <td><button class="row-delete-btn" onclick="deleteWarehouseRow(${item.id})" title="Удалить">✕</button></td>`;
+      <td><button class="row-delete-btn" onclick="deleteWarehouseRow('${item.id}')" title="Удалить">✕</button></td>`;
     tbody.appendChild(tr);
   });
 
@@ -20418,7 +20418,7 @@ function renderCrmFilterBars(){
       +`<button class="crm-segment-filter-btn ${!crmActiveSegmentFilter?'active':''}" onclick="setCrmSegmentFilter(null)">Все</button>`
       +segmentsCatalog.map(s=>`<button class="crm-segment-filter-btn ${crmActiveSegmentFilter===s.id?'active':''}"
           style="${crmActiveSegmentFilter===s.id?`border-color:${s.color};color:${s.color};background:${s.color}22`:''}"
-          onclick="setCrmSegmentFilter(${s.id})">
+          onclick="setCrmSegmentFilter('${s.id}')">
           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.color};margin-right:4px;vertical-align:middle"></span>${s.label}
         </button>`).join('');
   }
@@ -20555,7 +20555,7 @@ function renderCrmKanban(){
     const today=new Date(); today.setHours(0,0,0,0);
     const overdue=l.nextDate && new Date(l.nextDate)<today && l.stage!=='won' && l.stage!=='lost';
     html+=`<div class="crm-row-label">
-      <div class="crm-row-label-name" onclick="openCrmLeadModal(${l.id})" title="Открыть карточку">${l.name}</div>
+      <div class="crm-row-label-name" onclick="openCrmLeadModal('${l.id}')" title="Открыть карточку">${l.name}</div>
       <div class="crm-row-label-meta">${l.phone||'—'}</div>
       ${overdue?'<div style="font-size:10px;color:var(--red)">⚠ просроченное действие</div>':''}
       <button onclick="openTaskModal(null,'${l.id}')" title="Создать задачу по лиду"
@@ -20595,7 +20595,7 @@ function renderCrmKanban(){
             <button onclick="event.stopPropagation();leadLost('${l.id}')" style="flex:1;font-size:11px;padding:3px 0;background:rgba(249,70,70,.08);border:1px solid var(--red);border-radius:5px;cursor:pointer;color:var(--red)">❌ Отказ</button>
             <button onclick="event.stopPropagation();openTaskModal(null,'${l.id}')" style="font-size:11px;padding:3px 6px;background:rgba(79,142,247,.1);border:1px solid var(--accent);border-radius:5px;cursor:pointer;color:var(--accent)" title="Создать задачу">📋</button>
           </div>
-          <button class="crm-card-detail-btn" onclick="event.stopPropagation();openCrmPopover(${l.id},this)" title="Детали лида">⋯</button>
+          <button class="crm-card-detail-btn" onclick="event.stopPropagation();openCrmPopover('${l.id}',this)" title="Детали лида">⋯</button>
         </div>`;
       } else {
         html+='<div style="height:4px"></div>';
@@ -20868,7 +20868,7 @@ function openCrmPopover(leadId, btnEl){
   if(metaEl){
     const segHtml=l.segment ? segmentBadgeHtml(l.segment) : '';
     const tagsHtml=(l.tags&&l.tags.length)
-      ? l.tags.map(t=>`<span class="tag-chip" style="font-size:10.5px">🏷 ${t}<span class="tag-remove" onclick="removeLeadTag(${l.id},'${t.replace(/'/g,"\\'")}');openCrmPopover(${l.id},document.querySelector('.crm-card[data-lead-id=\\'${l.id}\\'] .crm-card-detail-btn'))">✕</span></span>`).join('')
+      ? l.tags.map(t=>`<span class="tag-chip" style="font-size:10.5px">🏷 ${t}<span class="tag-remove" onclick="removeLeadTag('${l.id}','${t.replace(/'/g,"\\'")}');openCrmPopover(${l.id},document.querySelector('.crm-card[data-lead-id=\\'${l.id}\\'] .crm-card-detail-btn'))">✕</span></span>`).join('')
       : '<span style="font-size:11px;color:var(--text3)">нет тегов</span>';
     metaEl.innerHTML=(segHtml?`<div style="margin-bottom:6px">${segHtml}</div>`:'')+'<div style="display:flex;flex-wrap:wrap;gap:4px">'+tagsHtml+'</div>';
   }
@@ -20981,7 +20981,7 @@ function renderCommTimeline(leadId){
         </div>
         <div class="comm-text">${e.text||''}</div>
       </div>
-      <button class="comm-delete-btn" onclick="deleteCommEntry(${leadId},${e.id})" title="Удалить">✕</button>
+      <button class="comm-delete-btn" onclick="deleteCommEntry(${leadId},'${e.id}')" title="Удалить">✕</button>
     </div>`;
   }).join('');
 }
@@ -24034,19 +24034,19 @@ function renderTechCardStages(){
       <div class="tc-material-row">
         <input type="text" placeholder="Материал/полуфабрикат" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="tcUpdateMaterial(${stage.id},${m.id},'name',this.value)">
         <input type="number" min="0" step="0.1" placeholder="Кол-во" value="${m.qty}" oninput="tcUpdateMaterial(${stage.id},${m.id},'qty',this.value)">
-        <button class="remove-item-btn" onclick="removeTechCardMaterial(${stage.id},${m.id})" title="Удалить материал">✕</button>
+        <button class="remove-item-btn" onclick="removeTechCardMaterial('${stage.id}','${m.id}')" title="Удалить материал">✕</button>
       </div>`).join('');
     return `
     <div class="tc-stage-card">
       <div class="tc-stage-header">
         <div class="tc-stage-num">${idx+1}</div>
         <input type="text" style="flex:1;font-weight:500" placeholder="Название этапа" value="${(stage.name||'').replace(/"/g,'&quot;')}" oninput="tcUpdateStage(${stage.id},'name',this.value)">
-        <button class="remove-item-btn" onclick="removeTechCardStage(${stage.id})" title="Удалить этап">✕</button>
+        <button class="remove-item-btn" onclick="removeTechCardStage('${stage.id}')" title="Удалить этап">✕</button>
       </div>
       <div class="tc-materials">
         <label class="label" style="margin-bottom:6px;display:block">Материалы / полуфабрикаты</label>
         ${materialRows || '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Материалы не добавлены</div>'}
-        <button class="btn btn-ghost btn-sm tc-add-material-btn" onclick="addTechCardMaterial(${stage.id})">+ Материал</button>
+        <button class="btn btn-ghost btn-sm tc-add-material-btn" onclick="addTechCardMaterial('${stage.id}')">+ Материал</button>
       </div>
     </div>`;
   }).join('');
@@ -24113,19 +24113,19 @@ function renderTemplateStages(){
       <div class="tc-material-row">
         <input type="text" placeholder="Материал/полуфабрикат" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="tplUpdateMaterial(${stage.id},${m.id},'name',this.value)">
         <input type="number" min="0" step="0.1" placeholder="Кол-во" value="${m.qty}" oninput="tplUpdateMaterial(${stage.id},${m.id},'qty',this.value)">
-        <button class="remove-item-btn" onclick="removeTemplateMaterial(${stage.id},${m.id})" title="Удалить материал">✕</button>
+        <button class="remove-item-btn" onclick="removeTemplateMaterial('${stage.id}','${m.id}')" title="Удалить материал">✕</button>
       </div>`).join('');
     return `
     <div class="tc-stage-card">
       <div class="tc-stage-header">
         <div class="tc-stage-num">${idx+1}</div>
         <input type="text" style="flex:1;font-weight:500" placeholder="Название этапа" value="${(stage.name||'').replace(/"/g,'&quot;')}" oninput="tplUpdateStage(${stage.id},'name',this.value)">
-        <button class="remove-item-btn" onclick="removeTemplateStage(${stage.id})" title="Удалить этап">✕</button>
+        <button class="remove-item-btn" onclick="removeTemplateStage('${stage.id}')" title="Удалить этап">✕</button>
       </div>
       <div class="tc-materials">
         <label class="label" style="margin-bottom:6px;display:block">Материалы / полуфабрикаты по умолчанию</label>
         ${materialRows || '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Материалы не добавлены</div>'}
-        <button class="btn btn-ghost btn-sm tc-add-material-btn" onclick="addTemplateMaterial(${stage.id})">+ Материал</button>
+        <button class="btn btn-ghost btn-sm tc-add-material-btn" onclick="addTemplateMaterial('${stage.id}')">+ Материал</button>
       </div>
     </div>`;
   }).join('');
@@ -26055,7 +26055,7 @@ function renderSfMaterials(){
     <div class="tc-material-row">
       <input type="text" placeholder="Материал/полуфабрикат" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="sfUpdateMaterial(${m.id},'name',this.value)">
       <input type="number" min="0" step="0.1" placeholder="Кол-во факт." value="${m.qty}" oninput="sfUpdateMaterial(${m.id},'qty',this.value)">
-      <button class="remove-item-btn" onclick="removeSfMaterialRow(${m.id})" title="Удалить">✕</button>
+      <button class="remove-item-btn" onclick="removeSfMaterialRow('${m.id}')" title="Удалить">✕</button>
     </div>`).join('');
 }
 
@@ -27927,13 +27927,13 @@ function renderClients(){
     tr.dataset.id=c.id;
     tr.dataset.personId=p.id;
     tr.innerHTML=`
-      <td style="font-weight:500;color:var(--accent);cursor:pointer" onclick="goToPersonFromClient(${p.id})" title="Открыть в справочнике контрагентов">${p.name}</td>
+      <td style="font-weight:500;color:var(--accent);cursor:pointer" onclick="goToPersonFromClient('${p.id}')" title="Открыть в справочнике контрагентов">${p.name}</td>
       <td style="font-size:12px">${editableSelectCell(c.id,'seller',c.seller||'—',['—','Иванов И.И.','Петров С.А.','Сидоров М.В.','Козлов Д.О.'],'client')}</td>
       <td style="font-family:monospace;color:var(--text3);font-size:12px">${displayOrders}</td>
       <td style="font-family:monospace">${fmtCurrency(displayTurnover)}</td>
       <td style="font-family:monospace;color:${prepayColor}">${displayOrders?prepayPct+'%':'—'}</td>
       <td>${statusBadge}</td>
-      <td><button class="row-delete-btn" onclick="deleteClient(${c.id})" title="Отвязать клиента (лицо останется в справочнике)">✕</button></td>`;
+      <td><button class="row-delete-btn" onclick="deleteClient('${c.id}')" title="Отвязать клиента (лицо останется в справочнике)">✕</button></td>`;
     tbody.appendChild(tr);
   });
   setEl('client-count',clientsData.length);
@@ -27968,7 +27968,7 @@ renderDealers=function(){
       <td style="font-family:monospace">${fmtCurrency(displayTurnover)}</td>
       <td style="font-family:monospace;color:${prepayColor}">${displayOrders?prepayPct+'%':'—'}</td>
       <td>${statusBadge}</td>
-      <td><button class="row-delete-btn" onclick="deleteDealer(${d.id})">✕</button></td>`;
+      <td><button class="row-delete-btn" onclick="deleteDealer('${d.id}')">✕</button></td>`;
     tbody.appendChild(tr);
   });
   setEl('dealer-count',dealersData.length);
@@ -28005,7 +28005,7 @@ renderSalons=function(){
           <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${editableCell(cl.id,'phone',cl.phone,'text','salonClient')}</td>
           <td style="font-family:'IBM Plex Mono',monospace;color:var(--text3);font-size:12px">${cliOrders} зак.</td>
           <td style="font-family:'IBM Plex Mono',monospace">${fmtCurrency(cliTotal)}</td>
-          <td><button class="row-delete-btn" onclick="deleteSalonClient('${salonName}',${seller.id},${cl.id})">✕</button></td>
+          <td><button class="row-delete-btn" onclick="deleteSalonClient('${salonName}','${seller.id}','${cl.id}')">✕</button></td>
         </tr>`;}).join('');
       div.innerHTML=`
         <div class="salon-seller-header" onclick="toggleSeller('${selId}')">
@@ -28014,8 +28014,8 @@ renderSalons=function(){
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:12px;color:var(--text3)">${seller.clients.length} кл. · ${selOrders} зак. · ${fmtCurrency(selTotal)}</span>
-            <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();addSalonClient('${salonName}',${seller.id})">+ Клиент</button>
-            <button class="row-delete-btn" onclick="event.stopPropagation();deleteSeller('${salonName}',${seller.id})">✕</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();addSalonClient('${salonName}','${seller.id}')">+ Клиент</button>
+            <button class="row-delete-btn" onclick="event.stopPropagation();deleteSeller('${salonName}','${seller.id}')">✕</button>
           </div>
         </div>
         <div class="salon-seller-clients" id="${selId}" style="display:${wasOpen?'block':'none'}">
