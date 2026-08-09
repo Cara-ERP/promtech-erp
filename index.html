@@ -9838,10 +9838,22 @@ function showPage(id, el){
       renderHRStaff();
       const canManageUsers=['director','hr'].includes(window._currentUser);
       const canSeeCommissions=['director','accountant'].includes(window._currentUser)||getCurrentRole()?.isManager;
+      const isSalonMgr = getCurrentRole()?.isManager && !getCurrentRole()?.channel;
       const usersTab=document.getElementById('hr-tab-users-btn');
       const commTab=document.getElementById('hr-tab-salon-commissions');
       if(usersTab)  usersTab.style.display=canManageUsers?'':'none';
       if(commTab)   commTab.style.display=canSeeCommissions?'':'none';
+
+      // Начальник салонов видит только Сотрудников и Комиссии
+      if(isSalonMgr){
+        ['orgchart','wage','payroll','timesheet','tariffs','users'].forEach(tab=>{
+          const el = document.querySelector(`#page-hr .tab[onclick*="'${tab}'"]`);
+          if(el) el.style.display='none';
+        });
+        // Переключаем на вкладку Сотрудники
+        const empTab = document.querySelector("#page-hr .tab[onclick*=\"'employees'\"]");
+        if(empTab){ empTab.click(); }
+      }
     });
   }
   if(id==='suppliers'){
