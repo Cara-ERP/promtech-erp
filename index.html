@@ -13527,7 +13527,7 @@ function renderOrgChart(){
             <td style="font-size:12px">
               ${occ.length?occ.map(e=>`<span style="display:inline-block;background:${e.color||'var(--bg3)'};
                 border-radius:20px;padding:2px 8px;margin:1px;font-size:11px;cursor:pointer"
-                onclick="openEmployeeCard(${e.id})">${e.name.split(' ').slice(0,2).join(' ')}</span>`).join('')
+                onclick="openEmployeeCard('${e.id}')">${e.name.split(' ').slice(0,2).join(' ')}</span>`).join('')
                 :'<span style="color:var(--text3);font-size:11px">— вакансия —</span>'}
             </td>
             <td>
@@ -14018,7 +14018,7 @@ function renderHRStaff(){
                 border-radius:4px;font-size:12px;color:var(--accent)">${staffEntry.pin}</span>`
             :'<span style="color:var(--text3);font-size:11px">—</span>')
         :'';
-      return `<tr onclick="openEmployeeCard(${emp.id})" style="cursor:pointer">
+      return `<tr onclick="openEmployeeCard('${emp.id}')" style="cursor:pointer">
         <td><div style="font-weight:600">${emp.name}</div></td>
         <td style="font-size:12px">${emp.pos}</td>
         <td style="font-size:12px;color:var(--text2)">${ws?ws.icon+' '+ws.name:'АУП'}</td>
@@ -14029,7 +14029,7 @@ function renderHRStaff(){
         <td style="font-size:12px;color:var(--text3)">${emp.phone||'—'}</td>
         <td style="font-size:11px;color:var(--text3)">${emp.hired||'—'}</td>
         <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-          onclick="event.stopPropagation();openEmployeeCard(${emp.id})">✏️</button></td>
+          onclick="event.stopPropagation();openEmployeeCard('${emp.id}')">✏️</button></td>
       </tr>`;
     }).join('');
   }
@@ -14048,7 +14048,7 @@ function renderHRStaff(){
     const days=Object.keys(timesheetData).filter(k=>k.startsWith(emp.id+'_'+ym)&&timesheetData[k]==='Я').length;
 
     return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer"
-      onclick="openEmployeeCard(${emp.id})">
+      onclick="openEmployeeCard('${emp.id}')">
       <div style="padding:12px 14px;display:flex;gap:12px;align-items:center;
         border-bottom:1px solid var(--border);background:${emp.color||'var(--bg3)'}">
         <div style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
