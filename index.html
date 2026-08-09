@@ -21915,10 +21915,10 @@ function renderSalesJournal(){
     const order = ordersData.find(o=>o.num===r.order_num);
     // Для салонов — показываем только свои заказы
     if(chFilter){
-      if(!order) return; // если заказ не найден — не показываем
-      if(order.channel!==chFilter) return;
+      if(!order) return;
+      if(!channelMatches(order.channel, chFilter)) return;
     }
-    if(channel  && order && order.channel!==channel)  return;
+    if(channel && order && !channelMatches(order.channel, channel)) return;
 
     // Фильтр оплаты
     const payPct = order?.payment||0;
