@@ -21732,15 +21732,15 @@ function renderOrders(){
     tr.style.cursor='pointer';
     tr.title='Открыть заказ для редактирования';
     tr.addEventListener('click',()=>openEditOrderModal(order.num));
-    allBody.appendChild(tr);
+    if(allBody) allBody.appendChild(tr);
 
     // route to status-specific table too
     const trClone=tr.cloneNode(true);
     trClone.style.cursor='pointer';
     trClone.addEventListener('click',()=>openEditOrderModal(order.num));
-    if(order.status==='queue') queueBody.appendChild(trClone);
-    else if(order.status==='progress') progressBody.appendChild(trClone);
-    else if(order.status==='done') doneBody.appendChild(trClone);
+    if(order.status==='queue' && queueBody) queueBody.appendChild(trClone);
+    else if(order.status==='progress' && progressBody) progressBody.appendChild(trClone);
+    else if(order.status==='done' && doneBody) doneBody.appendChild(trClone);
 
     // items table
     order.items.forEach((it,itIdx)=>{
