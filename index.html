@@ -5952,64 +5952,74 @@ window.onerror = function(msg, src, line, col){
           <div class="section-title" id="salon-money-title">Касса салона</div>
           <div class="section-sub">Движение денег · только своя касса</div>
         </div>
-        <button class="btn btn-primary btn-sm" id="salon-cash-in-btn"
-          onclick="openMoneyTxModal('cash','income')">📥 Приход</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-ghost btn-sm" onclick="reloadSalonMoney()">🔄</button>
+          <button class="btn btn-primary btn-sm" id="salon-cash-in-btn"
+            onclick="openMoneyTxModal('cash','income')">📥 Приход</button>
+        </div>
       </div>
-      <!-- Итоги кассы -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+
+      <!-- Фильтры -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <select id="sm-period" onchange="renderSalonMoney()" style="font-size:13px">
+          <option value="all">Всё время</option>
+          <option value="month">Текущий месяц</option>
+          <option value="quarter">Квартал</option>
+          <option value="year">Текущий год</option>
+          <option value="custom">Период...</option>
+        </select>
+        <div id="sm-custom-dates" style="display:none;gap:6px;align-items:center">
+          <input type="date" id="sm-date-from" onchange="renderSalonMoney()" style="font-size:13px">
+          <span style="color:var(--text3)">—</span>
+          <input type="date" id="sm-date-to" onchange="renderSalonMoney()" style="font-size:13px">
+        </div>
+        <select id="sm-flow" onchange="renderSalonMoney()" style="font-size:13px">
+          <option value="">Все операции</option>
+          <option value="income">📥 Приход</option>
+          <option value="expense">📤 Расход</option>
+        </select>
+        <input type="search" id="sm-search" placeholder="🔍 Поиск..."
+          oninput="renderSalonMoney()" style="font-size:13px;width:180px">
+        <span id="sm-count" style="font-size:12px;color:var(--text3)"></span>
+      </div>
+
+      <!-- KPI -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
         <div class="card" style="padding:14px 16px">
           <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Остаток в кассе</div>
           <div style="font-size:22px;font-weight:700;color:var(--green)" id="salon-cash-balance">₸0</div>
         </div>
         <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Передано в офис</div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent)" id="salon-sent-to-office">₸0</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Поступления за период</div>
+          <div style="font-size:20px;font-weight:700;color:var(--green)" id="salon-income">₸0</div>
         </div>
         <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Поступления за период</div>
-          <div style="font-size:22px;font-weight:700" id="salon-income">₸0</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Расходы за период</div>
+          <div style="font-size:20px;font-weight:700;color:var(--red)" id="salon-expense">₸0</div>
+        </div>
+        <div class="card" style="padding:14px 16px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Передано в офис</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent)" id="salon-sent-to-office">₸0</div>
         </div>
       </div>
-      <!-- Выписка кассы -->
+
+      <!-- Таблица -->
       <div class="card" style="padding:0;margin-bottom:16px">
-        <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border)">
-          💵 Касса салона — выписка
-        </div>
         <table class="data-table">
           <thead><tr>
-            <th>Дата</th><th>Тип</th><th>Категория</th>
-            <th>Описание</th>
-            <th style="text-align:right;color:var(--green)">Приход</th>
-            <th style="text-align:right;color:var(--red)">Расход</th>
+            <th onclick="smSort('date')" style="cursor:pointer">Дата <span id="sm-sort-date">▼</span></th>
+            <th>Тип</th>
+            <th>Категория</th>
+            <th onclick="smSort('desc')" style="cursor:pointer">Описание <span id="sm-sort-desc"></span></th>
+            <th style="text-align:right;color:var(--green)" onclick="smSort('income')" style="cursor:pointer">Приход <span id="sm-sort-income"></span></th>
+            <th style="text-align:right;color:var(--red)" onclick="smSort('expense')" style="cursor:pointer">Расход <span id="sm-sort-expense"></span></th>
             <th style="text-align:right">Остаток</th>
+            <th></th>
           </tr></thead>
           <tbody id="salon-cash-tbody"></tbody>
         </table>
       </div>
-      <!-- РС (только чтение) -->
-      <div class="card" style="padding:0">
-        <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-          <span>🏦 Расчётный счёт — поступления по моим заказам (только просмотр)</span>
-        </div>
-        <table class="data-table">
-          <thead><tr>
-            <th>Дата</th><th>Заказ</th><th>Описание</th>
-            <th style="text-align:right;color:var(--green)">Сумма</th>
-          </tr></thead>
-          <tbody id="salon-rs-tbody"></tbody>
-        </table>
-      </div>
-
-      <!-- Комиссии сотрудников -->
-      <div class="card" style="padding:0;margin-top:16px">
-        <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border)">
-          💰 Комиссии сотрудников — расчёт по заказам
-        </div>
-        <div id="salon-commissions-body" style="padding:16px"></div>
-      </div>
     </div>
-
-    <!-- ===== СВЕРКА С ОФИСОМ (для дилеров и салонов) ===== -->
     <div class="page" id="page-reconcile">
       <div class="section-header">
         <div>
@@ -8962,189 +8972,151 @@ function channelMatches(orderChannel, chFilter){
   return orderChannel===chFilter;
 }
 
-function renderSalonMoney(){
+let _smSortCol = 'date';
+let _smSortAsc = false;
+let _smTxCache = {}; // accountId → transactions
+
+function smSort(col){
+  if(_smSortCol===col){ _smSortAsc=!_smSortAsc; }
+  else { _smSortCol=col; _smSortAsc=col==='date'?false:true; }
+  ['date','desc','income','expense'].forEach(c=>{
+    const el=document.getElementById('sm-sort-'+c);
+    if(el) el.textContent=c===_smSortCol?(_smSortAsc?'▲':'▼'):'';
+  });
+  renderSalonMoney();
+}
+
+async function reloadSalonMoney(){
+  const role=getCurrentRole(); if(!role) return;
+  const ch=role.channel;
+  const accs = ch ? [role.cashAccountId].filter(Boolean)
+    : ['c854b1e4-c0f7-436b-a274-5e8a59c4ef78','701d7d6d-3dda-4403-ac3c-e4a3987836ea'];
+  for(const acc of accs) delete _smTxCache[acc];
+  await renderSalonMoney();
+}
+
+async function renderSalonMoney(){
   const role=getCurrentRole(); if(!role) return;
   const ch=role.channel;
   const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const titleEl=document.getElementById('salon-money-title');
+  if(titleEl) titleEl.textContent=ch?'Касса — '+(ch==='salon_armada'?'Армада':'Назарбаева'):'Касса — Армада + Назарбаева';
 
-  // Начальник видит оба салона
-  const cashAccIds = ch ? [role.cashAccountId] : [
-    'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', // Армада
-    '701d7d6d-3dda-4403-ac3c-e4a3987836ea',  // Назарбаева
-  ];
-  const cashAccId = cashAccIds[0]; // основной для заголовка
+  // Счета кассы
+  const accs = ch ? [role.cashAccountId].filter(Boolean)
+    : ['c854b1e4-c0f7-436b-a274-5e8a59c4ef78','701d7d6d-3dda-4403-ac3c-e4a3987836ea'];
 
-  if(titleEl) titleEl.textContent = ch ? 'Касса — '+role.name : 'Касса — Армада + Назарбаева';
-  if(!cashAccId) return;
-
-  const localTx = moneyTx.filter(t=>t.accountId===cashAccId);
   const tbody=document.getElementById('salon-cash-tbody');
 
-  if(localTx.length===0){
-    if(tbody) tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">⏳ Загрузка...</td></tr>';
-    sbFetch('money_tx',
-      `select=*&account_id=eq.${cashAccId}&order=date.desc&limit=500`
-    ).then(data=>{
-      if(data && data.length>0){
-        data.forEach(t=>{
-          if(!moneyTx.find(m=>m.sbId===t.id)){
-            moneyTx.push({
-              id: Date.now()+Math.random(),
-              sbId: t.id,
-              date: t.date,
-              amount: t.amount,
-              flow: t.flow,
-              category: t.category,
-              desc: t.description||t.counterparty||'',
-              counterparty: t.counterparty||'',
-              accountId: t.account_id,
-              orderNum: t.order_num||'',
-            });
-          }
-        });
+  // Загружаем из Supabase если нет в кеше
+  for(const acc of accs){
+    if(!_smTxCache[acc]){
+      if(tbody && !_smTxCache._loading){
+        _smTxCache._loading=true;
+        tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">⏳ Загрузка...</td></tr>';
       }
-      renderSalonMoney();
-    }).catch(e=>{
-      console.warn('Ошибка кассы:', e.message);
-      if(tbody) tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--red)">Ошибка загрузки</td></tr>';
-    });
-    return;
-  }
-
-  const stats=calcAccountStats(cashAccId);
-  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-  set('salon-cash-balance',fmt(stats.balance));
-  set('salon-income',fmt(stats.income));
-  const sentToOffice=moneyTx
-    .filter(t=>t.accountId===cashAccId&&t.flow==='expense'&&
-      ((t.desc||'').toLowerCase().includes('офис')||t.category==='transfer'))
-    .reduce((s,t)=>s+t.amount,0);
-  set('salon-sent-to-office',fmt(sentToOffice));
-
-  if(tbody){
-    const txs=moneyTx.filter(t=>t.accountId===cashAccId).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    let running=stats.balance;
-    tbody.innerHTML=txs.map(t=>{
-      const bal=running; running+=t.flow==='income'?-t.amount:t.amount;
-      return '<tr>'+
-        '<td style="font-size:12px">'+t.date+'</td>'+
-        '<td><span class="badge '+(t.flow==='income'?'badge-green':'badge-red')+'">'+(t.flow==='income'?'📥':'📤')+'</span></td>'+
-        '<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'+
-        '<td style="font-size:12px">'+(t.desc||t.counterparty||'—')+'</td>'+
-        '<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmt(t.amount):'—')+'</td>'+
-        '<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmt(t.amount):'—')+'</td>'+
-        '<td style="text-align:right;font-family:monospace;font-weight:600">'+fmt(bal)+'</td>'+
-        '</tr>';
-    }).join('')||'<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text3)">Операций нет</td></tr>';
-  }
-
-  // Комиссии сотрудников — только для директора, бухгалтера и начальника салона
-  const commissionsEl = document.getElementById('salon-commissions-body');
-  const canSeeCommissions = ['director','accountant'].includes(window._currentUser) ||
-    (window._currentUser?.startsWith('salon_') && role.isManager);
-  if(commissionsEl){
-    if(!canSeeCommissions){
-      commissionsEl.closest('.card').style.display='none';
-    } else {
-      commissionsEl.closest('.card').style.display='';
-    const salonName = cashAccId===2?'Армада':'Назарбаева';
-    const salon     = salonsData[salonName];
-    const myOrders  = ordersData.filter(o=>o.channel===ch && o.commissions);
-
-    if(!myOrders.length){
-      commissionsEl.innerHTML='<div style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Нет заказов с комиссиями</div>';
-    } else {
-      // Итоги по сотрудникам
-      const totals={};
-      myOrders.forEach(o=>{
-        const c=o.commissions;
-        if(!c) return;
-        [c.seller, c.manager, c.designer].filter(Boolean).forEach(p=>{
-          if(!totals[p.name]) totals[p.name]={name:p.name, pct:p.pct, amount:0, orders:0};
-          totals[p.name].amount+=p.amount;
-          totals[p.name].orders++;
-        });
-      });
-
-      // Оклады
-      const salaries=[
-        ...(salon?.sellers||[]).map(s=>({name:s.name, salary:s.salary, role:'Менеджер продаж'})),
-        salon?.manager?{name:salon.manager.name, salary:salon.manager.salary, role:'Начальник салона'}:null,
-      ].filter(Boolean);
-
-      commissionsEl.innerHTML=`
-        <table class="data-table" style="margin-bottom:16px">
-          <thead><tr>
-            <th>Сотрудник</th><th>Роль</th>
-            <th style="text-align:right">Оклад</th>
-            <th style="text-align:right">% комиссии</th>
-            <th style="text-align:right;color:var(--green)">Комиссия</th>
-            <th style="text-align:right;color:var(--accent)">Итого к выплате</th>
-          </tr></thead>
-          <tbody>
-            ${salaries.map(s=>{
-              const comm=totals[s.name];
-              const commAmt=comm?comm.amount:0;
-              const pct=comm?comm.pct:
-                salon?.sellers?.find(x=>x.name===s.name)?.commissionPct||
-                salon?.manager?.commissionPct||0;
-              return `<tr>
-                <td style="font-weight:600">${s.name}</td>
-                <td style="font-size:12px;color:var(--text3)">${s.role}</td>
-                <td style="text-align:right;font-family:monospace">${fmt(s.salary)}</td>
-                <td style="text-align:right;color:var(--text3)">${pct}%</td>
-                <td style="text-align:right;font-family:monospace;color:var(--green)">${commAmt>0?fmt(commAmt):'—'}</td>
-                <td style="text-align:right;font-family:monospace;font-weight:700;color:var(--accent)">${fmt(s.salary+commAmt)}</td>
-              </tr>`;
-            }).join('')}
-            ${Object.values(totals).filter(t=>!salaries.find(s=>s.name===t.name)).map(t=>`<tr>
-              <td style="font-weight:600">${t.name}</td>
-              <td style="font-size:12px;color:var(--text3)">Дизайнер</td>
-              <td style="text-align:right;font-family:monospace">—</td>
-              <td style="text-align:right;color:var(--text3)">${t.pct}%</td>
-              <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(t.amount)}</td>
-              <td style="text-align:right;font-family:monospace;font-weight:700;color:var(--accent)">${fmt(t.amount)}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-
-        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text3)">По заказам:</div>
-        <table class="data-table">
-          <thead><tr>
-            <th>Заказ</th><th>Клиент</th><th style="text-align:right">Сумма</th>
-            <th>Менеджер</th><th style="text-align:right">Ком. мен.</th>
-            <th>Нач. салона</th><th style="text-align:right">Ком. нач.</th>
-            <th>Дизайнер</th><th style="text-align:right">Ком. диз.</th>
-          </tr></thead>
-          <tbody>
-            ${myOrders.map(o=>{
-              const c=o.commissions;
-              return `<tr>
-                <td style="font-family:monospace;color:var(--accent)">${o.num}</td>
-                <td>${o.customer}</td>
-                <td style="text-align:right;font-family:monospace">${fmt(c.total)}</td>
-                <td style="font-size:12px">${c.seller.name}</td>
-                <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(c.seller.amount)}</td>
-                <td style="font-size:12px">${c.manager.name}</td>
-                <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(c.manager.amount)}</td>
-                <td style="font-size:12px;color:var(--text3)">${c.designer?c.designer.name:'—'}</td>
-                <td style="text-align:right;font-family:monospace;color:var(--green)">${c.designer?fmt(c.designer.amount):'—'}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>`;
+      try {
+        const data = await sbFetch('money_tx',`select=*&account_id=eq.${acc}&order=date.desc&limit=1000`);
+        _smTxCache[acc] = (data||[]).map(t=>({
+          id: t.id, date: t.date, amount: t.amount,
+          flow: t.flow, category: t.category,
+          desc: t.description||t.counterparty||'',
+          accountId: t.account_id, orderNum: t.order_num||'',
+        }));
+      } catch(e){
+        _smTxCache[acc] = [];
+        console.warn('⚠️ Касса:', e.message);
+      }
+      delete _smTxCache._loading;
     }
-  } // end canSeeCommissions else
-  } // end commissionsEl if
-  const rsTbody=document.getElementById('salon-rs-tbody');
-  if(rsTbody&&role.canViewRS){
-    const bankIds=bankAccounts.filter(a=>a.type==='bank').map(a=>a.id);
-    const myNums=new Set(ordersData.filter(o=>o.channel===ch).map(o=>o.num));
-    const rsTxs=moneyTx.filter(t=>bankIds.includes(t.accountId)&&t.flow==='income'&&t.orderNum&&myNums.has(t.orderNum)).sort((a,b)=>b.date.localeCompare(a.date));
-    rsTbody.innerHTML=rsTxs.map(t=>'<tr><td style="font-size:12px">'+t.date+'</td><td style="font-size:12px;color:var(--accent)">'+t.orderNum+'</td><td style="font-size:12px">'+t.desc+'</td><td style="text-align:right;font-family:monospace;font-weight:600;color:var(--green)">'+fmt(t.amount)+'</td></tr>').join('')||'<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--text3)">Поступлений нет</td></tr>';
+  }
+
+  // Объединяем все транзакции
+  let allTx = accs.flatMap(acc=>_smTxCache[acc]||[]);
+
+  // Фильтры
+  const period = document.getElementById('sm-period')?.value||'all';
+  const flowF  = document.getElementById('sm-flow')?.value||'';
+  const search = (document.getElementById('sm-search')?.value||'').toLowerCase();
+  let dateFrom='', dateTo='';
+
+  const now = new Date();
+  if(period==='month'){
+    dateFrom=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    dateTo=now.toISOString().slice(0,10);
+  } else if(period==='quarter'){
+    const q=Math.floor(now.getMonth()/3);
+    dateFrom=`${now.getFullYear()}-${String(q*3+1).padStart(2,'0')}-01`;
+    dateTo=now.toISOString().slice(0,10);
+  } else if(period==='year'){
+    dateFrom=`${now.getFullYear()}-01-01`;
+    dateTo=`${now.getFullYear()}-12-31`;
+  } else if(period==='custom'){
+    dateFrom=document.getElementById('sm-date-from')?.value||'';
+    dateTo=document.getElementById('sm-date-to')?.value||'';
+    document.getElementById('sm-custom-dates').style.display='flex';
+  }
+  if(period!=='custom') { const cd=document.getElementById('sm-custom-dates'); if(cd) cd.style.display='none'; }
+
+  let filtered = allTx.filter(t=>{
+    if(dateFrom && t.date < dateFrom) return false;
+    if(dateTo   && t.date > dateTo)   return false;
+    if(flowF && t.flow !== flowF) return false;
+    if(search && !(t.desc||'').toLowerCase().includes(search) && !(t.orderNum||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  // Сортировка
+  filtered.sort((a,b)=>{
+    let va,vb;
+    if(_smSortCol==='date'){ va=a.date; vb=b.date; }
+    else if(_smSortCol==='income'){ va=a.flow==='income'?a.amount:0; vb=b.flow==='income'?b.amount:0; }
+    else if(_smSortCol==='expense'){ va=a.flow==='expense'?a.amount:0; vb=b.flow==='expense'?b.amount:0; }
+    else { va=a.desc||''; vb=b.desc||''; }
+    if(typeof va==='number') return _smSortAsc?va-vb:vb-va;
+    return _smSortAsc?va.localeCompare(vb):vb.localeCompare(va);
+  });
+
+  // KPI из всех транзакций (не фильтрованных)
+  const totalBalance = allTx.filter(t=>t.flow==='income').reduce((s,t)=>s+t.amount,0)
+                     - allTx.filter(t=>t.flow==='expense').reduce((s,t)=>s+t.amount,0);
+  const periodIncome  = filtered.filter(t=>t.flow==='income').reduce((s,t)=>s+t.amount,0);
+  const periodExpense = filtered.filter(t=>t.flow==='expense').reduce((s,t)=>s+t.amount,0);
+  const sentToOffice  = allTx.filter(t=>t.flow==='expense'&&
+    ((t.desc||'').toLowerCase().includes('офис')||t.category==='transfer')).reduce((s,t)=>s+t.amount,0);
+
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('salon-cash-balance', fmt(totalBalance));
+  set('salon-income',       fmt(periodIncome));
+  set('salon-expense',      fmt(periodExpense));
+  set('salon-sent-to-office', fmt(sentToOffice));
+  const countEl=document.getElementById('sm-count');
+  if(countEl) countEl.textContent=`${filtered.length} операций`;
+
+  // Таблица
+  if(tbody){
+    // Считаем бегущий остаток от начала (все tx отсортированы по дате)
+    const allByDate=[...allTx].sort((a,b)=>a.date.localeCompare(b.date));
+    const balanceMap={};
+    let running=0;
+    allByDate.forEach(t=>{ running+=t.flow==='income'?t.amount:-t.amount; balanceMap[t.id]=running; });
+
+    tbody.innerHTML = filtered.map(t=>{
+      const bal = balanceMap[t.id]??0;
+      return `<tr>
+        <td style="font-size:12px;font-family:monospace">${t.date}</td>
+        <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
+        <td style="font-size:11px">${txCatLabel(t.category)}</td>
+        <td style="font-size:12px">${t.desc||'—'}${t.orderNum?`<br><span style="font-size:10px;color:var(--accent)">${t.orderNum}</span>`:''}</td>
+        <td style="text-align:right;font-family:monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
+        <td style="text-align:right;font-family:monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
+        <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(bal)}</td>
+        <td></td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Нет операций</td></tr>';
   }
 }
+
 
 let _reconcilePeriod = 'all';
 
