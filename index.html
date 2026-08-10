@@ -9153,7 +9153,8 @@ function renderReconcile(){
   const paidByClients=!isDealer
     ?moneyTx.filter(t=>t.flow==='income'&&t.category==='order_payment'
         &&t.orderNum&&myNums.has(t.orderNum)).reduce((s,t)=>s+t.amount,0)
-    :0;
+    :moneyTx.filter(t=>t.flow==='income'&&t.orderNum&&myNums.has(t.orderNum))
+        .reduce((s,t)=>s+t.amount,0);
 
   // ── KPI ──────────────────────────────────────────────────────
   const grid=document.getElementById('reconcile-balance-grid');
@@ -10045,7 +10046,9 @@ function showPage(id, el){
 
   if(id==='money_salon'){ renderSalonMoney(); }
   if(id==='reconcile'){
-    loadOrdersFromDB().then(()=>renderReconcile());
+    const loads=[loadOrdersFromDB()];
+    if(!_cacheLoaded.money) loads.push(loadMoneyFromDB());
+    Promise.all(loads).then(()=>renderReconcile());
   }
   if(id==='crm'){
     // Пробуем загрузить из Supabase, иначе используем локальные данные
