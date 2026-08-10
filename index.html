@@ -1611,7 +1611,9 @@ function doLogin(){
   window._currentUser=u;
   // Скрываем кнопку производственного заказа для дилеров и салонов
   const prodBtn=document.getElementById('topbar-prod-order-btn');
-  if(prodBtn) prodBtn.style.display=role.channel?'none':'';
+  if(prodBtn) prodBtn.style.display=(role.channel||role.isManager)?'none':'';
+  const prodBtn2=document.getElementById('btn-new-mrp-order');
+  if(prodBtn2) prodBtn2.style.display=(role.channel||role.isManager)?'none':'';
 
   const isDealer = !!(role.channel?.startsWith('dealer_'));
   const isSalon  = !!(role.channel?.startsWith('salon_'));
