@@ -6725,6 +6725,7 @@ window.onerror = function(msg, src, line, col){
       </div>
       <div class="tabs" style="margin-bottom:16px">
         <div class="tab active" onclick="showSalonReportTab('current',this)">📋 Текущий период</div>
+        <div class="tab" onclick="showSalonReportTab('paysheet',this)">📄 Платёжная ведомость</div>
         <div class="tab" onclick="showSalonReportTab('history',this)">📅 История ЗП</div>
       </div>
 
@@ -6795,7 +6796,26 @@ window.onerror = function(msg, src, line, col){
       </div>
       </div><!-- end sr-tab-current -->
 
-      <!-- Вкладка: История ЗП 2025 -->
+      <!-- Вкладка: Платёжная ведомость -->
+      <div id="sr-tab-paysheet" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
+          <select id="sr-ps-month" onchange="window.renderPaysheet&&renderPaysheet()" style="font-size:13px">
+            <option value="1">Январь</option><option value="2">Февраль</option>
+            <option value="3">Март</option><option value="4">Апрель</option>
+            <option value="5">Май</option><option value="6">Июнь</option>
+            <option value="7">Июль</option><option value="8">Август</option>
+            <option value="9">Сентябрь</option><option value="10">Октябрь</option>
+            <option value="11">Ноябрь</option><option value="12">Декабрь</option>
+          </select>
+          <select id="sr-ps-year" onchange="window.renderPaysheet&&renderPaysheet()" style="font-size:13px">
+            <option value="2026">2026</option>
+            <option value="2025">2025</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="window.printPaysheet&&printPaysheet()">Печать</button>
+        </div>
+        <div id="sr-paysheet-body"></div>
+      </div>
+
       <div id="sr-tab-history" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
           <select id="sr-hist-year" onchange="renderSalonPayrollHistory()" style="font-size:13px">
@@ -7241,84 +7261,13 @@ function txCatLabel(catId){
 
 // ── Транзакции ────────────────────────────────────────────────────────────────
 let txSeq = 1;
-let moneyTx = [
-  // Основная касса (id:1)
-  {id:txSeq++, date:'2026-07-01', accountId:1, flow:'income',  category:'order_payment', amount:500000, desc:'Оплата МО-2244 предоплата', counterparty:'Ержанов А.', orderNum:'МО-2244'},
-  {id:txSeq++, date:'2026-07-05', accountId:1, flow:'expense', category:'salary',        amount:380000, desc:'Пополнение кассы ЗП',        counterparty:''},
-  {id:txSeq++, date:'2026-07-10', accountId:1, flow:'expense', category:'supplier',      amount:95000,  desc:'Закупка поролона ИП Ахметов', counterparty:'ИП Ахметов'},
-  {id:txSeq++, date:'2026-07-12', accountId:1, flow:'expense', category:'advance_out',   amount:50000,  desc:'Аванс командировка',          counterparty:'Иванов И.И.'},
-  // Касса Армада (id:2)
-  {id:txSeq++, date:'2026-07-02', accountId:2, flow:'income',  category:'order_payment', amount:180000, desc:'Продажа стул 6шт наличными',  counterparty:'Физ. лицо', orderNum:'МО-2238'},
-  {id:txSeq++, date:'2026-07-05', accountId:2, flow:'income',  category:'order_payment', amount:95000,  desc:'Продажа тумба 5шт',           counterparty:'Физ. лицо', orderNum:'МО-2235'},
-  {id:txSeq++, date:'2026-07-09', accountId:2, flow:'expense', category:'other_out',     amount:25000,  desc:'Инкассация в основную кассу',  counterparty:''},
-  {id:txSeq++, date:'2026-07-14', accountId:2, flow:'income',  category:'order_payment', amount:220000, desc:'Продажа диван',                counterparty:'Касымов Б.', orderNum:'МО-2242'},
-  // Касса Назарбаева (id:3)
-  {id:txSeq++, date:'2026-07-03', accountId:3, flow:'income',  category:'order_payment', amount:145000, desc:'Продажа стол 3шт',            counterparty:'Физ. лицо', orderNum:'МО-2243'},
-  {id:txSeq++, date:'2026-07-07', accountId:3, flow:'income',  category:'order_payment', amount:88000,  desc:'Задаток кровать',             counterparty:'Нурланов К.', orderNum:'МО-2241'},
-  {id:txSeq++, date:'2026-07-11', accountId:3, flow:'expense', category:'other_out',     amount:20000,  desc:'Инкассация в основную кассу',  counterparty:''},
-  // Касса ЗП (id:4)
-  {id:txSeq++, date:'2026-07-05', accountId:4, flow:'income',  category:'other_in',      amount:2100000,desc:'Пополнение для выплаты ЗП июль', counterparty:''},
-  {id:txSeq++, date:'2026-07-15', accountId:4, flow:'expense', category:'salary',        amount:660000, desc:'Аванс июль производство (8 чел)', counterparty:''},
-  // Народный Банк (id:5)
-  {id:txSeq++, date:'2026-07-01', accountId:5, flow:'income',  category:'order_payment', amount:1500000,desc:'Предоплата МО-2243 безнал',   counterparty:'ТОО «Алма Дизайн»', orderNum:'МО-2243'},
-  {id:txSeq++, date:'2026-07-03', accountId:5, flow:'expense', category:'supplier',      amount:328000, desc:'ЛДСП ТОО ПлитаОпт сч.441',   counterparty:'ТОО «ПлитаОпт»'},
-  {id:txSeq++, date:'2026-07-05', accountId:5, flow:'expense', category:'salary',        amount:693000, desc:'Зарплата АУП июнь',           counterparty:''},
-  {id:txSeq++, date:'2026-07-08', accountId:5, flow:'expense', category:'tax',           amount:180000, desc:'КПН за 2 кв. 2026',           counterparty:'КГД МФ РК'},
-  {id:txSeq++, date:'2026-07-10', accountId:5, flow:'expense', category:'rent',          amount:250000, desc:'Аренда цеха июль',            counterparty:'ТОО «Промбаза»'},
-  {id:txSeq++, date:'2026-07-12', accountId:5, flow:'income',  category:'order_payment', amount:800000, desc:'Оплата МО-2241',              counterparty:'Ахметов Н.', orderNum:'МО-2241'},
-  // Kaspi (id:6)
-  {id:txSeq++, date:'2026-07-02', accountId:6, flow:'income',  category:'order_payment', amount:180000, desc:'Оплата Kaspi QR',             counterparty:'Жданов К.', orderNum:'МО-2238'},
-  {id:txSeq++, date:'2026-07-06', accountId:6, flow:'expense', category:'supplier',      amount:64000,  desc:'Ткань ТД ТканьТекс',         counterparty:'ТД «ТканьТекс»'},
-  {id:txSeq++, date:'2026-07-09', accountId:6, flow:'expense', category:'transport',     amount:25000,  desc:'Доставка МО-2238',            counterparty:'Delivery KZ'},
-];
+let moneyTx = [];
 
 // ── Авансовые отчёты ─────────────────────────────────────────────────────────
 let advSeq = 1;
-let advanceReports = [
-  {id:advSeq++, empName:'Иванов Иван Иванович', date:'2026-07-12', accountId:1,
-   purpose:'Командировка Алматы–Нур-Султан', issued:50000,
-   returned:2500, status:'reported',
-   lines:[
-     {id:1, type:'expense', cat:'transport', desc:'ГСМ туда-обратно',    amount:15000, supplier:'', materialId:null},
-     {id:2, type:'expense', cat:'other_out', desc:'Гостиница 2 ночи',    amount:22000, supplier:'', materialId:null},
-     {id:3, type:'expense', cat:'other_out', desc:'Питание суточные',    amount:10500, supplier:'', materialId:null},
-   ]},
-  {id:advSeq++, empName:'Нурланов Асет Маратович', date:'2026-07-08', accountId:1,
-   purpose:'Закупка расходных материалов', issued:30000,
-   returned:1300, status:'closed',
-   lines:[
-     {id:1, type:'expense', cat:'supplier',  desc:'Наждачная бумага',   amount:12000, supplier:'ТД Инструмент', materialId:null},
-     {id:2, type:'expense', cat:'other_out', desc:'Клей ПВА 5кг',       amount:8500,  supplier:'',              materialId:null},
-     {id:3, type:'material', cat:'material', desc:'Скотч малярный 10шт',amount:8200,  supplier:'',              materialId:4},
-   ]},
-  {id:advSeq++, empName:'Алиев Бауржан Серикович', date:'2026-07-14', accountId:1,
-   purpose:'Покупка краски RAL 9003', issued:45000,
-   returned:0, status:'open',
-   lines:[]},
-];
+let advanceReports = [];
 let advLineSeq = 10;
 
-// Транзакции возврата авансов (для существующих записей)
-// Выполняется после инициализации moneyTx
-(function seedAdvanceReturnTx(){
-  const returns = [
-    {advId:1, empName:'Иванов Иван Иванович',    date:'2026-07-16', amount:2500,  accountId:1},
-    {advId:2, empName:'Нурланов Асет Маратович', date:'2026-07-12', amount:1300,  accountId:1},
-  ];
-  returns.forEach(r=>{
-    moneyTx.push({
-      id: txSeq++,
-      date: r.date,
-      accountId: r.accountId,
-      flow: 'income',
-      category: 'advance_return',
-      amount: r.amount,
-      desc: `Возврат аванса АО-${String(r.advId).padStart(3,'0')} · ${advanceReports.find(a=>a.id===r.advId)?.purpose||''}`,
-      counterparty: r.empName,
-      orderNum: '',
-    });
-  });
-})();
 
 // Категории строк авансового отчёта
 const ADV_LINE_TYPES = [
@@ -9662,10 +9611,83 @@ function exportChannelExcel(){
 function showSalonReportTab(tab, el){
   document.querySelectorAll('#page-salon_report .tabs .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  document.getElementById('sr-tab-current').style.display = tab==='current'?'':'none';
-  document.getElementById('sr-tab-history').style.display = tab==='history'?'':'none';
-  if(tab==='history') renderSalonPayrollHistory();
+  document.getElementById('sr-tab-current').style.display   = tab==='current'  ?'':'none';
+  const ps = document.getElementById('sr-tab-paysheet');
+  if(ps) ps.style.display = tab==='paysheet' ? '' : 'none';
+  document.getElementById('sr-tab-history').style.display   = tab==='history'  ?'':'none';
+  if(tab==='history')  renderSalonPayrollHistory();
+  if(tab==='paysheet') renderPaysheet();
 }
+
+async function renderPaysheet(){
+  const month = parseInt(document.getElementById('sr-ps-month')?.value||new Date().getMonth()+1);
+  const year  = parseInt(document.getElementById('sr-ps-year')?.value||new Date().getFullYear());
+  const body  = document.getElementById('sr-paysheet-body');
+  if(!body) return;
+  const fmt = n=>'\u20B8'+Math.round(n).toLocaleString('ru-RU');
+  const MN  = ['','\u042f\u043d\u0432\u0430\u0440\u044c','\u0424\u0435\u0432\u0440\u0430\u043b\u044c','\u041c\u0430\u0440\u0442','\u0410\u043f\u0440\u0435\u043b\u044c','\u041c\u0430\u0439','\u0418\u044e\u043d\u044c','\u0418\u044e\u043b\u044c','\u0410\u0432\u0433\u0443\u0441\u0442','\u0421\u0435\u043d\u0442\u044f\u0431\u0440\u044c','\u041e\u043a\u0442\u044f\u0431\u0440\u044c','\u041d\u043e\u044f\u0431\u0440\u044c','\u0414\u0435\u043a\u0430\u0431\u0440\u044c'];
+  if(!_payrollData.length) await loadSalonPayroll();
+  const rows = _payrollData.filter(r=>r.month===month && r.year===year)
+    .sort((a,b)=>a.employee.localeCompare(b.employee));
+  if(!rows.length){
+    body.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">Нет данных за этот период</div>';
+    return;
+  }
+  const tS=rows.reduce((s,r)=>s+(r.salary||0),0);
+  const tC=rows.reduce((s,r)=>s+(r.commission||0),0);
+  const tB=rows.reduce((s,r)=>s+(r.bonus||0),0);
+  const tT=rows.reduce((s,r)=>s+(r.total||0),0);
+  const tA=rows.reduce((s,r)=>s+(r.advance||0),0);
+  const OC='<'+'/option>';
+
+  let html='<div id="paysheet-print-area">'
+    +'<div style="text-align:center;margin-bottom:16px">'
+    +'<div style="font-size:16px;font-weight:700">ПЛАТЕЖНАЯ ВЕДОМОСТЬ</div>'
+    +'<div style="font-size:14px;color:var(--text2)">'+MN[month]+' '+year+'</div>'
+    +'</div>'
+    +'<table class="data-table" style="width:100%"><thead><tr>'
+    +'<th>N</th><th>Сотрудник</th><th style="text-align:right">Оклад</th>'
+    +'<th style="text-align:right">Комиссия</th><th style="text-align:right">Бонус</th>'
+    +'<th style="text-align:right">Начислено</th><th style="text-align:right">Аванс</th>'
+    +'<th style="text-align:right">К выдаче</th><th>Подпись</th>'
+    +'</tr></thead><tbody>';
+  rows.forEach((r,i)=>{
+    html+='<tr>'
+      +'<td style="text-align:center">'+(i+1)+'</td>'
+      +'<td style="font-weight:600">'+r.employee+'</td>'
+      +'<td style="text-align:right;font-family:monospace">'+(r.salary>0?fmt(r.salary):'-')+'</td>'
+      +'<td style="text-align:right;font-family:monospace;color:var(--accent)">'+(r.commission>0?fmt(r.commission):'-')+'</td>'
+      +'<td style="text-align:right;font-family:monospace">'+(r.bonus>0?fmt(r.bonus):'-')+'</td>'
+      +'<td style="text-align:right;font-family:monospace;font-weight:700">'+fmt(r.total||0)+'</td>'
+      +'<td style="text-align:right;font-family:monospace;color:var(--text3)">'+(r.advance>0?fmt(r.advance):'-')+'</td>'
+      +'<td style="text-align:right;font-family:monospace;font-weight:700;color:var(--green)">'+fmt((r.total||0)-(r.advance||0))+'</td>'
+      +'<td style="min-width:100px"></td></tr>';
+  });
+  html+='</tbody><tfoot><tr style="font-weight:700;background:var(--bg2)">'
+    +'<td colspan="2">Итого</td>'
+    +'<td style="text-align:right;font-family:monospace">'+fmt(tS)+'</td>'
+    +'<td style="text-align:right;font-family:monospace">'+fmt(tC)+'</td>'
+    +'<td style="text-align:right;font-family:monospace">'+fmt(tB)+'</td>'
+    +'<td style="text-align:right;font-family:monospace;font-size:15px">'+fmt(tT)+'</td>'
+    +'<td style="text-align:right;font-family:monospace">'+fmt(tA)+'</td>'
+    +'<td style="text-align:right;font-family:monospace;font-size:15px;color:var(--green)">'+fmt(tT-tA)+'</td>'
+    +'<td></td></tr></tfoot></table>'
+    +'<div style="display:flex;gap:40px;margin-top:24px;font-size:13px">'
+    +'<div>Начальник салонов: _________________ / Сукачева О.В.</div>'
+    +'<div>Дата: _______________</div></div>'
+    +'</div>';
+  body.innerHTML = html;
+}
+window.renderPaysheet = renderPaysheet;
+
+function printPaysheet(){
+  const a = document.getElementById('paysheet-print-area');
+  if(!a) return;
+  const w = window.open('','_blank');
+  w.document.write('<html><head><title>Ведомость</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:6px 10px;font-size:12px}th{background:#f5f5f5}tfoot tr{background:#eee}</style></head><body>'+a.innerHTML+'<'+'/'+'body><'+'/'+'html>');
+  w.document.close(); w.print();
+}
+window.printPaysheet = printPaysheet;
 
 let _payrollData = [];
 
