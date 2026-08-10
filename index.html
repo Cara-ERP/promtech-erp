@@ -6725,7 +6725,7 @@ window.onerror = function(msg, src, line, col){
       </div>
       <div class="tabs" style="margin-bottom:16px">
         <div class="tab active" onclick="showSalonReportTab('current',this)">📋 Текущий период</div>
-        <div class="tab" onclick="showSalonReportTab('history',this)">📅 История ЗП 2025</div>
+        <div class="tab" onclick="showSalonReportTab('history',this)">📅 История ЗП</div>
       </div>
 
       <!-- Вкладка: Текущий период -->
@@ -6799,6 +6799,7 @@ window.onerror = function(msg, src, line, col){
       <div id="sr-tab-history" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
           <select id="sr-hist-year" onchange="renderSalonPayrollHistory()" style="font-size:13px">
+            <option value="2026">2026</option>
             <option value="2025">2025</option>
           </select>
           <select id="sr-hist-employee" onchange="renderSalonPayrollHistory()" style="font-size:13px">
