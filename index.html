@@ -3381,6 +3381,7 @@ window.onerror = function(msg, src, line, col){
         </div>
       </div>
       <div class="orders-tab" id="orders-queue" style="display:none">
+        <div id="ord-stats-queue" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
         <div class="card">
           <table class="data-table">
             <thead><tr>
@@ -3396,9 +3397,9 @@ window.onerror = function(msg, src, line, col){
             <tbody id="orders-queue-tbody"></tbody>
           </table>
         </div>
-        <div id="ord-stats-queue" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
       </div>
       <div class="orders-tab" id="orders-progress" style="display:none">
+        <div id="ord-stats-progress" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
         <div class="card">
           <table class="data-table">
             <thead><tr>
@@ -3414,9 +3415,9 @@ window.onerror = function(msg, src, line, col){
             <tbody id="orders-progress-tbody"></tbody>
           </table>
         </div>
-        <div id="ord-stats-progress" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
       </div>
       <div class="orders-tab" id="orders-done" style="display:none">
+        <div id="ord-stats-done" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
         <div class="card">
           <table class="data-table">
             <thead><tr>
@@ -3432,7 +3433,6 @@ window.onerror = function(msg, src, line, col){
             <tbody id="orders-done-tbody"></tbody>
           </table>
         </div>
-        <div id="ord-stats-done" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
       </div>
       <div class="orders-tab" id="orders-sales-journal" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
@@ -22343,7 +22343,7 @@ function renderClientsTab(){
     if(dateFrom && iso && iso<dateFrom) return;
     if(dateTo   && iso && iso>dateTo)   return;
     if(!clientMap[name]) clientMap[name]={
-      name, channel:o.channel, orders:0, turnover:0, paid:0,
+      name, channel:o.channel, orders:0, turnover:0, paid:0, debt:0,
       lastOrder:'', lastNum:'', sellers:new Set(), products:[]
     };
     const c=clientMap[name];
@@ -22351,6 +22351,7 @@ function renderClientsTab(){
     c.orders++;
     c.turnover+=total;
     c.paid+=total*(o.payment||0)/100;
+    c.debt=Math.max(0,c.turnover-c.paid);
     if(!c.lastOrder||iso>c.lastOrder){ c.lastOrder=iso; c.lastNum=o.num; }
     if(o.seller) c.sellers.add(o.seller);
     (o.items||[]).forEach(it=>{ if(it.name&&!c.products.includes(it.name)) c.products.push(it.name); });
