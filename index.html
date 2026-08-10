@@ -863,6 +863,7 @@ async function loadMoneyFromDB(){
           }
         });
       }
+      if(_cacheLoaded_realiz) autoCompleteOrders();
     }
     hideLoading();
     return true;
@@ -21833,6 +21834,11 @@ function renderOrders(){
     const mPct=orderMarginData.marginPct;
     const mPctHtml=`<span class="${marginPctClass(mPct)}" style="font-size:12px">${mPct}%</span>`;
 
+    const realizTotal = realizationsData.filter(rz=>rz.order_num===order.num).reduce((s,rz)=>s+(rz.revenue||0),0);
+    const isFullyRealized = total>0 && realizTotal>=total*0.99;
+    const canComplete = order.channel?.startsWith('dealer_') && order.status!=='done' && order.status!=='cancelled' && isFullyRealized;
+    const completeBtn = canComplete ? '<button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--green);padding:1px 6px;margin-left:4px" onclick="event.stopPropagation();markOrderDone(\'' + order.num + '\')">&#10003; Завершить</button>' : '';
+
     const rowHtml=`
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${order.num}</td>
       <td>${customerDisplay}</td>
@@ -21843,7 +21849,7 @@ function renderOrders(){
       <td style="font-size:12px;color:var(--text3)">${order.createdDate||'—'}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="flex:1"><div class="progress-fill ${progClass}" style="width:${avgProgress}%"></div></div><span style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text3)">${avgProgress}%</span></div></td>
       <td style="font-size:12px">${order.date}</td>
-      <td><span class="badge ${badgeClass}">${statusLabel}</span></td>
+      <td><span class="badge ${badgeClass}">${statusLabel}</span>${completeBtn}</td>
       <td style="font-size:12px">${order.seller||'—'}</td>
       <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${order.payment>=100?'var(--green)':(order.payment>0?'var(--amber)':'var(--red)')}">${order.payment}%</td>`;
 
@@ -22074,6 +22080,7 @@ async function loadRealizationsFromDB(){
     realizationsData = all.filter(r=>{ if(seen.has(r.id)) return false; seen.add(r.id); return true; });
     _cacheLoaded_realiz = true;
     console.log('✅ Реализации загружены:', realizationsData.length);
+    autoCompleteOrders();
     return true;
   } catch(e){
     console.warn('⚠️ Ошибка загрузки реализации:', e.message);
@@ -22184,7 +22191,26 @@ function renderSalesJournal(){
     `${rows.length} позиций · Выручка: <b>${fmt(totalSum)}</b> · Оплачено: <b style="color:var(--green)">${fmt(totalPaid)}</b>` +
     (totalSum>totalPaid ? ` · Долг: <b style="color:var(--red)">${fmt(totalSum-totalPaid)}</b>` : '');
 
-  tbody.innerHTML = rows.map((r,i)=>`<tr style="cursor:pointer" onclick="openEditOrderModal('${r.num.replace(/'/g,"\\'")}')">
+  // Группируем реализации по заказу для проверки полноты
+  const realizByOrder = {};
+  realizationsData.forEach(rz=>{
+    if(!realizByOrder[rz.order_num]) realizByOrder[rz.order_num]=0;
+    realizByOrder[rz.order_num]+=(rz.revenue||0);
+  });
+
+  tbody.innerHTML = rows.map((r,i)=>{
+    const order = ordersData.find(o=>o.num===r.num);
+    const isDealer = order?.channel?.startsWith('dealer_');
+    const notDone  = order && order.status!=='done' && order.status!=='cancelled';
+    const oTotal = orderTotal(order);
+    const realizTotal = realizByOrder[r.num]||0;
+    const isFullyRealized = oTotal>0 && realizTotal>=oTotal*0.99;
+    const showComplete = isDealer && notDone && isFullyRealized;
+    const completeBtn = showComplete
+      ? `<button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--green);padding:1px 6px;margin-left:4px"
+          onclick="event.stopPropagation();markOrderDone('${r.num.replace(/'/g,"\\'")}')">&#10003; Завершить</button>`
+      : '';
+    return `<tr style="cursor:pointer" onclick="openEditOrderModal('${r.num.replace(/'/g,"\\'")}')">
     <td style="color:var(--text3);font-size:11px">${i+1}</td>
     <td style="font-size:12px;white-space:nowrap">${r.date}</td>
     <td style="font-family:monospace;font-size:12px;color:var(--accent)">${r.num}</td>
@@ -22197,8 +22223,9 @@ function renderSalesJournal(){
     <td style="text-align:right;font-family:monospace;font-size:12px;font-weight:600">${fmt(r.total)}</td>
     <td style="text-align:right;font-size:12px;color:${r.payPct>=100?'var(--green)':r.payPct>0?'var(--amber)':'var(--red)'}">${r.payPct}%</td>
     <td style="text-align:right;font-family:monospace;font-size:12px;color:var(--green)">${fmt(r.paid)}</td>
-    <td style="font-size:11px">${r.status}</td>
-  </tr>`).join('') ||
+    <td style="font-size:11px">${r.status}${completeBtn}</td>
+  </tr>`;
+  }).join('') ||
   `<tr><td colspan="13" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за период</td></tr>`;
 
   if(tfoot) tfoot.innerHTML = `<tr style="background:var(--bg3);font-weight:700">
@@ -22208,6 +22235,63 @@ function renderSalesJournal(){
     <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(totalPaid)}</td>
     <td></td>
   </tr>`;
+}
+
+async function autoCompleteOrders(){
+  if(!ordersData.length || !realizationsData.length) return;
+
+  // Суммы реализаций по заказу
+  const realizByOrder = {};
+  realizationsData.forEach(r=>{
+    if(!realizByOrder[r.order_num]) realizByOrder[r.order_num]=0;
+    realizByOrder[r.order_num]+=(r.revenue||0);
+  });
+
+  const toComplete = [];
+  ordersData.forEach(o=>{
+    if(o.status==='done'||o.status==='cancelled') return;
+    const total = orderTotal(o);
+    if(total<=0) return;
+    const realizTotal = realizByOrder[o.num]||0;
+    const isFullyRealized = realizTotal >= total*0.99;
+    if(!isFullyRealized) return;
+
+    const isDealer = o.channel?.startsWith('dealer_');
+    if(isDealer){
+      // Дилерам достаточно полной реализации
+      toComplete.push(o);
+    } else {
+      // Остальным нужна и реализация и 100% оплата
+      if((o.payment||0)>=100) toComplete.push(o);
+    }
+  });
+
+  if(!toComplete.length) return;
+  console.log(`🔄 Авто-завершение: ${toComplete.length} заказов`);
+
+  // Обновляем локально и в базе пачками
+  toComplete.forEach(o=>{ o.status='done'; });
+  try {
+    const nums = toComplete.map(o=>`"${o.num}"`).join(',');
+    await sbPatch('orders', `num=in.(${nums})`, {status:'done'});
+    console.log(`✅ Авто-завершено: ${toComplete.length} заказов`);
+  } catch(e){
+    console.warn('⚠️ Ошибка авто-завершения:', e.message);
+  }
+}
+
+async function markOrderDone(num){
+  if(!confirm(`Отметить заказ ${num} как завершённый?`)) return;
+  try {
+    await sbPatch('orders', `num=eq.${encodeURIComponent(num)}`, {status:'done'});
+    const o = ordersData.find(o=>o.num===num);
+    if(o) o.status='done';
+    renderSalesJournal();
+    const msg=document.createElement('div');
+    msg.textContent=`✅ ${num} завершён`;
+    msg.style.cssText='position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999';
+    document.body.appendChild(msg); setTimeout(()=>msg.remove(),3000);
+  } catch(e){ alert('Ошибка: '+e.message); }
 }
 
 function exportSalesJournalExcel(){
