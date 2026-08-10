@@ -13974,17 +13974,33 @@ async function deleteAppUser(){
 function renderSalonCommissionsSettings(){
   const el=document.getElementById('hr-tab-salon_commissions');
   if(!el) return;
-
   const canEdit=['director','accountant'].includes(window._currentUser)||getCurrentRole()?.isManager;
   const fmt=n=>n>0?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
 
-  const renderSalon=(channel, label, icon)=>{
-    const staff = employeesData.filter(e=>
-      (e.comment||'').includes(label) ||
-      (e.comment||'').includes('Армада, Назарбаева')
+  const doRender=()=>{
+    // Фильтруем — только реальные сотрудники салонов (не уборщицы и т.п.)
+    const salonStaff = employeesData.filter(e=>
+      (e.comment||'').match(/Армада|Назарбаева/) &&
+      !(e.name||'').toLowerCase().includes('уборка') &&
+      !(e.pos||'').toLowerCase().includes('уборщ')
     );
-    const manager = staff.find(e=>e.pos&&(e.pos.includes('Начальник')||e.name==='Сукачева Ольга'));
-    const sellers = staff.filter(e=>e.pos&&(e.pos.includes('Менеджер')||e.pos.includes('салон'))&&e!==manager);
+
+    const chief     = salonStaff.find(e=>(e.pos||'').includes('Начальник'));
+    const armada    = salonStaff.filter(e=>
+      e!==chief &&
+      (e.comment||'').includes('Армада') &&
+      !(e.comment||'').includes('Назарбаева')
+    );
+    const nazarb    = salonStaff.filter(e=>
+      e!==chief &&
+      (e.comment||'').includes('Назарбаева') &&
+      !(e.comment||'').includes('Армада')
+    );
+    const common    = salonStaff.filter(e=>
+      e!==chief &&
+      (e.comment||'').includes('Армада') &&
+      (e.comment||'').includes('Назарбаева')
+    );
 
     const staffRow=(emp)=>`<tr>
       <td style="font-weight:600">${emp.name}</td>
@@ -13996,7 +14012,7 @@ function renderSalonCommissionsSettings(){
       </td>
       <td style="text-align:right">
         ${canEdit
-          ?`<input type="number" value="${emp.commissionPct||0}" step="0.5" style="width:60px;text-align:right"
+          ?`<input type="number" value="${emp.commissionPct||0}" step="0.1" style="width:60px;text-align:right"
               onchange="saveStaffField('${emp.id}','commission_pct',this.value)"> %`
           :`${emp.commissionPct||0}%`}
       </td>
@@ -14012,33 +14028,40 @@ function renderSalonCommissionsSettings(){
         onclick="showSalaryHistory('${emp.id}','${emp.name.replace(/'/g,"\\'")}')">📅 История</button></td>
     </tr>`;
 
-    return `<div style="margin-bottom:24px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--accent)">${icon} Салон ${label}</div>
-      ${manager?`
-        <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">Начальник салона</div>
-        <table class="data-table" style="margin-bottom:12px">
-          <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">%</th><th>Метод</th><th></th></tr></thead>
-          <tbody>${staffRow(manager)}</tbody>
-        </table>`:''}
-      ${sellers.length?`
-        <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">Менеджеры продаж</div>
-        <table class="data-table">
-          <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">%</th><th>Метод</th><th></th></tr></thead>
-          <tbody>${sellers.map(staffRow).join('')}</tbody>
-        </table>`:''}
-    </div>`;
-  };
+    const table=(rows, title)=> rows.length ? `
+      <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:6px;text-transform:uppercase">${title}</div>
+      <table class="data-table" style="margin-bottom:12px">
+        <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">%</th><th>Метод</th><th></th></tr></thead>
+        <tbody>${rows.map(staffRow).join('')}</tbody>
+      </table>` : '';
 
-  const doRender=()=>{
     el.innerHTML=`<div style="max-width:700px">
       <div style="font-size:13px;color:var(--text3);margin-bottom:16px">
-        ${canEdit
-          ?'✅ Изменения сохраняются в базу данных.'
-          :'Только просмотр.'}
+        ${canEdit?'✅ Изменения сохраняются в базу данных.':'Только просмотр.'}
       </div>
-      ${renderSalon('salon_armada','Армада','🏬')}
-      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
-      ${renderSalon('salon_nazarbayeva','Назарбаева','🏪')}
+
+      ${chief?`
+        <div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--accent)">👑 Начальник салонов</div>
+        <table class="data-table" style="margin-bottom:20px">
+          <thead><tr><th>ФИО</th><th style="text-align:right">Оклад (₸)</th><th style="text-align:right">%</th><th>Метод</th><th></th></tr></thead>
+          <tbody>${staffRow(chief)}</tbody>
+        </table>`:''}
+
+      <div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--accent)">🏬 Салон Армада</div>
+      ${table(armada,'Менеджеры продаж')}
+      ${!armada.length?'<div style="color:var(--text3);font-size:13px;margin-bottom:16px">Нет сотрудников</div>':''}
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+
+      <div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--accent)">🏪 Салон Назарбаева</div>
+      ${table(nazarb,'Менеджеры продаж')}
+      ${!nazarb.length?'<div style="color:var(--text3);font-size:13px;margin-bottom:16px">Нет сотрудников</div>':''}
+
+      ${common.length?`
+        <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+        <div style="font-size:15px;font-weight:700;margin-bottom:12px;color:var(--accent)">🔄 Общие (оба салона)</div>
+        ${table(common,'Сотрудники')}
+      `:''}
     </div>`;
   };
 
