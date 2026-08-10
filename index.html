@@ -6515,14 +6515,22 @@ window.onerror = function(msg, src, line, col){
             </div>
           </div>
           <div class="form-row" style="grid-column:1/-1">
-            <label class="label">Комментарий</label>
-            <input id="emp-card-comment" type="text" placeholder="Навыки, особенности...">
+            <label class="label">Комментарий / Салон</label>
+            <div style="display:flex;gap:8px">
+              <select id="emp-card-salon" style="font-size:13px;min-width:160px">
+                <option value="">— не салон —</option>
+                <option value="Армада">🏬 Армада</option>
+                <option value="Назарбаева">🏪 Назарбаева</option>
+                <option value="Армада, Назарбаева">👑 Оба салона</option>
+              </select>
+              <input id="emp-card-comment" type="text" placeholder="Доп. комментарий..." style="flex:1">
+            </div>
           </div>
         </div>
         <div id="emp-card-error" style="color:var(--red);font-size:12px;margin-top:8px;min-height:16px"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-          <button class="btn btn-ghost btn-sm" id="emp-card-delete" onclick="deleteEmployee()"
-            style="margin-right:auto;color:var(--red);display:none">🗑 Уволить</button>
+          <button class="btn btn-ghost btn-sm" id="emp-card-delete" onclick="dismissEmployee()"
+            style="margin-right:auto;color:var(--red);display:none">🚪 Уволить</button>
           <button class="btn btn-ghost" onclick="closeModal('employeeCardModal')">Отмена</button>
           <button class="btn btn-primary" onclick="saveEmployeeCard()">Сохранить</button>
         </div>
@@ -14262,6 +14270,24 @@ function renderHRStaff(){
 }
 
 // ── Карточка сотрудника ───────────────────────────────────────────────────────
+async function dismissEmployee(){
+  const editId = document.getElementById('emp-card-name')._editId;
+  const name = document.getElementById('emp-card-name').value.trim();
+  if(!editId) return;
+  if(!confirm(`Уволить сотрудника «${name}»? Он будет помечен как неактивный.`)) return;
+  try {
+    const today = new Date().toISOString().slice(0,10);
+    await sbPatch('staff', `id=eq.${editId}`, {active: false, fired: today});
+    employeesData = employeesData.filter(e=>String(e.id)!==String(editId));
+    closeModal('employeeCardModal');
+    renderHRStaff();
+    const msg=document.createElement('div');
+    msg.textContent=`✅ ${name} уволен(а)`;
+    msg.style.cssText='position:fixed;bottom:20px;right:20px;background:var(--red);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999';
+    document.body.appendChild(msg); setTimeout(()=>msg.remove(),3000);
+  } catch(e){ alert('Ошибка: '+e.message); }
+}
+
 function openEmployeeCard(id){
   const emp=id?employeesData.find(e=>e.id===id):null;
   document.getElementById('emp-card-title').textContent=emp?emp.name:'Новый сотрудник';
@@ -14274,6 +14300,22 @@ function openEmployeeCard(id){
   document.getElementById('emp-card-iin').value=emp?.iin||'';
   document.getElementById('emp-card-hired').value=emp?.hired||'';
   document.getElementById('emp-card-comment').value=emp?.comment||'';
+
+  // Поле салона
+  const salonSel = document.getElementById('emp-card-salon');
+  if(salonSel){
+    const comment = emp?.comment||'';
+    if(comment.includes('Армада') && comment.includes('Назарбаева')) salonSel.value='Армада, Назарбаева';
+    else if(comment.includes('Армада')) salonSel.value='Армада';
+    else if(comment.includes('Назарбаева')) salonSel.value='Назарбаева';
+    else salonSel.value='';
+  }
+
+  // Кнопка Уволить — директор и начальник салона
+  const isSalonMgr = getCurrentRole()?.isManager && !getCurrentRole()?.channel;
+  const isDirector = ['director','hr'].includes(window._currentUser);
+  const deleteBtn = document.getElementById('emp-card-delete');
+  if(deleteBtn) deleteBtn.style.display = (emp && (isDirector || isSalonMgr)) ? '' : 'none';
   document.getElementById('emp-card-error').textContent='';
 
   // PIN — показываем только HR и директору
@@ -14306,6 +14348,10 @@ function saveEmployeeCard(){
   const name=document.getElementById('emp-card-name').value.trim();
   const err=document.getElementById('emp-card-error');
   if(!name){err.textContent='Укажите ФИО';return;}
+  const salonVal = document.getElementById('emp-card-salon')?.value||'';
+  const commentVal = document.getElementById('emp-card-comment').value.trim();
+  const comment = salonVal ? (commentVal ? `${salonVal}, ${commentVal}` : salonVal) : commentVal;
+
   const obj={
     name, pos:document.getElementById('emp-card-pos').value.trim(),
     type:document.getElementById('emp-card-type').value,
@@ -14314,7 +14360,7 @@ function saveEmployeeCard(){
     phone:document.getElementById('emp-card-phone').value.trim(),
     iin:document.getElementById('emp-card-iin').value.trim(),
     hired:document.getElementById('emp-card-hired').value,
-    comment:document.getElementById('emp-card-comment').value.trim(),
+    comment,
     initials:name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(),
     color:'rgba(79,142,247,.15)', tc:'var(--accent)',
   };
