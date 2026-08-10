@@ -22359,7 +22359,15 @@ function renderClientsTab(){
   let clients = Object.values(clientMap);
   if(search) clients=clients.filter(c=>c.name.toLowerCase().includes(search));
 
-  clients.sort((a,b)=>b.orders-a.orders);
+  clients.sort((a,b)=>{
+    let va=a[_cSortCol], vb=b[_cSortCol];
+    if(_cSortCol==='lastOrder'){ va=a.lastOrder||''; vb=b.lastOrder||''; }
+    if(typeof va==='number'||typeof vb==='number'){
+      va=va||0; vb=vb||0;
+      return _cSortAsc?va-vb:vb-va;
+    }
+    return _cSortAsc?String(va||'').localeCompare(String(vb||'')):String(vb||'').localeCompare(String(va||''));
+  });
 
   const countEl=document.getElementById('clients-count');
   if(countEl) countEl.textContent=`${clients.length} клиентов`;
