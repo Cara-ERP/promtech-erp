@@ -3715,7 +3715,7 @@ window.onerror = function(msg, src, line, col){
       <!-- TAB: По оплате -->
       <div class="orders-tab" id="orders-orders-kanban-pay" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-          <select id="ok-period-pay" onchange="renderOrdersKanban()" style="font-size:13px">
+          <select id="ok-period-pay" onchange="setOKPeriodPay(this.value)" style="font-size:13px">
             <option value="month">Текущий месяц</option>
             <option value="quarter">Квартал</option>
             <option value="year">Текущий год</option>
@@ -3723,9 +3723,9 @@ window.onerror = function(msg, src, line, col){
             <option value="custom">Период...</option>
           </select>
           <div id="ok-period-dates-pay" style="display:none;gap:4px;align-items:center">
-            <input type="date" id="ok-date-from-pay" onchange="renderOrdersKanban()" style="font-size:12px">
+            <input type="date" id="ok-date-from-pay" onchange="setOKPeriodPay('custom')" style="font-size:12px">
             <span style="color:var(--text3)">—</span>
-            <input type="date" id="ok-date-to-pay" onchange="renderOrdersKanban()" style="font-size:12px">
+            <input type="date" id="ok-date-to-pay" onchange="setOKPeriodPay('custom')" style="font-size:12px">
           </div>
           <select id="ok-channel-filter-pay" onchange="renderOrdersKanban()" style="font-size:13px">
             <option value="">Все каналы</option>
@@ -21984,7 +21984,13 @@ function showOrdersTab(tab, el){
   }
   if(tab==='orders-kanban-prod'||tab==='orders-kanban-pay'){
     if(!_okDateFrom) setOKPeriod('month');
-    else renderOrdersKanban();
+    else {
+      if(tab==='orders-kanban-pay' && !_cacheLoaded.money){
+        loadMoneyFromDB().then(()=>renderOrdersKanban());
+      } else {
+        renderOrdersKanban();
+      }
+    }
   }
   if(tab==='orders-kanban'){
     if(!_okDateFrom) setOKPeriod('month');
@@ -22224,6 +22230,37 @@ function exportSalesJournalExcel(){
 let _okDateFrom = '';
 let _okDateTo   = '';
 
+function setOKPeriodPay(val){
+  const datesRow = document.getElementById('ok-period-dates-pay');
+  const now = new Date();
+  if(val==='month'){
+    _okDateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    _okDateTo   = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='quarter'){
+    const q=Math.floor(now.getMonth()/3);
+    _okDateFrom = new Date(now.getFullYear(), q*3, 1).toISOString().slice(0,10);
+    _okDateTo   = new Date(now.getFullYear(), q*3+3, 0).toISOString().slice(0,10);
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='year'){
+    _okDateFrom = `${now.getFullYear()}-01-01`;
+    _okDateTo   = `${now.getFullYear()}-12-31`;
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='active'){
+    _okDateFrom = ''; _okDateTo = '';
+    if(datesRow) datesRow.style.display='none';
+  } else if(val==='custom'){
+    if(datesRow) datesRow.style.display='flex';
+    _okDateFrom = document.getElementById('ok-date-from-pay')?.value||'';
+    _okDateTo   = document.getElementById('ok-date-to-pay')?.value||'';
+  }
+  if(!_cacheLoaded.money){
+    loadMoneyFromDB().then(()=>renderOrdersKanban());
+  } else {
+    renderOrdersKanban();
+  }
+}
+
 function setOKPeriod(val){
   const datesRow = document.getElementById('ok-period-dates');
   const now = new Date();
@@ -22345,9 +22382,10 @@ function renderOrdersKanban(){
     {key:'delivered',  label:'🚀 Отправлен',        color:'#06b6d4', filter:o=>o.status==='delivered'},
   ];
   const payStages=[
-    {label:'💰 Не оплачен',      color:'#ef4444', filter:o=>(o.payment||0)===0},
+    {label:'💰 Не оплачен',       color:'#ef4444', filter:o=>(o.payment||0)===0},
     {label:'💳 Частично оплачен', color:'#f59e0b', filter:o=>(o.payment||0)>0&&(o.payment||0)<100},
     {label:'✅ Полностью оплачен', color:'#10b981', filter:o=>(o.payment||0)>=100&&o.status!=='done'},
+    {label:'🏁 Завершён',         color:'#6b7280', filter:o=>(o.payment||0)>=100&&o.status==='done'},
   ];
 
   // Рендерим только активную доску
