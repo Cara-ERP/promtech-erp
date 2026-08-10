@@ -3532,6 +3532,7 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost btn-sm" onclick="clearOrderFilters()">✕ Сбросить</button>
           <span id="ord-filter-count" style="font-size:12px;color:var(--text3)"></span>
         </div>
+        <div id="ord-summary-stats" style="font-size:12px;color:var(--text3);padding:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
         <div class="card">
           <table class="data-table">
             <thead><tr>
@@ -21670,7 +21671,7 @@ function renderOrders(){
     return true;
   });
 
-  // Счётчик фильтра
+  // Счётчик фильтра + статистика
   const countEl = document.getElementById('ord-filter-count');
   if(countEl){
     const hasFilter = search||dateFrom||dateTo||statusF||channelF||paymentF||sellerF||amountMin||amountMax;
@@ -21688,6 +21689,32 @@ function renderOrders(){
         sellerSel.appendChild(opt);
       });
     }
+  }
+
+  // Статистика по заказам
+  const statsEl = document.getElementById('ord-summary-stats');
+  if(statsEl){
+    const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+    const totalSum  = visibleOrders.reduce((s,o)=>s+orderTotal(o),0);
+    const totalPaid = visibleOrders.reduce((s,o)=>s+orderTotal(o)*(o.payment||0)/100,0);
+    const totalDebt = Math.max(0,totalSum-totalPaid);
+    const statusLabels = {queue:'⏳ Очередь',production:'🔨 В работе',ready:'📦 Готов',
+      delivered:'🚚 Доставлен',done:'✅ Завершён',cancelled:'❌ Отменён'};
+    const byCounts = Object.entries(statusCounts)
+      .filter(([,n])=>n>0)
+      .map(([s,n])=>`${statusLabels[s]||s}: ${n}`)
+      .join(' · ');
+    statsEl.innerHTML = visibleOrders.length>0 ? `
+      <span style="color:var(--text2)">${visibleOrders.length} заказов</span>
+      <span style="color:var(--text3)">·</span>
+      <span>${byCounts}</span>
+      <span style="color:var(--text3)">·</span>
+      <span>Сумма: <b style="color:var(--text1)">${fmt(totalSum)}</b></span>
+      <span style="color:var(--text3)">·</span>
+      <span>Оплачено: <b style="color:var(--green)">${fmt(totalPaid)}</b></span>
+      ${totalDebt>0?`<span style="color:var(--text3)">·</span>
+      <span>Долг: <b style="color:var(--red)">${fmt(totalDebt)}</b></span>`:''}
+    ` : '';
   }
 
   // Применяем сортировку
