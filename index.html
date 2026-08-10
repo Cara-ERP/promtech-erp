@@ -3396,6 +3396,7 @@ window.onerror = function(msg, src, line, col){
             <tbody id="orders-queue-tbody"></tbody>
           </table>
         </div>
+        <div id="ord-stats-queue" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
       </div>
       <div class="orders-tab" id="orders-progress" style="display:none">
         <div class="card">
@@ -3413,6 +3414,7 @@ window.onerror = function(msg, src, line, col){
             <tbody id="orders-progress-tbody"></tbody>
           </table>
         </div>
+        <div id="ord-stats-progress" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
       </div>
       <div class="orders-tab" id="orders-done" style="display:none">
         <div class="card">
@@ -3430,6 +3432,7 @@ window.onerror = function(msg, src, line, col){
             <tbody id="orders-done-tbody"></tbody>
           </table>
         </div>
+        <div id="ord-stats-done" style="font-size:12px;color:var(--text3);padding:8px 4px;display:flex;gap:8px;flex-wrap:wrap"></div>
       </div>
       <div class="orders-tab" id="orders-sales-journal" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
@@ -21717,7 +21720,31 @@ function renderOrders(){
     ` : '';
   }
 
-  // Применяем сортировку
+  // Статистика по вкладкам очередь/в работе/завершено
+  const statFmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const statHtml = (orders, label)=>{
+    if(!orders.length) return `<span style="color:var(--text3)">${label}: нет заказов</span>`;
+    const sum  = orders.reduce((s,o)=>s+orderTotal(o),0);
+    const paid = orders.reduce((s,o)=>s+orderTotal(o)*(o.payment||0)/100,0);
+    const debt = Math.max(0,sum-paid);
+    return `<span style="color:var(--text2)">${orders.length} заказов</span>
+      <span style="color:var(--text3)">·</span>
+      <span>Сумма: <b style="color:var(--text1)">${statFmt(sum)}</b></span>
+      <span style="color:var(--text3)">·</span>
+      <span>Оплачено: <b style="color:var(--green)">${statFmt(paid)}</b></span>
+      ${debt>0?`<span style="color:var(--text3)">·</span><span>Долг: <b style="color:var(--red)">${statFmt(debt)}</b></span>`:''}`;
+  };
+
+  const queueOrders    = visibleOrders.filter(o=>o.status==='queue');
+  const progressOrders = visibleOrders.filter(o=>o.status==='progress'||o.status==='ready'||o.status==='delivered');
+  const doneOrders     = visibleOrders.filter(o=>o.status==='done');
+
+  const qStat = document.getElementById('ord-stats-queue');
+  const pStat = document.getElementById('ord-stats-progress');
+  const dStat = document.getElementById('ord-stats-done');
+  if(qStat) qStat.innerHTML = statHtml(queueOrders, 'Очередь');
+  if(pStat) pStat.innerHTML = statHtml(progressOrders, 'В работе');
+  if(dStat) dStat.innerHTML = statHtml(doneOrders, 'Завершено');
   visibleOrders.sort((a,b)=>{
     const va = getOrderSortValue(a, _orderSortCol);
     const vb = getOrderSortValue(b, _orderSortCol);
