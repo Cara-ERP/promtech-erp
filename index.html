@@ -9118,12 +9118,23 @@ function renderReconcile(){
   });
 
   // ── Разделяем заказы ─────────────────────────────────────────
-  // В сверку попадают только ОТПРАВЛЕННЫЕ (status='done')
+  const allNums = new Set(ordersData.filter(o=>o.channel===ch).map(o=>o.num));
   const shippedOrders=myOrders.filter(o=>o.status==='done');
-  // Долг по предоплате — только НЕотправленные (queue + progress)
-  const pendingOrders=myOrders.filter(o=>o.status!=='done');
+  const pendingOrders=myOrders.filter(o=>o.status!=='done'&&o.status!=='cancelled');
 
-  // ── Переданные в офис (факт) ─────────────────────────────────
+  const now=new Date();
+  const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+
+  // ── Оплаты по заказам из money_tx ────────────────────────────
+  // Для дилеров: все приходы привязанные к их заказам
+  const dealerPayments=moneyTx.filter(t=>t.flow==='income'&&t.orderNum&&allNums.has(t.orderNum));
+  const paidByOrderMap={}; // num → total paid
+  dealerPayments.forEach(t=>{
+    paidByOrderMap[t.orderNum]=(paidByOrderMap[t.orderNum]||0)+t.amount;
+  });
+  const totalPaidByOrders=dealerPayments.reduce((s,t)=>s+t.amount,0);
+
+  // ── Переводы в офис (без привязки к заказу) ──────────────────
   const paidToOffice=cashAccId
     ?moneyTx.filter(t=>t.accountId===cashAccId&&t.flow==='expense'&&
         (t.desc.toLowerCase().includes('офис')||t.category==='transfer'))
@@ -9132,29 +9143,32 @@ function renderReconcile(){
         t.counterparty===role.name)
         .reduce((s,t)=>s+t.amount,0);
 
-  // ── Сверка по отправленным ───────────────────────────────────
-  // Для упрощения: все отправленные = долг, оплата = переданное в офис
-  const now=new Date();
-  const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  // ── Сверка: сумма отгруженных vs оплачено ────────────────────
+  const shippedTotal=shippedOrders.reduce((s,o)=>s+orderTotal(o),0);
+  const closingDebt=Math.max(0, shippedTotal - totalPaidByOrders);
 
-  // Заказы до текущего месяца = «начало периода»
+  // Для KPI: отгружено до/после monthStart
   const shippedPrev=shippedOrders.filter(o=>(o.rawDate||parseDMY(o.date)||'')<monthStart);
   const shippedCur =shippedOrders.filter(o=>(o.rawDate||parseDMY(o.date)||'')>=monthStart);
-
-  const openingDebt =shippedPrev.reduce((s,o)=>s+orderTotal(o),0);
-  const shippedCurAmt=shippedCur .reduce((s,o)=>s+orderTotal(o),0);
-  const closingDebt =Math.max(0, openingDebt + shippedCurAmt - paidToOffice);
+  const openingDebt=shippedPrev.reduce((s,o)=>{
+    const paid=paidByOrderMap[o.num]||0;
+    return s+Math.max(0,orderTotal(o)-paid);
+  },0);
+  const shippedCurAmt=shippedCur.reduce((s,o)=>s+orderTotal(o),0);
 
   // ── Долг по предоплате (неотправленные) ─────────────────────
-  const prepayDebt=pendingOrders.reduce((s,o)=>s+orderTotal(o)*0.5,0);
+  const prepayDebt=pendingOrders.reduce((s,o)=>{
+    const total=orderTotal(o);
+    const paid=paidByOrderMap[o.num]||0;
+    return s+Math.max(0,total*0.5-paid);
+  },0);
 
   // ── Для салонов — оплаты от клиентов ─────────────────────────
   const myNums=new Set(myOrders.map(o=>o.num));
   const paidByClients=!isDealer
     ?moneyTx.filter(t=>t.flow==='income'&&t.category==='order_payment'
         &&t.orderNum&&myNums.has(t.orderNum)).reduce((s,t)=>s+t.amount,0)
-    :moneyTx.filter(t=>t.flow==='income'&&t.orderNum&&myNums.has(t.orderNum))
-        .reduce((s,t)=>s+t.amount,0);
+    :totalPaidByOrders;
 
   // ── KPI ──────────────────────────────────────────────────────
   const grid=document.getElementById('reconcile-balance-grid');
@@ -9204,15 +9218,16 @@ function renderReconcile(){
       '<th style="text-align:right;color:var(--red)">Остаток долга</th>'+
       '<th>Статус</th>';
 
-    // Распределяем оплату пропорционально по заказам
-    const totalShipped=shippedOrders.reduce((s,o)=>s+orderTotal(o),0)||1;
-    ordersTbody.innerHTML=shippedOrders.map(o=>{
+    // Реальная оплата по каждому заказу из money_tx
+    ordersTbody.innerHTML=shippedOrders
+      .sort((a,b)=>(b.rawDate||parseDMY(b.date)||'').localeCompare(a.rawDate||parseDMY(a.date)||''))
+      .map(o=>{
       const total=orderTotal(o);
-      const allocatedPmt=paidToOffice*(total/totalShipped);
-      const debt=Math.max(0, total-allocatedPmt);
+      const paid=isDealer?(paidByOrderMap[o.num]||0):paidToOffice*(total/(shippedOrders.reduce((s,x)=>s+orderTotal(x),0)||1));
+      const debt=Math.max(0, total-paid);
       const badge=debt<0.5
         ?'<span class="badge badge-green">✅ Оплачен</span>'
-        :allocatedPmt>0
+        :paid>0
           ?'<span class="badge badge-amber">⚠️ Частично</span>'
           :'<span class="badge badge-red">🔴 Не оплачен</span>';
       return `<tr>
@@ -9220,7 +9235,7 @@ function renderReconcile(){
         <td style="font-size:12px">${o.date||'—'}</td>
         <td style="font-weight:500">${o.customer}</td>
         <td style="text-align:right;font-family:monospace">${fmt(total)}</td>
-        <td style="text-align:right;font-family:monospace;color:var(--green)">${allocatedPmt>0.5?fmt(allocatedPmt):'—'}</td>
+        <td style="text-align:right;font-family:monospace;color:var(--green)">${paid>0.5?fmt(paid):'—'}</td>
         <td style="text-align:right;font-family:monospace;font-weight:700;
           color:${debt>0?'var(--red)':'var(--green)'}">
           ${debt>0?fmt(debt):'✓'}</td>
@@ -20363,39 +20378,7 @@ const STATUS_BADGE={queue:'badge-amber', progress:'badge-blue', done:'badge-gree
 const PROGRESS_CLASS={queue:'amber', progress:'blue', done:'green'};
 
 let orderSeqNum=2245;
- let ordersData=[
-  // ── ОФИС (прямые продажи) ───────────────────────────────────────────────
-  {num:'МО-2244', channel:'office', customer:'ТОО «КазСтрой Плюс»', seller:'Иванов И.И.', resp:'Иванов И.И.',
-   createdDate:'08.07.26', date:'15.07.26', deliveryDate:'30.07.26',
-   comment:'Стулья для столовой, обязательно орех', payment:40, status:'progress',
-   paymentDue:'30.07.26',
-   paymentHistory:[{date:'10.07.26', amount:336000, comment:'Аванс 40% по договору'}],
-   items:[
-     {name:'Стул кухонный', itemType:'Стул', category:'Стул',
-      attributes:{'Основа':'Дуб','Цвет':'Орех'}, qty:50, unit:'шт', progress:74,
-      status:'progress', resp:'Иванов И.И.', date:'15.07.26', price:16800}
-   ]},
-  {num:'МО-2243', channel:'office', customer:'ИП Смагулов А.Б.', seller:'Иванов И.И.', resp:'Иванов И.И.',
-   createdDate:'11.07.26', date:'18.07.26', deliveryDate:'25.07.26',
-   comment:'', payment:100, status:'progress',
-   paymentHistory:[{date:'11.07.26', amount:270000, comment:'100% предоплата'}],
-   items:[
-     {name:'Стол обеденный', itemType:'Стол', category:'Стол',
-      attributes:{'Основа':'ЛДСП','Цвет':'Дуб молочный'}, qty:5, unit:'шт', progress:41,
-      status:'progress', resp:'Иванов И.И.', date:'18.07.26', price:54000}
-   ]},
-  {num:'МО-2242', channel:'office', customer:'АО «Алматы Девелопмент»', seller:'Иванов И.И.', resp:'Иванов И.И.',
-   createdDate:'03.07.26', date:'12.07.26', deliveryDate:'15.08.26',
-   comment:'Доставка на объект, 3 этаж', payment:50, status:'progress',
-   paymentDue:'12.08.26',
-   paymentHistory:[{date:'05.07.26', amount:384000, comment:'Аванс 50%'}],
-   items:[
-     {name:'Кровать двуспальная', itemType:'Кровать', category:'Кровать',
-      attributes:{'Основа':'Дуб','Цвет':'Венге'}, qty:8, unit:'шт', progress:88,
-      status:'progress', resp:'Иванов И.И.', date:'12.07.26', price:96000}
-   ]},
-];
-
+ let ordersData=[];
 let crmLeadSeq=1;
 // ===== SEGMENTS CATALOG (фиксированный справочник, редактируемый) =====
 let segmentsCatalog=[
