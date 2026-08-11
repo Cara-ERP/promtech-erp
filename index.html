@@ -9990,7 +9990,11 @@ function showPage(id, el){
   document.getElementById('topbar-title').textContent=titles[id]||id;
   if(id==='finance'){
     initFinancePeriod();
-    renderPL();
+    if(!_cacheLoaded.money){
+      loadMoneyFromDB().then(()=>{ renderPL(); renderMoneyKPIs(); });
+    } else {
+      renderPL();
+    }
     const allAR=collectAR();
     const tc=document.getElementById('ar-tab-count');
     if(tc) tc.textContent=allAR.length;
