@@ -5458,6 +5458,8 @@ window.onerror = function(msg, src, line, col){
           <select id="bank-cat-filter" onchange="renderBankTx()" style="font-size:13px">
             <option value="all">Все категории</option>
           </select>
+          <button class="btn btn-ghost btn-sm" title="Обновить из базы"
+            onclick="_cacheLoaded.money=false;moneyTx=[];loadMoneyFromDB().then(()=>renderBankTx())">🔄</button>
           <span id="bank-filter-count" style="font-size:12px;color:var(--text3)"></span>
         </div>
         <div class="card" style="padding:0">
@@ -7673,15 +7675,15 @@ function renderBankTx(){
 
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
-  // Бегущий остаток — считаем отдельно для каждого счёта
+  // Бегущий остаток — по ВСЕМ транзакциям счёта (не только за период)
   const balanceMap = {};
   const accIds = [...new Set(txs.map(t=>t.accountId))];
   accIds.forEach(accId=>{
-    const accTxs = moneyFilteredTx(moneyTx)
-      .filter(t=>bankIds.includes(t.accountId) && t.accountId===accId)
+    const allAccTxs = moneyTx
+      .filter(t=>t.accountId===accId)
       .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
     let run = 0;
-    accTxs.forEach(t=>{ run+=t.flow==='income'?t.amount:-t.amount; balanceMap[t.id]=run; });
+    allAccTxs.forEach(t=>{ run+=t.flow==='income'?t.amount:-t.amount; balanceMap[t.id]=run; });
   });
 
   tbody.innerHTML = txs.map(t=>{
