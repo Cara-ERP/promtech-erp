@@ -7227,7 +7227,7 @@ let bankAccounts = [
   {id:'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', name:'Касса Армада',     bank:'ТРЦ Армада',     iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'🏬'},
   {id:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', name:'Касса Назарбаева', bank:'ул. Назарбаева', iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'🏪'},
   {id:'b7e2a1c3-4d5f-6e7a-8b9c-0d1e2f3a4b5c', name:'Касса ЗП',         bank:'Заработная плата',iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'💼'},
-  {id:'0265fb65-7812-4bee-b794-71306246edb7', name:'Расчётный счёт',   bank:'АО «Халык Банк»',iin:'KZ486017131000005619', bik:'HSBKKZKX', balance:0, currency:'KZT', type:'bank', icon:'🏦'},
+  {id:'0265fb65-7812-4bee-b794-71306246edb7', name:'Халык Банк',        bank:'АО «Халык Банк»',iin:'KZ486017131000005619', bik:'HSBKKZKX', balance:0, currency:'KZT', type:'bank', icon:'🏦'},
   {id:'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name:'Kaspi Bank',       bank:'АО «Kaspi Bank»',iin:'', bik:'CASPKZKA', balance:0, currency:'KZT', type:'bank', icon:'🟡'},
 ];
 
@@ -7673,11 +7673,16 @@ function renderBankTx(){
 
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
-  // Бегущий остаток по дате
+  // Бегущий остаток — считаем отдельно для каждого счёта
   const balanceMap = {};
-  const forBal = [...txs].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  let running = 0;
-  forBal.forEach(t=>{ running+=t.flow==='income'?t.amount:-t.amount; balanceMap[t.id]=running; });
+  const accIds = [...new Set(txs.map(t=>t.accountId))];
+  accIds.forEach(accId=>{
+    const accTxs = moneyFilteredTx(moneyTx)
+      .filter(t=>bankIds.includes(t.accountId) && t.accountId===accId)
+      .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    let run = 0;
+    accTxs.forEach(t=>{ run+=t.flow==='income'?t.amount:-t.amount; balanceMap[t.id]=run; });
+  });
 
   tbody.innerHTML = txs.map(t=>{
     const acc = bankAccounts.find(a=>a.id===t.accountId);
