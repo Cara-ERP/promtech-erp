@@ -7626,7 +7626,7 @@ function renderBankAccounts(){
 }
 
 let _bankSortCol = 'date';
-let _bankSortAsc = true;
+let _bankSortAsc = false;
 
 function sortBankTx(col){
   if(_bankSortCol===col){ _bankSortAsc=!_bankSortAsc; }
@@ -7669,7 +7669,15 @@ function renderBankTx(){
   txs.sort((a,b)=>{
     let va, vb;
     switch(_bankSortCol){
-      case 'date':    va=a.date||''; vb=b.date||''; break;
+      case 'date': {
+        const dc = _bankSortAsc
+          ? (a.date||'').localeCompare(b.date||'')
+          : (b.date||'').localeCompare(a.date||'');
+        if(dc!==0) return dc;
+        // внутри дня: приходы выше расходов
+        if(a.flow!==b.flow) return a.flow==='income'?-1:1;
+        return 0;
+      }
       case 'acc':     va=bankAccounts.find(x=>x.id===a.accountId)?.name||''; vb=bankAccounts.find(x=>x.id===b.accountId)?.name||''; break;
       case 'cat':     va=txCatLabel(a.category); vb=txCatLabel(b.category); break;
       case 'ctr':     va=a.counterparty||''; vb=b.counterparty||''; break;
@@ -7686,22 +7694,34 @@ function renderBankTx(){
 
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
-  // Бегущий остаток — считаем по порядку отображения (от старых к новым)
-  // но показываем в той же таблице где новые сверху
+  // Бегущий остаток — от старых к новым (внутри дня: приходы раньше расходов)
   const balanceMap = {};
   const accIds = [...new Set(txs.map(t=>t.accountId))];
   accIds.forEach(accId=>{
     const accDef = bankAccounts.find(a=>a.id===accId);
     const openingBalance = accDef?.openingBalance||0;
-    // Все транзакции этого счёта от старых к новым
     const allAccTxs = moneyTx
       .filter(t=>t.accountId===accId)
-      .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      .sort((a,b)=>{
+        const dc = (a.date||'').localeCompare(b.date||'');
+        if(dc!==0) return dc;
+        // внутри дня: приходы раньше расходов
+        if(a.flow!==b.flow) return a.flow==='income'?-1:1;
+        return 0;
+      });
     let run = openingBalance;
     allAccTxs.forEach(t=>{
       run += t.flow==='income' ? t.amount : -t.amount;
       balanceMap[t.id] = run;
     });
+  });
+
+  // Сортируем таблицу: по дате desc, внутри дня приходы выше расходов
+  txs.sort((a,b)=>{
+    const dc = (b.date||'').localeCompare(a.date||''); // новые сверху
+    if(dc!==0) return dc;
+    if(a.flow!==b.flow) return a.flow==='income'?-1:1; // приходы выше
+    return 0;
   });
 
   tbody.innerHTML = txs.map(t=>{
