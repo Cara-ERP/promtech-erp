@@ -619,11 +619,12 @@ const sbFetch = async (table, params='')=>{
 const sbInsert = async (table, body)=>{
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: 'POST',
-    headers: sbHeaders,
+    headers: {...sbHeaders, 'Prefer': 'return=representation'},
     body: JSON.stringify(body)
   });
   if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data[0] : data;
 };
 
 const sbUpsert = async (table, body, onConflict='num')=>{
@@ -5622,7 +5623,10 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="form-row" id="tx-order-row" style="grid-column:1/-1">
             <label class="label">Связанный заказ <span style="color:var(--text3);font-size:11px">(если есть)</span></label>
-            <div style="display:flex;gap:6px;align-items:center">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <input id="tx-order-search" type="search" placeholder="🔍 Поиск по номеру..." 
+                style="font-size:13px;width:160px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)"
+                oninput="filterTxOrders(this.value)">
               <select id="tx-order" style="font-size:13px;flex:1" onchange="onTxOrderSelect()">
                 <option value="">— не привязан —</option>
               </select>
@@ -7674,8 +7678,11 @@ function renderBankTx(){
           ? (a.date||'').localeCompare(b.date||'')
           : (b.date||'').localeCompare(a.date||'');
         if(dc!==0) return dc;
-        // внутри дня: приходы выше расходов
-        if(a.flow!==b.flow) return a.flow==='income'?-1:1;
+        // внутри дня при отображении новые сверху: расходы выше приходов
+        // (в расчёте остатка всё равно приходы считаются раньше)
+        if(a.flow!==b.flow) return _bankSortAsc
+          ? (a.flow==='income'?-1:1)   // старые сверху: приходы выше
+          : (a.flow==='expense'?-1:1); // новые сверху: расходы выше
         return 0;
       }
       case 'acc':     va=bankAccounts.find(x=>x.id===a.accountId)?.name||''; vb=bankAccounts.find(x=>x.id===b.accountId)?.name||''; break;
@@ -8109,6 +8116,20 @@ function setTxFlow(flow){
   updateTxForm();
 }
 
+function filterTxOrders(query){
+  const sel = document.getElementById('tx-order');
+  if(!sel) return;
+  const q = (query||'').trim().toLowerCase();
+  Array.from(sel.options).forEach(opt=>{
+    if(!opt.value){ opt.style.display=''; return; }
+    opt.style.display = (!q || opt.value.toLowerCase().includes(q) || opt.text.toLowerCase().includes(q)) ? '' : 'none';
+  });
+  if(q){
+    const exact = Array.from(sel.options).find(o=>o.value && o.style.display!=='none' && o.value.toLowerCase().includes(q));
+    if(exact && sel.value!==exact.value){ sel.value=exact.value; onTxOrderSelect(); }
+  }
+}
+
 function openMoneyTxModal(type, flow, editId){
   // Ищем по sbId (UUID из Supabase) или по локальному id
   const tx = editId
@@ -8120,6 +8141,13 @@ function openMoneyTxModal(type, flow, editId){
   document.getElementById('tx-amount').value=tx?.amount||'';
   document.getElementById('tx-desc').value=tx?.desc||'';
   document.getElementById('tx-counterparty').value=tx?.counterparty||'';
+  // Сбрасываем поиск и инфо о заказе при открытии
+  const srch=document.getElementById('tx-order-search');
+  if(srch) srch.value='';
+  const info=document.getElementById('tx-order-info');
+  if(info){ info.style.display='none'; info.innerHTML=''; }
+  const lnk=document.getElementById('tx-order-link');
+  if(lnk) lnk.style.display='none';
 
   // Populate accounts
   const accSel=document.getElementById('tx-account');
@@ -8523,8 +8551,11 @@ function saveMoneyTx(){
       description: obj.desc,
       counterparty:obj.counterparty||'',
       order_num:   obj.orderNum||'',
-    }).then(()=>console.log('✅ Транзакция сохранена в Supabase'))
-      .catch(e=>console.warn('⚠️ Ошибка сохранения транзакции:', e.message));
+    }).then(res=>{
+      console.log('✅ Транзакция сохранена в Supabase');
+      // Присваиваем sbId чтобы при перезагрузке не было дубля
+      if(res?.id) newTx.sbId = res.id;
+    }).catch(e=>console.warn('⚠️ Ошибка сохранения транзакции:', e.message));
 
     // Выдача аванса → создаём авансовый отчёт
     if(category==='advance_out' && counterparty){
