@@ -7230,7 +7230,7 @@ let bankAccounts = [
   {id:'701d7d6d-3dda-4403-ac3c-e4a3987836ea', name:'Касса Назарбаева', bank:'ул. Назарбаева', iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'🏪'},
   {id:'b7e2a1c3-4d5f-6e7a-8b9c-0d1e2f3a4b5c', name:'Касса ЗП',         bank:'Заработная плата',iin:'', bik:'', balance:0, currency:'KZT', type:'cash', icon:'💼'},
   {id:'0265fb65-7812-4bee-b794-71306246edb7', name:'Халык Банк',        bank:'АО «Халык Банк»',iin:'KZ486017131000005619', bik:'HSBKKZKX', balance:0, currency:'KZT', type:'bank', icon:'🏦'},
-  {id:'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name:'Kaspi Bank',       bank:'АО «Kaspi Bank»',iin:'', bik:'CASPKZKA', balance:0, currency:'KZT', type:'bank', icon:'🟡'},
+  {id:'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name:'Kaspi Bank',       bank:'АО «Kaspi Bank»',iin:'', bik:'CASPKZKA', balance:0, openingBalance:967164, currency:'KZT', type:'bank', icon:'🟡'},
 ];
 
 // Категории операций
@@ -7626,7 +7626,7 @@ function renderBankAccounts(){
 }
 
 let _bankSortCol = 'date';
-let _bankSortAsc = false;
+let _bankSortAsc = true;
 
 function sortBankTx(col){
   if(_bankSortCol===col){ _bankSortAsc=!_bankSortAsc; }
@@ -7686,15 +7686,22 @@ function renderBankTx(){
 
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
-  // Бегущий остаток — по ВСЕМ транзакциям счёта (не только за период)
+  // Бегущий остаток — считаем по порядку отображения (от старых к новым)
+  // но показываем в той же таблице где новые сверху
   const balanceMap = {};
   const accIds = [...new Set(txs.map(t=>t.accountId))];
   accIds.forEach(accId=>{
+    const accDef = bankAccounts.find(a=>a.id===accId);
+    const openingBalance = accDef?.openingBalance||0;
+    // Все транзакции этого счёта от старых к новым
     const allAccTxs = moneyTx
       .filter(t=>t.accountId===accId)
       .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-    let run = 0;
-    allAccTxs.forEach(t=>{ run+=t.flow==='income'?t.amount:-t.amount; balanceMap[t.id]=run; });
+    let run = openingBalance;
+    allAccTxs.forEach(t=>{
+      run += t.flow==='income' ? t.amount : -t.amount;
+      balanceMap[t.id] = run;
+    });
   });
 
   tbody.innerHTML = txs.map(t=>{
