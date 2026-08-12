@@ -7998,9 +7998,13 @@ function onTxOrderSelect(){
   if(!order){ if(infoEl) infoEl.style.display='none'; return; }
 
   const total   = orderTotal(order);
-  const paid    = total * Math.min(order.payment||0,100) / 100;
-  const debt    = Math.max(0, total-paid);
-  const fmt     = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  // Считаем реальную оплату из money_tx
+  const realPaid = moneyTx
+    .filter(t=>t.orderNum===orderNum && t.flow==='income')
+    .reduce((s,t)=>s+(t.amount||0), 0);
+  const paid  = realPaid > 0 ? realPaid : total * Math.min(order.payment||0,100) / 100;
+  const debt  = Math.max(0, total-paid);
+  const fmt   = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
   if(infoEl){
     infoEl.style.display='block';
@@ -8015,14 +8019,14 @@ function onTxOrderSelect(){
       </div>`;
   }
 
-  // Автозаполняем поля
+  // Автозаполняем поля — всегда обновляем сумму долга
   const amountEl = document.getElementById('tx-amount');
   const descEl   = document.getElementById('tx-desc');
   const ctpEl    = document.getElementById('tx-counterparty');
 
-  if(amountEl && !amountEl.value) amountEl.value = Math.round(debt)||Math.round(total);
-  if(descEl && !descEl.value)     descEl.value    = `Оплата ${orderNum}`;
-  if(ctpEl  && !ctpEl.value)      ctpEl.value     = order.salonClientName||order.customer;
+  if(amountEl) amountEl.value = Math.round(debt)||Math.round(total);
+  if(descEl)   descEl.value   = `Оплата ${orderNum}`;
+  if(ctpEl)    ctpEl.value    = order.salonClientName||order.customer||'';
 
   // Автовыбор счёта по каналу заказа
   const accSel = document.getElementById('tx-account');
