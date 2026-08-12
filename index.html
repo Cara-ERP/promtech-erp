@@ -8103,16 +8103,20 @@ function openMoneyTxModal(type, flow, editId){
   // Populate orders — все заказы с суммой и долгом
   const ordSel=document.getElementById('tx-order');
   if(ordSel){
-    const ch = getChannelFilter();
-    const orders = ch ? ordersData.filter(o=>o.channel===ch) : ordersData;
-    ordSel.innerHTML='<option value="">— не привязан —</option>'+
-      orders.map(o=>{
-        const total = orderTotal(o);
-        const debt  = Math.max(0, total - total*Math.min(o.payment||0,100)/100);
-        const label = `${o.num} — ${resolveCustomerName(o)} (₸${Math.round(total/1000)}К${debt>0?` долг ₸${Math.round(debt/1000)}К`:' ✅'})`;
-        return `<option value="${o.num}" ${tx?.orderNum===o.num?'selected':''}>${label}</option>`;
-      }).join('');
-    if(tx?.orderNum) setTimeout(onTxOrderSelect, 100);
+    const fillOrders = ()=>{
+      const ch = getChannelFilter();
+      const orders = ch ? ordersData.filter(o=>channelMatches(o.channel,ch)) : ordersData;
+      ordSel.innerHTML='<option value="">— не привязан —</option>'+
+        orders.sort((a,b)=>b.num.localeCompare(a.num)).map(o=>{
+          const total = orderTotal(o);
+          const debt  = Math.max(0, total - total*Math.min(o.payment||0,100)/100);
+          const label = `${o.num} — ${resolveCustomerName(o)} (₸${Math.round(total/1000)}К${debt>0?` долг ₸${Math.round(debt/1000)}К`:' ✅'})`;
+          return `<option value="${o.num}" ${tx?.orderNum===o.num?'selected':''}>${label}</option>`;
+        }).join('');
+      if(tx?.orderNum) setTimeout(onTxOrderSelect, 100);
+    };
+    if(ordersData.length > 0){ fillOrders(); }
+    else { loadOrdersFromDB().then(fillOrders); }
   }
 
   // Set flow и категорию ДО updateTxForm
