@@ -7727,9 +7727,9 @@ function renderBankTx(){
       .sort((a,b)=>{
         const dc = (a.date||'').localeCompare(b.date||'');
         if(dc!==0) return dc;
-        // внутри дня: приходы раньше расходов
+        // внутри дня для расчёта: приходы раньше расходов, затем по убыванию суммы
         if(a.flow!==b.flow) return a.flow==='income'?-1:1;
-        return 0;
+        return b.amount - a.amount;
       });
     let run = openingBalance;
     allAccTxs.forEach(t=>{
