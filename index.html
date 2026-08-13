@@ -4646,7 +4646,7 @@ window.onerror = function(msg, src, line, col){
         <div id="omt-payments" class="omt-tab" style="display:none">
           <div id="eo-payments-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px"></div>
           <div style="display:flex;gap:8px;margin-bottom:12px">
-            <button class="btn btn-primary btn-sm" onclick="openAddPaymentModal()">+ Добавить платёж</button>
+            <button class="btn btn-primary btn-sm" onclick="openMoneyTxModal('cash','income',null,document.getElementById('eo-num')?.value)">+ Добавить платёж</button>
           </div>
           <table class="data-table">
             <thead><tr>
@@ -8183,7 +8183,7 @@ function filterTxOrders(query){
   }
 }
 
-function openMoneyTxModal(type, flow, editId){
+function openMoneyTxModal(type, flow, editId, preOrderNum){
   // Ищем по sbId (UUID из Supabase) или по локальному id
   const tx = editId
     ? moneyTx.find(t=>t.sbId===editId || t.id===editId || String(t.id)===String(editId))
@@ -8260,6 +8260,20 @@ function openMoneyTxModal(type, flow, editId){
       else loadStaffFromDB().then(trySetEmp);
     } else {
       document.getElementById('tx-counterparty').value = tx.counterparty||'';
+    }
+  }
+
+  // Если передан номер заказа — предвыбираем его
+  if(preOrderNum){
+    const ordSel = document.getElementById('tx-order');
+    if(ordSel){
+      const fillAndSelect = ()=>{
+        if(ordSel.options.length > 1){
+          ordSel.value = preOrderNum;
+          onTxOrderSelect();
+        } else { setTimeout(fillAndSelect, 200); }
+      };
+      setTimeout(fillAndSelect, 200);
     }
   }
 
@@ -10257,7 +10271,10 @@ Object.defineProperty(window,'currentUser',{
 // MODALS
 function showModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
-window.addEventListener('click',e=>{if(e.target.classList.contains('modal-overlay'))e.target.classList.remove('open')});
+window.addEventListener('click',e=>{
+  if(e.target.classList.contains('modal-overlay') && e.target.id!=='moneyTxModal')
+    e.target.classList.remove('open');
+});
 
 // REVENUE CHART
 function buildChart(){
