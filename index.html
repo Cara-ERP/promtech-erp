@@ -4646,7 +4646,7 @@ window.onerror = function(msg, src, line, col){
         <div id="omt-payments" class="omt-tab" style="display:none">
           <div id="eo-payments-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px"></div>
           <div style="display:flex;gap:8px;margin-bottom:12px">
-            <button class="btn btn-primary btn-sm" onclick="openMoneyTxModal('cash','income',null,document.getElementById('eo-num')?.value)">+ Добавить платёж</button>
+            <button class="btn btn-primary btn-sm" onclick="openMoneyTxModal('cash','income',null,document.getElementById('eo-num-label')?.textContent?.trim())">+ Добавить платёж</button>
           </div>
           <table class="data-table">
             <thead><tr>
