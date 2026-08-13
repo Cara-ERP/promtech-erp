@@ -11148,7 +11148,7 @@ function saveOrder(){
 
   // Format date dd.mm.yy
   const d=new Date(date);
-  const dateStr=d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  const dateStr=d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
 
   const num='МО-'+orderCounter++;
   const tbody=document.querySelector('#page-mrp .data-table tbody');
@@ -16714,7 +16714,7 @@ function saveWagePayment(){
   err.textContent='';
   wagePayments.push({
     empId: wpCurrentEmpId,
-    date: date ? new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '25.06.26',
+    date: date ? new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}) : '25.06.26',
     amount, method, comment: comment||'Выплата зарплаты'
   });
 
@@ -18312,7 +18312,7 @@ function savePayment(){
   // Add to payment history
   if(!order.paymentHistory) order.paymentHistory=[];
   const newPayment = {
-    date: date ? new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'}) : TODAY.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'}),
+    date: date ? new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}) : TODAY.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}),
     amount, comment: comment||'Платёж'
   };
   order.paymentHistory.push(newPayment);
@@ -21041,7 +21041,7 @@ function openCrmPopover(leadId, btnEl){
   const nextEl=document.getElementById('crm-pop-next');
   if(l.nextDate || l.nextAction){
     let nextText='';
-    if(l.nextDate) nextText+=new Date(l.nextDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})+' — ';
+    if(l.nextDate) nextText+=new Date(l.nextDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})+' — ';
     nextText+=l.nextAction||'(не указано)';
     nextEl.textContent=nextText;
     nextRow.style.display='flex';
@@ -21165,7 +21165,7 @@ function renderCommTimeline(leadId){
   }
   container.innerHTML=entries.map(e=>{
     const ct=COMM_TYPES[e.type]||COMM_TYPES.note;
-    const dateStr=e.date?new Date(e.date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
+    const dateStr=e.date?new Date(e.date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}):'';
     return `<div class="comm-item">
       <div class="comm-dot ${ct.dot}">${ct.icon}</div>
       <div class="comm-body">
@@ -21267,7 +21267,7 @@ function isTaskOverdue(t){
 
 function fmtTaskDateTime(t){
   if(!t.date) return '—';
-  const d=new Date(t.date+'T00:00:00').toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  const d=new Date(t.date+'T00:00:00').toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
   return d+(t.time?' '+t.time:'');
 }
 
@@ -27517,8 +27517,8 @@ function saveCustOrder(){
     if(!name){err.textContent='Заполните наименование для всех товаров';return;}
     if(qty<=0){err.textContent='Количество должно быть больше 0';return;}
     const dateStr=itDate
-      ? new Date(itDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})
-      : new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
+      ? new Date(itDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})
+      : new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
     const attributes={};
     row.querySelectorAll('.attr-select').forEach(sel=>{
       if(sel.value) attributes[sel.dataset.attrKey]=sel.value;
@@ -27529,9 +27529,9 @@ function saveCustOrder(){
   err.textContent='';
 
   const num='МО-'+orderSeqNum++;
-  const dateStr=new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  const dateStr=new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
   const rawDate=date; // ISO yyyy-mm-dd for period filtering
-  const createdDate=new Date().toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'}); // дата возникновения заказа
+  const createdDate=new Date().toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}); // дата возникновения заказа
 
   // Данные дизайнера (для салонов)
   const designerSel2 = document.getElementById('co-designer');
@@ -28046,8 +28046,8 @@ function saveEditedOrder(){
     if(!name){err.textContent='Заполните наименование для всех товаров';return;}
     if(qty<=0){err.textContent='Количество должно быть больше 0';return;}
     const dateStr=itDate
-      ? new Date(itDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})
-      : new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
+      ? new Date(itDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})
+      : new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
     const attributes={};
     row.querySelectorAll('.attr-select').forEach(sel=>{
       if(sel.value) attributes[sel.dataset.attrKey]=sel.value;
@@ -28058,11 +28058,11 @@ function saveEditedOrder(){
   err.textContent='';
 
   // Apply changes back onto the order object (mutating in place keeps array order/reference stable)
-  order.createdDate=new Date(createdDateVal).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
-  order.date=new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  order.createdDate=new Date(createdDateVal).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+  order.date=new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
   order.rawDate=date;
   order.deliveryDate=deliveryDateVal
-    ? new Date(deliveryDateVal).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})
+    ? new Date(deliveryDateVal).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})
     : '';
   order.comment=comment;
   order.resp=resp;
