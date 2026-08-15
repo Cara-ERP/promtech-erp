@@ -8598,32 +8598,14 @@ function updateTxForm(){
 
   // Категории
   const catSel = document.getElementById('tx-category');
-  const subCatRow = document.getElementById('tx-subcategory-row');
-  const subCatSel = document.getElementById('tx-subcategory');
   if(catSel){
-    if(flow==='income'){
-      catSel.innerHTML = TX_INCOME_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
-      if(subCatRow) subCatRow.style.display='none';
-    } else if(isTransfer){
-      catSel.innerHTML = TX_INCOME_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
-      if(subCatRow) subCatRow.style.display='none';
-    } else {
-      // Расход — двухуровневые категории из expense_categories
-      const topCats = window._expenseCats ? window._expenseCats.filter(c=>!c.parent_code) : [];
-      if(topCats.length > 0){
-        const curVal = catSel.value;
-        catSel.innerHTML = topCats
-          .sort((a,b)=>a.sort_order-b.sort_order)
-          .map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
-        if(curVal && topCats.find(c=>c.code===curVal)) catSel.value=curVal;
-      } else {
-        // Fallback на старые категории пока не загружены
-        catSel.innerHTML = TX_EXPENSE_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
-      }
-      // Обновляем подкатегории
-      updateTxSubcategory();
-    }
+    const cats = isTransfer?TX_INCOME_CATS:(flow==='income'?TX_INCOME_CATS:TX_EXPENSE_CATS);
+    const curVal = catSel.value;
+    catSel.innerHTML = cats.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+    if(curVal && cats.find(c=>c.id===curVal)) catSel.value=curVal;
   }
+  // Подкатегории из expense_categories (если загружены)
+  updateTxSubcategory();
 
   const cat = document.getElementById('tx-category')?.value||'';
 
@@ -13328,7 +13310,26 @@ const FC_CATEGORIES={
 };
 
 let fcSeq=1;
-let fixedCostsData=[];
+let fixedCostsData=[
+  // АРЕНДА
+  {id:fcSeq++, name:'Аренда производственного цеха',    category:'rent',      periodType:'month', amount:450000, comment:''},
+  {id:fcSeq++, name:'Аренда складского помещения',      category:'rent',      periodType:'month', amount:120000, comment:''},
+  {id:fcSeq++, name:'Аренда салонов (Армада)',           category:'rent',      periodType:'month', amount:180000, comment:'ТЦ Армада'},
+  {id:fcSeq++, name:'Аренда салонов (Назарбаева)',       category:'rent',      periodType:'month', amount:150000, comment:''},
+  // ФОТ
+  {id:fcSeq++, name:'ЗП постоянная (оклады АУП)',        category:'payroll',   periodType:'month', amount:680000, comment:''},
+  // КОММУНАЛЬНЫЕ
+  {id:fcSeq++, name:'Электроэнергия',                    category:'utility',   periodType:'month', amount:95000,  comment:''},
+  {id:fcSeq++, name:'Газ АлматыГаз',                    category:'utility',   periodType:'month', amount:22000,  comment:''},
+  {id:fcSeq++, name:'Вывоз мусора',                      category:'utility',   periodType:'month', amount:12000,  comment:''},
+  // АДМИНИСТРАТИВНЫЕ
+  {id:fcSeq++, name:'Интернет',                         category:'admin',     periodType:'month', amount:15000,  comment:''},
+  {id:fcSeq++, name:'Комиссия банка',                   category:'admin',     periodType:'month', amount:18000,  comment:''},
+  // РЕКЛАМА
+  {id:fcSeq++, name:'Реклама и маркетинг',              category:'marketing', periodType:'month', amount:60000,  comment:''},
+  // ПРОЧЕЕ
+  {id:fcSeq++, name:'Прочие расходы',                   category:'other',     periodType:'month', amount:25000,  comment:''},
+];
 let editingFcId=null;
 
 // Normalise any cost to monthly equivalent
