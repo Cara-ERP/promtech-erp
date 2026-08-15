@@ -842,6 +842,7 @@ async function loadMoneyFromDB(){
             accountId:   t.account_id||'6dfefc6b-586c-4bb7-8134-1dd537573d15',
             flow:        t.flow||'income',
             category:    t.category||'other_in',
+            subcategory: t.subcategory||'',
             amount:      t.amount||0,
             desc:        t.description||'',
             counterparty:t.counterparty||'',
@@ -5533,7 +5534,7 @@ window.onerror = function(msg, src, line, col){
         <div class="card" style="padding:0">
           <table class="data-table">
             <thead><tr>
-              <th>Дата</th><th>Счёт</th><th>Категория</th>
+              <th>Дата</th><th>Счёт</th><th>Категория</th><th>Статья</th>
               <th>Описание</th><th>Контрагент</th>
               <th style="text-align:right;color:var(--green)">Приход</th>
               <th style="text-align:right;color:var(--red)">Расход</th>
@@ -8083,10 +8084,12 @@ function renderAllTx(){
   const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   tbody.innerHTML=txs.map(t=>{
     const acc=bankAccounts.find(a=>a.id===t.accountId);
+    const subcat = t.subcategory ? (_expenseCats||[]).find(c=>c.code===t.subcategory) : null;
     return `<tr>
       <td style="font-size:12px">${t.date}</td>
       <td style="font-size:12px">${acc?.name||'—'}</td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
+      <td style="font-size:12px;color:var(--text3)">${subcat?subcat.name:'—'}</td>
       <td style="font-size:12px">${t.desc}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
@@ -8332,6 +8335,13 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   if(tx) document.getElementById('tx-account').value  = tx.accountId||'';
   // Теперь вызываем setTxFlow (внутри updateTxForm читает категорию)
   setTxFlow(initFlow);
+  // Восстанавливаем подкатегорию после updateTxForm
+  if(tx?.subcategory){
+    setTimeout(()=>{
+      const subSel = document.getElementById('tx-subcategory');
+      if(subSel){ subSel.value = tx.subcategory; }
+    }, 200);
+  }
 
   // Восстанавливаем контрагента после updateTxForm
   if(tx){
@@ -8598,14 +8608,24 @@ function updateTxForm(){
 
   // Категории
   const catSel = document.getElementById('tx-category');
+  const subCatRow = document.getElementById('tx-subcategory-row');
   if(catSel){
-    const cats = isTransfer?TX_INCOME_CATS:(flow==='income'?TX_INCOME_CATS:TX_EXPENSE_CATS);
-    const curVal = catSel.value;
-    catSel.innerHTML = cats.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
-    if(curVal && cats.find(c=>c.id===curVal)) catSel.value=curVal;
+    if(flow==='income' || isTransfer){
+      catSel.innerHTML = TX_INCOME_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+      if(subCatRow) subCatRow.style.display='none';
+    } else {
+      // Расход — двухуровневые из expense_categories
+      const topCats = (_expenseCats||[]).filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
+      const curVal = catSel.value;
+      if(topCats.length > 0){
+        catSel.innerHTML = topCats.map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+        if(curVal && topCats.find(c=>c.code===curVal)) catSel.value=curVal;
+      } else {
+        catSel.innerHTML = TX_EXPENSE_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+      }
+      updateTxSubcategory();
+    }
   }
-  // Подкатегории из expense_categories (если загружены)
-  updateTxSubcategory();
 
   const cat = document.getElementById('tx-category')?.value||'';
 
@@ -8858,6 +8878,7 @@ function saveMoneyTx(){
     accountId,
     flow,
     category,
+    subcategory,
     amount:      parseFloat(document.getElementById('tx-amount').value)||0,
     desc:        document.getElementById('tx-desc').value.trim(),
     counterparty,
@@ -8891,6 +8912,7 @@ function saveMoneyTx(){
           account_id:   obj.accountId,
           flow:         obj.flow,
           category:     obj.category,
+          subcategory:  obj.subcategory||null,
           amount:       obj.amount,
           description:  obj.desc,
           counterparty: obj.counterparty||'',
@@ -8908,6 +8930,7 @@ function saveMoneyTx(){
       account_id:  String(obj.accountId),
       flow:        obj.flow,
       category:    obj.category,
+      subcategory: obj.subcategory||null,
       amount:      obj.amount,
       description: obj.desc,
       counterparty:obj.counterparty||'',
