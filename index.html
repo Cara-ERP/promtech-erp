@@ -1952,6 +1952,10 @@ window.onerror = function(msg, src, line, col){
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
       <span>Центры прибыли</span>
     </div>
+    <div class="nav-item" onclick="showPage('expense_cats',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h10M4 18h6"/></svg>
+      <span>Статьи расходов</span>
+    </div>
     <div class="nav-item" onclick="showPage('money_salon',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2M8 7V5a2 2 0 0 0-4 0v2"/><line x1="12" y1="12" x2="12" y2="16"/></svg>
       <span>Касса салона</span>
@@ -5632,6 +5636,11 @@ window.onerror = function(msg, src, line, col){
           <div class="form-row" style="grid-column:1/-1">
             <label class="label">Категория</label>
             <select id="tx-category" style="font-size:13px" onchange="updateTxForm()"></select>
+            <div id="tx-subcategory-row" style="display:none;margin-top:6px">
+              <select id="tx-subcategory" style="font-size:13px;width:100%" onchange="onTxSubcatChange()">
+                <option value="">— выберите статью —</option>
+              </select>
+            </div>
           </div>
           <div class="form-row" id="tx-order-row" style="grid-column:1/-1">
             <label class="label">Связанный заказ <span style="color:var(--text3);font-size:11px">(если есть)</span></label>
@@ -5883,6 +5892,94 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- ===== ЦЕНТРЫ ПРИБЫЛИ ===== -->
+    <div class="page" id="page-expense_cats">
+      <div class="page-header">
+        <div class="page-title">📋 Справочник статей расходов</div>
+        <button class="btn btn-primary btn-sm" onclick="openExpCatModal(null)">+ Добавить статью</button>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+        <select id="ec-filter-parent" onchange="renderExpCats()" style="font-size:13px">
+          <option value="">Все категории</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+          <input type="checkbox" id="ec-show-fixed" onchange="renderExpCats()"> Только постоянные
+        </label>
+      </div>
+
+      <div id="ec-table-wrap"></div>
+
+      <!-- Модал редактирования статьи -->
+      <div class="modal-overlay" id="expCatModal">
+        <div class="modal" style="max-width:480px">
+          <div class="modal-header">
+            <div class="modal-title" id="ec-modal-title">Новая статья расходов</div>
+            <button class="modal-close" onclick="closeModal('expCatModal')">✕</button>
+          </div>
+          <div class="modal-body" style="display:grid;gap:12px">
+            <input type="hidden" id="ec-edit-code">
+            <div>
+              <label class="label">Категория первого уровня</label>
+              <select id="ec-parent" style="font-size:13px;width:100%"></select>
+            </div>
+            <div>
+              <label class="label">Название статьи</label>
+              <input id="ec-name" type="text" class="input" placeholder="Например: Электроэнергия">
+            </div>
+            <div>
+              <label class="label">Код (латиница, уникальный)</label>
+              <input id="ec-code" type="text" class="input" placeholder="gen_electricity">
+            </div>
+            <div style="display:flex;gap:16px;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="ec-is-fixed">
+                📌 Постоянный расход (в точку безубыточности)
+              </label>
+            </div>
+            <div>
+              <label class="label">Порядок сортировки</label>
+              <input id="ec-sort" type="number" class="input" value="50" style="width:100px">
+            </div>
+            <div id="ec-error" style="color:var(--red);font-size:13px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('expCatModal')">Отмена</button>
+            <button id="ec-delete-btn" class="btn btn-ghost" style="color:var(--red);display:none"
+              onclick="deleteExpCat()">🗑 Удалить</button>
+            <button class="btn btn-primary" onclick="saveExpCat()">💾 Сохранить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Модал объединения -->
+      <div class="modal-overlay" id="expCatMergeModal">
+        <div class="modal" style="max-width:480px">
+          <div class="modal-header">
+            <div class="modal-title">🔀 Объединить статьи</div>
+            <button class="modal-close" onclick="closeModal('expCatMergeModal')">✕</button>
+          </div>
+          <div class="modal-body" style="display:grid;gap:12px">
+            <div>
+              <label class="label">Исходная статья (будет удалена)</label>
+              <select id="ec-merge-from" style="font-size:13px;width:100%"></select>
+            </div>
+            <div>
+              <label class="label">Целевая статья (останется)</label>
+              <select id="ec-merge-to" style="font-size:13px;width:100%"></select>
+            </div>
+            <div style="font-size:12px;color:var(--text3)">
+              Все транзакции исходной статьи будут перенесены в целевую, затем исходная удалится.
+            </div>
+            <div id="ec-merge-error" style="color:var(--red);font-size:13px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('expCatMergeModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="mergeExpCats()">🔀 Объединить</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="page-channels">
       <div class="section-header">
         <div>
@@ -8277,7 +8374,201 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
     }
   }
 
+  // Загружаем справочник категорий расходов если нужно
+  if(!_expenseCatsLoaded) loadExpenseCategories().then(()=>updateTxForm());
+
   showModal('moneyTxModal');
+}
+
+// ── Управление справочником статей расходов ──────────────────────────────────
+
+async function initExpenseCatsPage(){
+  await loadExpenseCategories();
+  // Заполняем фильтр по родительской категории
+  const filterSel = document.getElementById('ec-filter-parent');
+  if(filterSel && filterSel.options.length <= 1){
+    filterSel.innerHTML = '<option value="">Все категории</option>' +
+      _expenseCats.filter(c=>!c.parent_code)
+        .sort((a,b)=>a.sort_order-b.sort_order)
+        .map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+  }
+  renderExpCats();
+}
+
+function renderExpCats(){
+  const wrap = document.getElementById('ec-table-wrap');
+  if(!wrap) return;
+  const filterParent = document.getElementById('ec-filter-parent')?.value||'';
+  const onlyFixed = document.getElementById('ec-show-fixed')?.checked;
+
+  const topCats = _expenseCats.filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
+
+  let html = '';
+  topCats.forEach(top=>{
+    if(filterParent && top.code!==filterParent) return;
+    const subs = _expenseCats.filter(c=>c.parent_code===top.code)
+      .filter(c=>!onlyFixed||c.is_fixed)
+      .sort((a,b)=>a.sort_order-b.sort_order);
+
+    html += `<div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-weight:700;font-size:14px">${top.name}</span>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openExpCatModal(null,'${top.code}')">+ Добавить</button>
+      </div>
+      <table class="data-table" style="width:100%">
+        <thead><tr>
+          <th>Название</th><th>Код</th><th>Постоянный</th><th>Порядок</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${subs.length ? subs.map(s=>`<tr>
+            <td>${s.name}</td>
+            <td style="font-family:monospace;font-size:12px;color:var(--text3)">${s.code}</td>
+            <td style="text-align:center">${s.is_fixed?'📌 Да':'—'}</td>
+            <td style="text-align:center;color:var(--text3)">${s.sort_order}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openExpCatModal('${s.code}')">✏️</button>
+            </td>
+          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:12px">Нет статей</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+  });
+
+  html += `<div style="margin-top:16px">
+    <button class="btn btn-ghost btn-sm" onclick="openExpCatMergeModal()">🔀 Объединить две статьи</button>
+  </div>`;
+
+  wrap.innerHTML = html;
+}
+
+function openExpCatModal(code, defaultParent){
+  const cat = code ? _expenseCats.find(c=>c.code===code) : null;
+  const topCats = _expenseCats.filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
+
+  document.getElementById('ec-modal-title').textContent = cat ? 'Редактировать статью' : 'Новая статья';
+  document.getElementById('ec-edit-code').value = cat?.code||'';
+  document.getElementById('ec-name').value = cat?.name||'';
+  document.getElementById('ec-code').value = cat?.code||'';
+  document.getElementById('ec-code').disabled = !!cat; // нельзя менять код существующей
+  document.getElementById('ec-is-fixed').checked = cat?.is_fixed||false;
+  document.getElementById('ec-sort').value = cat?.sort_order||50;
+  document.getElementById('ec-error').textContent = '';
+  document.getElementById('ec-delete-btn').style.display = cat?'':'none';
+
+  const parentSel = document.getElementById('ec-parent');
+  parentSel.innerHTML = topCats.map(c=>`<option value="${c.code}"${(cat?.parent_code||defaultParent)===c.code?' selected':''}>${c.name}</option>`).join('');
+
+  showModal('expCatModal');
+}
+
+async function saveExpCat(){
+  const editCode = document.getElementById('ec-edit-code').value;
+  const name = document.getElementById('ec-name').value.trim();
+  const code = document.getElementById('ec-code').value.trim();
+  const parent_code = document.getElementById('ec-parent').value;
+  const is_fixed = document.getElementById('ec-is-fixed').checked;
+  const sort_order = parseInt(document.getElementById('ec-sort').value)||50;
+  const errEl = document.getElementById('ec-error');
+
+  if(!name){ errEl.textContent='Введите название'; return; }
+  if(!code){ errEl.textContent='Введите код'; return; }
+  if(!/^[a-z0-9_]+$/.test(code)){ errEl.textContent='Код — только латиница и цифры'; return; }
+
+  try{
+    if(editCode){
+      await sbPatch('expense_categories',`code=eq.${editCode}`,{name,is_fixed,sort_order});
+      const idx = _expenseCats.findIndex(c=>c.code===editCode);
+      if(idx>=0) Object.assign(_expenseCats[idx],{name,is_fixed,sort_order});
+    } else {
+      const exists = _expenseCats.find(c=>c.code===code);
+      if(exists){ errEl.textContent='Такой код уже существует'; return; }
+      const res = await sbInsert('expense_categories',{code,name,parent_code,is_fixed,sort_order,active:true});
+      if(res) _expenseCats.push(res);
+    }
+    closeModal('expCatModal');
+    renderExpCats();
+    // Обновляем фильтр
+    const filterSel = document.getElementById('ec-filter-parent');
+    if(filterSel) filterSel.innerHTML = '<option value="">Все категории</option>'+
+      _expenseCats.filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order)
+        .map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+  } catch(e){ errEl.textContent='Ошибка: '+e.message; }
+}
+
+async function deleteExpCat(){
+  const code = document.getElementById('ec-edit-code').value;
+  if(!code) return;
+  const subs = _expenseCats.filter(c=>c.parent_code===code);
+  if(subs.length){ document.getElementById('ec-error').textContent=`Нельзя удалить — есть ${subs.length} подстатей`; return; }
+  if(!confirm(`Удалить статью "${code}"?`)) return;
+  try{
+    await sbPatch('expense_categories',`code=eq.${code}`,{active:false});
+    _expenseCats = _expenseCats.filter(c=>c.code!==code);
+    closeModal('expCatModal');
+    renderExpCats();
+  } catch(e){ document.getElementById('ec-error').textContent='Ошибка: '+e.message; }
+}
+
+function openExpCatMergeModal(){
+  const subs = _expenseCats.filter(c=>c.parent_code).sort((a,b)=>a.name.localeCompare(b.name));
+  const opts = subs.map(c=>`<option value="${c.code}">${c.name} (${c.parent_code})</option>`).join('');
+  document.getElementById('ec-merge-from').innerHTML = opts;
+  document.getElementById('ec-merge-to').innerHTML = opts;
+  document.getElementById('ec-merge-error').textContent='';
+  showModal('expCatMergeModal');
+}
+
+async function mergeExpCats(){
+  const from = document.getElementById('ec-merge-from').value;
+  const to   = document.getElementById('ec-merge-to').value;
+  const errEl = document.getElementById('ec-merge-error');
+  if(from===to){ errEl.textContent='Выберите разные статьи'; return; }
+  if(!confirm(`Перенести все транзакции из "${from}" в "${to}" и удалить "${from}"?`)) return;
+  try{
+    // Переносим транзакции
+    await sbPatch('money_tx',`category=eq.${from}`,{category:to});
+    // Деактивируем исходную
+    await sbPatch('expense_categories',`code=eq.${from}`,{active:false});
+    _expenseCats = _expenseCats.filter(c=>c.code!==from);
+    closeModal('expCatMergeModal');
+    renderExpCats();
+    alert(`✅ Готово — все транзакции "${from}" перенесены в "${to}"`);
+  } catch(e){ errEl.textContent='Ошибка: '+e.message; }
+}
+
+// ── Справочник статей расходов ────────────────────────────────────────────────
+let _expenseCats = [];
+let _expenseCatsLoaded = false;
+
+async function loadExpenseCategories(){
+  if(_expenseCatsLoaded) return _expenseCats;
+  try{
+    const data = await sbFetch('expense_categories','select=*&active=eq.true&order=sort_order');
+    if(data){ _expenseCats = data; _expenseCatsLoaded = true; }
+  } catch(e){ console.warn('⚠️ Не удалось загрузить expense_categories:', e.message); }
+  return _expenseCats;
+}
+
+function updateTxSubcategory(){
+  const catSel    = document.getElementById('tx-category');
+  const subRow    = document.getElementById('tx-subcategory-row');
+  const subSel    = document.getElementById('tx-subcategory');
+  if(!catSel||!subSel||!subRow) return;
+  const parentCode = catSel.value;
+  const subs = (_expenseCats||[]).filter(c=>c.parent_code===parentCode);
+  if(subs.length > 0){
+    subRow.style.display='';
+    subSel.innerHTML='<option value="">— выберите статью —</option>'+
+      subs.sort((a,b)=>a.sort_order-b.sort_order)
+        .map(c=>`<option value="${c.code}"${c.is_fixed?' data-fixed="1"':''}>${c.name}${c.is_fixed?' 📌':''}</option>`).join('');
+  } else {
+    subRow.style.display='none';
+    subSel.innerHTML='<option value="">—</option>';
+  }
+}
+
+function onTxSubcatChange(){
+  // Можно добавить логику при выборе подкатегории
 }
 
 function updateTxForm(){
@@ -8307,11 +8598,31 @@ function updateTxForm(){
 
   // Категории
   const catSel = document.getElementById('tx-category');
+  const subCatRow = document.getElementById('tx-subcategory-row');
+  const subCatSel = document.getElementById('tx-subcategory');
   if(catSel){
-    const cats = isTransfer?TX_INCOME_CATS:(flow==='income'?TX_INCOME_CATS:TX_EXPENSE_CATS);
-    const curVal = catSel.value;
-    catSel.innerHTML = cats.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
-    if(curVal && cats.find(c=>c.id===curVal)) catSel.value=curVal;
+    if(flow==='income'){
+      catSel.innerHTML = TX_INCOME_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+      if(subCatRow) subCatRow.style.display='none';
+    } else if(isTransfer){
+      catSel.innerHTML = TX_INCOME_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+      if(subCatRow) subCatRow.style.display='none';
+    } else {
+      // Расход — двухуровневые категории из expense_categories
+      const topCats = window._expenseCats ? window._expenseCats.filter(c=>!c.parent_code) : [];
+      if(topCats.length > 0){
+        const curVal = catSel.value;
+        catSel.innerHTML = topCats
+          .sort((a,b)=>a.sort_order-b.sort_order)
+          .map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+        if(curVal && topCats.find(c=>c.code===curVal)) catSel.value=curVal;
+      } else {
+        // Fallback на старые категории пока не загружены
+        catSel.innerHTML = TX_EXPENSE_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+      }
+      // Обновляем подкатегории
+      updateTxSubcategory();
+    }
   }
 
   const cat = document.getElementById('tx-category')?.value||'';
@@ -8549,6 +8860,7 @@ function saveMoneyTx(){
   const editId  = document.getElementById('tx-edit-id').value||'';
   const flow    = document.getElementById('tx-flow').value;
   const category= document.getElementById('tx-category').value;
+  const subcategory = document.getElementById('tx-subcategory')?.value||'';
 
   const advEmp = document.getElementById('tx-advance-emp')?.value||'';
   // Для всех категорий с сотрудником — берём из селекта сотрудников
@@ -10222,6 +10534,7 @@ function showPage(id, el){
   }
 
   if(id==='money_salon'){ renderSalonMoney(); }
+  if(id==='expense_cats') initExpenseCatsPage();
   if(id==='reconcile'){
     const loads=[loadOrdersFromDB()];
     if(!_cacheLoaded.money) loads.push(loadMoneyFromDB());
@@ -13015,77 +13328,7 @@ const FC_CATEGORIES={
 };
 
 let fcSeq=1;
-let fixedCostsData=[
-  // АРЕНДА
-  {id:fcSeq++, name:'Аренда производственного цеха',    category:'rent',      periodType:'month', amount:450000, comment:''},
-  {id:fcSeq++, name:'Аренда складского помещения',      category:'rent',      periodType:'month', amount:120000, comment:''},
-  {id:fcSeq++, name:'Аренда салонов (Армада)',           category:'rent',      periodType:'month', amount:180000, comment:'ТЦ Армада'},
-  {id:fcSeq++, name:'Аренда салонов (Назарбаева)',       category:'rent',      periodType:'month', amount:150000, comment:''},
-  {id:fcSeq++, name:'Аренда оборудования',               category:'rent',      periodType:'month', amount:35000,  comment:''},
-
-  // ФОТ
-  {id:fcSeq++, name:'ЗП постоянная (оклады АУП)',        category:'payroll',   periodType:'month', amount:680000, comment:'Директор, бухгалтер, менеджеры, нач. цеха'},
-  {id:fcSeq++, name:'Страхование сотрудников',           category:'payroll',   periodType:'month', amount:28000,  comment:''},
-
-  // КОММУНАЛЬНЫЕ
-  {id:fcSeq++, name:'Электроэнергия',                    category:'utility',   periodType:'month', amount:95000,  comment:'~3000 кВт/ч'},
-  {id:fcSeq++, name:'Отопление',                         category:'utility',   periodType:'month', amount:45000,  comment:'Октябрь–апрель выше'},
-  {id:fcSeq++, name:'Вода и канализация',                category:'utility',   periodType:'month', amount:18000,  comment:'АлматыСу'},
-  {id:fcSeq++, name:'Вода питьевая Керемет Су СКЕ',     category:'utility',   periodType:'month', amount:8000,   comment:''},
-  {id:fcSeq++, name:'Вода питьевая Самал',               category:'utility',   periodType:'month', amount:5000,   comment:''},
-  {id:fcSeq++, name:'Газ (сеть) АлматыГаз',             category:'utility',   periodType:'month', amount:22000,  comment:'АО «КазТрансГаз Аймак»'},
-  {id:fcSeq++, name:'Газ (баллон)',                      category:'utility',   periodType:'month', amount:4500,   comment:''},
-  {id:fcSeq++, name:'Вывоз мусора',                      category:'utility',   periodType:'month', amount:12000,  comment:''},
-  {id:fcSeq++, name:'Уборка двора',                      category:'utility',   periodType:'month', amount:15000,  comment:''},
-  {id:fcSeq++, name:'Дезинфекция «Янтарь»',             category:'utility',   periodType:'month', amount:8000,   comment:''},
-
-  // ОБОРУДОВАНИЕ
-  {id:fcSeq++, name:'Оборудование (амортизация)',        category:'equipment', periodType:'month', amount:85000,  comment:'Срок службы 7 лет'},
-  {id:fcSeq++, name:'Ремонт станка и оборудования',     category:'equipment', periodType:'month', amount:30000,  comment:'Резерв'},
-  {id:fcSeq++, name:'Кассовый аппарат (обслуживание)',  category:'equipment', periodType:'month', amount:5000,   comment:''},
-  {id:fcSeq++, name:'Компьютер и комплектующие',        category:'equipment', periodType:'month', amount:15000,  comment:''},
-  {id:fcSeq++, name:'Обслуживание IT-компьютеров',      category:'equipment', periodType:'month', amount:12000,  comment:''},
-  {id:fcSeq++, name:'Заправка картриджа',               category:'equipment', periodType:'month', amount:4000,   comment:''},
-
-  // ТРАНСПОРТ
-  {id:fcSeq++, name:'Ремонт и обслуживание машины (Газель)',category:'transport',periodType:'month',amount:25000, comment:''},
-  {id:fcSeq++, name:'Ремонт и обслуживание машины (Рено)', category:'transport',periodType:'month',amount:15000, comment:''},
-  {id:fcSeq++, name:'Мойка машины',                     category:'transport', periodType:'month', amount:6000,   comment:''},
-  {id:fcSeq++, name:'Разгрузка, погрузка',              category:'transport', periodType:'month', amount:20000,  comment:''},
-  {id:fcSeq++, name:'Курьер',                           category:'transport', periodType:'month', amount:18000,  comment:''},
-  {id:fcSeq++, name:'Командировки',                     category:'transport', periodType:'month', amount:30000,  comment:''},
-  {id:fcSeq++, name:'Таможня, брокерские услуги',       category:'transport', periodType:'month', amount:12000,  comment:'При импорте комплектующих'},
-  {id:fcSeq++, name:'Штрафы, нарушения ПДД',           category:'transport', periodType:'month', amount:3000,   comment:'Резерв'},
-
-  // РЕКЛАМА И МАРКЕТИНГ
-  {id:fcSeq++, name:'Реклама, сайты, маркетинг',       category:'marketing', periodType:'month', amount:60000,  comment:'Контекст + соцсети'},
-  {id:fcSeq++, name:'Расходы салонов',                  category:'marketing', periodType:'month', amount:25000,  comment:'Промо-материалы, оформление'},
-  {id:fcSeq++, name:'Консультации, оценка, проекты',   category:'marketing', periodType:'month', amount:20000,  comment:'Дизайнер, технолог'},
-  {id:fcSeq++, name:'Реставрация (образцы/выставки)',   category:'marketing', periodType:'quarter',amount:90000, comment:''},
-
-  // АДМИНИСТРАТИВНЫЕ
-  {id:fcSeq++, name:'Интернет',                         category:'admin',     periodType:'month', amount:15000,  comment:''},
-  {id:fcSeq++, name:'Охрана, сигнализация, видеонаблюдение',category:'admin', periodType:'month', amount:35000,  comment:'ЧОП'},
-  {id:fcSeq++, name:'Комиссия банка',                   category:'admin',     periodType:'month', amount:18000,  comment:'РКО + эквайринг'},
-  {id:fcSeq++, name:'Бухгалтерия (1С, УНФ, Битрикс, ИС)',category:'admin',   periodType:'month', amount:22000,  comment:'Лицензии + поддержка'},
-  {id:fcSeq++, name:'Офисные расходы',                  category:'admin',     periodType:'month', amount:12000,  comment:'Канцелярия, бумага, ручки'},
-
-  // ПИТАНИЕ
-  {id:fcSeq++, name:'Обед сотрудников',                 category:'food',      periodType:'month', amount:45000,  comment:'~20 чел × ₸75/день × 22 раб. дня'},
-  {id:fcSeq++, name:'Кефир, молоко',                    category:'food',      periodType:'month', amount:8000,   comment:'Для работников вредных условий'},
-  {id:fcSeq++, name:'Продукты (кухня офиса)',           category:'food',      periodType:'month', amount:12000,  comment:'Чай, кофе, сахар'},
-  {id:fcSeq++, name:'Мясо (корпоративные мероприятия)', category:'food',      periodType:'month', amount:5000,   comment:''},
-
-  // МЕДИЦИНА
-  {id:fcSeq++, name:'Медицинские услуги',               category:'medical',   periodType:'month', amount:10000,  comment:'Медосмотры, первая помощь'},
-  {id:fcSeq++, name:'Аптека и лекарства',               category:'medical',   periodType:'month', amount:5000,   comment:'Аптечка на производстве'},
-
-  // ПРОЧЕЕ
-  {id:fcSeq++, name:'Хозяйственные расходы',            category:'other',     periodType:'month', amount:18000,  comment:'Мыло, средства уборки'},
-  {id:fcSeq++, name:'Матрас',                           category:'other',     periodType:'month', amount:3000,   comment:'Комната отдыха'},
-  {id:fcSeq++, name:'Прочие расходы',                   category:'other',     periodType:'month', amount:25000,  comment:'Непредвиденные'},
-];
-
+let fixedCostsData=[];
 let editingFcId=null;
 
 // Normalise any cost to monthly equivalent
