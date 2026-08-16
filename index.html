@@ -5904,6 +5904,9 @@ window.onerror = function(msg, src, line, col){
       </div>
 
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+        <input id="ec-search" type="search" placeholder="🔍 Поиск по названию или коду..."
+          style="font-size:13px;flex:1;min-width:200px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)"
+          oninput="renderExpCats()">
         <select id="ec-filter-parent" onchange="renderExpCats()" style="font-size:13px">
           <option value="">Все категории</option>
         </select>
@@ -8410,6 +8413,7 @@ function renderExpCats(){
   if(!wrap) return;
   const filterParent = document.getElementById('ec-filter-parent')?.value||'';
   const onlyFixed = document.getElementById('ec-show-fixed')?.checked;
+  const searchQ = (document.getElementById('ec-search')?.value||'').trim().toLowerCase();
 
   // Обновляем фильтр
   const filterSel = document.getElementById('ec-filter-parent');
@@ -8448,6 +8452,7 @@ function renderExpCats(){
     if(filterParent && top.code!==filterParent) return;
     const subs = _expenseCats.filter(c=>c.parent_code===top.code)
       .filter(c=>!onlyFixed||c.is_fixed)
+      .filter(c=>!searchQ || c.name.toLowerCase().includes(searchQ) || c.code.toLowerCase().includes(searchQ))
       .sort((a,b)=>a.sort_order-b.sort_order);
 
     html += `<div style="margin-bottom:20px">
