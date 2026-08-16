@@ -9193,13 +9193,13 @@ function deleteBankAccount(){
 
 // ── Авансовые отчёты CRUD ────────────────────────────────────────────────────
 function openAdvanceModal(id){
-  const a = id ? advanceReports.find(x=>x.id===id) : null;
+  const a = id ? advanceReports.find(x=>(x.sbId||x.id)===id) : null;
   document.getElementById('advance-modal-title').textContent =
-    a ? `АО-${String(a.id).padStart(3,'0')} · ${a.empName}` : 'Новый авансовый отчёт';
+    a ? (a.docNum||'АО') + ' · ' + a.empName : 'Новый авансовый отчёт';
   document.getElementById('adv-edit-id').value = id||'';
   document.getElementById('adv-delete-btn').style.display = a?'':'none';
-  document.getElementById('adv-date').value   = a?.date||new Date().toISOString().slice(0,10);
-  document.getElementById('adv-report-date').value = a?.reportDate||'';
+  document.getElementById('adv-date').value = a?.date||new Date().toISOString().slice(0,10);
+  document.getElementById('adv-report-date').value = a?.reportDate||a?.date||new Date().toISOString().slice(0,10);
   document.getElementById('adv-issued').value = a?.issued||'';
   document.getElementById('adv-returned').value = a?.returned||'';
   document.getElementById('adv-purpose').value = a?.purpose||'';
