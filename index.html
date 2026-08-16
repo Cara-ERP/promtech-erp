@@ -1452,7 +1452,7 @@ async function updateOrderInDB(num, fields){
 // Содержит всё необходимое для входа — доступен сразу при клике.
  var _USERS={
   director:   {name:'Тургамбаев Булат Сагинтаевич', initials:'ТБ', color:'#4f8ef7', label:'Директор',
-    pages:['dashboard','mrp','warehouse','purchases','suppliers','catalog','sales','customers','crm','finance','money','channels','reconcile','hr','wages','techcards','mycabinet','ai']},
+    pages:['dashboard','mrp','warehouse','purchases','suppliers','catalog','sales','customers','crm','finance','money','channels','expense_cats','reconcile','hr','wages','techcards','mycabinet','ai']},
   manager:    {name:'Алтыбасова Акерке', initials:'АА', color:'#3dd68c', label:'Бухгалтер (продажи)',
     pages:['dashboard','catalog','sales','customers','crm','mycabinet']},
   storekeeper:{name:'Угламова Халидам',  initials:'УХ', color:'#f5a623', label:'Кладовщик',
@@ -1669,6 +1669,8 @@ function doLogin(){
       var nav=document.querySelector(".nav-item[onclick*=\"showPage('"+first+"'\"]");
       showPage(first,nav);
       diagLog('✓✓ showPage вызвана успешно');
+      // Загружаем справочник статей расходов
+      loadExpenseCategories();
       // Загружаем счётчик задач после логина
       setTimeout(()=>{
         loadTasksFromDB().then(()=>{
