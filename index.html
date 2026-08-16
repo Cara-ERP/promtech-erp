@@ -8585,9 +8585,9 @@ let _expenseCats = [];
 let _expenseCatsLoaded = false;
 
 async function loadExpenseCategories(){
-  if(_expenseCatsLoaded) return _expenseCats;
+  if(_expenseCatsLoaded && _expenseCats.length > 0) return _expenseCats;
   try{
-    const data = await sbFetch('expense_categories','select=*&active=eq.true&order=sort_order');
+    const data = await sbFetch('expense_categories','select=*&order=sort_order');
     if(data){ _expenseCats = data; _expenseCatsLoaded = true; }
   } catch(e){ console.warn('⚠️ Не удалось загрузить expense_categories:', e.message); }
   return _expenseCats;
