@@ -9218,16 +9218,15 @@ function openAdvanceModal(id){
   empSel.innerHTML = '<option value="">— выберите —</option>' +
     empOptions.map(e=>'<option value="'+e.name+'"'+(a?.empName===e.name?' selected':'')+'>'+e.label+'</option>').join('');
 
+  // Заполняем список транзакций выдачи ПОСЛЕ заполнения сотрудника
+  updateAdvTxList();
+  const txSel = document.getElementById('adv-tx-id');
+  if(txSel && a?.txId) txSel.value = a.txId;
+
   const accSel = document.getElementById('adv-account');
   accSel.innerHTML = bankAccounts.map(acc=>
     `<option value="${acc.id}" ${a?.accountId===acc.id?'selected':''}>${acc.icon||''} ${acc.name}</option>`
   ).join('');
-  // Заполняем список транзакций выдачи
-  setTimeout(()=>{
-    updateAdvTxList();
-    const txSel = document.getElementById('adv-tx-id');
-    if(txSel && a?.txId) txSel.value = a.txId;
-  }, 100);
 
   // Заполняем селект материалов
   const matSel = document.getElementById('adv-line-material');
@@ -9329,6 +9328,7 @@ function updateAdvLineForm(){
   const subcatCol = document.getElementById('adv-line-subcat-col');
 
   if(extra) extra.style.display = type==='expense'?'none':'';
+  if(supRow) supRow.style.display = type==='supplier'?'':'none';
   if(type==='supplier'){
     // Заполняем список поставщиков
     const supSel = document.getElementById('adv-line-supplier');
