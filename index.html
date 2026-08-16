@@ -5438,6 +5438,7 @@ window.onerror = function(msg, src, line, col){
               <th onclick="sortCashTx('date')"   style="cursor:pointer;user-select:none">Дата <span id="cash-sort-date">▼</span></th>
               <th>Тип</th>
               <th onclick="sortCashTx('cat')"    style="cursor:pointer;user-select:none">Категория <span id="cash-sort-cat"></span></th>
+              <th>Статья</th>
               <th>Описание</th>
               <th onclick="sortCashTx('ctr')"    style="cursor:pointer;user-select:none">Контрагент <span id="cash-sort-ctr"></span></th>
               <th onclick="sortCashTx('income')" style="cursor:pointer;user-select:none;text-align:right;color:var(--green)">Приход <span id="cash-sort-income"></span></th>
@@ -5486,6 +5487,7 @@ window.onerror = function(msg, src, line, col){
               <th onclick="sortBankTx('date')"    style="cursor:pointer;user-select:none">Дата <span id="bank-sort-date">▼</span></th>
               <th onclick="sortBankTx('acc')"     style="cursor:pointer;user-select:none">Счёт <span id="bank-sort-acc"></span></th>
               <th onclick="sortBankTx('cat')"     style="cursor:pointer;user-select:none">Категория <span id="bank-sort-cat"></span></th>
+              <th>Статья</th>
               <th>Описание</th>
               <th onclick="sortBankTx('ctr')"     style="cursor:pointer;user-select:none">Контрагент <span id="bank-sort-ctr"></span></th>
               <th onclick="sortBankTx('income')"  style="cursor:pointer;user-select:none;text-align:right;color:var(--green)">Приход <span id="bank-sort-income"></span></th>
@@ -7696,10 +7698,12 @@ function renderCashTx(){
   tbody.innerHTML = txs.map(t=>{
     const rowBal = showRunning ? running : null;
     if(showRunning) running += t.flow==='income' ? -t.amount : t.amount;
+    const subcat = t.subcategory ? (_expenseCats||[]).find(c=>c.code===t.subcategory) : null;
     return `<tr>
       <td style="font-size:12px;white-space:nowrap">${t.date}</td>
       <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
+      <td style="font-size:12px;color:var(--text3)">${subcat?subcat.name:'—'}</td>
       <td style="font-size:12px">${t.desc||'—'}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
@@ -7710,7 +7714,7 @@ function renderCashTx(){
         <button class="btn btn-ghost btn-sm" style="font-size:11px" title="Копировать" onclick="copyMoneyTx('${t.sbId||t.id}')">📋</button>
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--text3)">Операций нет за период</td></tr>`;
+  }).join('') || `<tr><td colspan="10" style="text-align:center;padding:16px;color:var(--text3)">Операций нет за период</td></tr>`;
 }
 
 // ── Банковские счета ─────────────────────────────────────────────────────────
@@ -7851,19 +7855,21 @@ function renderBankTx(){
     const acc = bankAccounts.find(a=>a.id===t.accountId);
     const bal = balanceMap[t.id];
     const balStr = bal!==undefined ? '<span style="color:'+(bal>=0?'var(--text1)':'var(--red)')+'">'+fmt(bal)+'</span>' : '—';
+    const subcat = t.subcategory ? (_expenseCats||[]).find(c=>c.code===t.subcategory) : null;
     return '<tr>'
       +'<td style="font-size:12px;white-space:nowrap">'+t.date+'</td>'
       +'<td style="font-size:12px;font-weight:500">'+(acc?.name||'—')+'</td>'
       +'<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'
+      +'<td style="font-size:12px;color:var(--text3)">'+(subcat?subcat.name:'—')+'</td>'
       +'<td style="font-size:12px">'+(t.desc||'—')+(t.orderNum?' <span style="color:var(--accent);font-size:11px">('+t.orderNum+')</span>':'')+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(t.counterparty||'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmt(t.amount):'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmt(t.amount):'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;font-weight:600">'+balStr+'</td>'
-      +'<td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,\''+(t.sbId||t.id)+'\')">✏️</button>'
-      +'<button class="btn btn-ghost btn-sm" style="font-size:11px" title="Копировать" onclick="copyMoneyTx(\''+(t.sbId||t.id)+'\')">📋</button></td>'
+      +'<td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,\''+( t.sbId||t.id)+'\')" >✏️</button>'
+      +'<button class="btn btn-ghost btn-sm" style="font-size:11px" title="Копировать" onclick="copyMoneyTx(\''+( t.sbId||t.id)+'\')" >📋</button></td>'
       +'</tr>';
-  }).join('') || '<tr><td colspan="9" style="text-align:center;padding:16px;color:var(--text3)">Операций нет за период</td></tr>';
+  }).join('') || '<tr><td colspan="10" style="text-align:center;padding:16px;color:var(--text3)">Операций нет за период</td></tr>';
 }
 
 // ── Авансовые отчёты ─────────────────────────────────────────────────────────
