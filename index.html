@@ -5877,6 +5877,18 @@ window.onerror = function(msg, src, line, col){
               <label class="label">Описание</label>
               <input id="adv-line-desc" type="text" style="font-size:12px" placeholder="ГСМ, гостиница, материал...">
             </div>
+            <div id="adv-line-cat-col" style="display:none">
+              <label class="label">Категория</label>
+              <select id="adv-line-cat" style="font-size:12px" onchange="updateAdvLineCat()">
+                <option value="">— выберите —</option>
+              </select>
+            </div>
+            <div id="adv-line-subcat-col" style="display:none">
+              <label class="label">Статья</label>
+              <select id="adv-line-subcat" style="font-size:12px">
+                <option value="">— выберите —</option>
+              </select>
+            </div>
             <div>
               <label class="label">Сумма (₸)</label>
               <input id="adv-line-amount" type="number" min="0" style="font-size:12px" placeholder="0">
@@ -5889,8 +5901,16 @@ window.onerror = function(msg, src, line, col){
           <!-- Доп. поля по типу -->
           <div id="adv-line-extra" style="margin-top:8px;display:none">
             <div id="adv-line-supplier-row" style="display:none">
-              <label class="label">Контрагент</label>
-              <input id="adv-line-supplier" type="text" style="font-size:12px;width:100%" placeholder="Название поставщика/магазина">
+              <label class="label">Поставщик</label>
+              <select id="adv-line-supplier" style="font-size:12px;width:100%" onchange="updateAdvSupplierDocs()">
+                <option value="">— выберите поставщика —</option>
+              </select>
+              <div id="adv-line-supplier-doc-row" style="display:none;margin-top:6px">
+                <label class="label">Документ поставщика <span style="color:var(--text3)">(необязательно)</span></label>
+                <select id="adv-line-supplier-doc" style="font-size:12px;width:100%">
+                  <option value="">— без документа —</option>
+                </select>
+              </div>
             </div>
             <div id="adv-line-material-row" style="display:none">
               <label class="label">Материал (ТМЗ)</label>
@@ -9175,9 +9195,17 @@ function openAdvanceModal(id){
   document.getElementById('adv-status').value  = a?.status||'open';
 
   const empSel = document.getElementById('adv-employee');
-  empSel.innerHTML = employeesData.map(e=>
-    `<option value="${e.name}" ${a?.empName===e.name?'selected':''}>${e.name} — ${e.pos}</option>`
-  ).join('');
+  // Объединяем: сотрудники + подотчётные лица из money_tx
+  const advPersons = [...new Set(
+    moneyTx.filter(t=>t.category==='advance_out' && t.counterparty)
+      .map(t=>t.counterparty)
+  )];
+  const empOptions = [
+    ...employeesData.map(e=>({name:e.name, label:e.name+' — '+e.pos})),
+    ...advPersons.filter(n=>!employeesData.find(e=>e.name===n)).map(n=>({name:n, label:n}))
+  ];
+  empSel.innerHTML = '<option value="">— выберите —</option>' +
+    empOptions.map(e=>'<option value="'+e.name+'"'+(a?.empName===e.name?' selected':'')+'>'+e.label+'</option>').join('');
 
   const accSel = document.getElementById('adv-account');
   accSel.innerHTML = bankAccounts.map(acc=>
@@ -9280,9 +9308,80 @@ function updateAdvLineForm(){
   const extra = document.getElementById('adv-line-extra');
   const supRow = document.getElementById('adv-line-supplier-row');
   const matRow = document.getElementById('adv-line-material-row');
+  const catCol = document.getElementById('adv-line-cat-col');
+  const subcatCol = document.getElementById('adv-line-subcat-col');
+
   if(extra) extra.style.display = type==='expense'?'none':'';
-  if(supRow) supRow.style.display = type==='supplier'?'':'none';
+  if(type==='supplier'){
+    // Заполняем список поставщиков
+    const supSel = document.getElementById('adv-line-supplier');
+    if(supSel && supSel.options.length <= 1){
+      const suppliers = [...new Set([
+        ...suppliersData.map(s=>s.name||s.company),
+        ...moneyTx.filter(t=>t.category==='supplier'&&t.counterparty).map(t=>t.counterparty)
+      ])].filter(Boolean).sort();
+      supSel.innerHTML = '<option value="">— выберите поставщика —</option>' +
+        suppliers.map(s=>`<option value="${s}">${s}</option>`).join('');
+    }
+    const docRow = document.getElementById('adv-line-supplier-doc-row');
+    if(docRow) docRow.style.display='none';
+  }
   if(matRow) matRow.style.display = type==='material'?'':'none';
+
+  if(type==='expense'){
+    // Показываем двухуровневые категории расходов
+    if(catCol) catCol.style.display='';
+    const catSel = document.getElementById('adv-line-cat');
+    if(catSel && _expenseCats.length > 0){
+      catSel.innerHTML = '<option value="">— выберите —</option>' +
+        _expenseCats.filter(c=>!c.parent_code)
+          .sort((a,b)=>a.sort_order-b.sort_order)
+          .map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+    }
+    updateAdvLineCat();
+  } else {
+    if(catCol) catCol.style.display='none';
+    if(subcatCol) subcatCol.style.display='none';
+  }
+}
+
+function updateAdvSupplierDocs(){
+  const supSel = document.getElementById('adv-line-supplier');
+  const docRow = document.getElementById('adv-line-supplier-doc-row');
+  const docSel = document.getElementById('adv-line-supplier-doc');
+  if(!supSel||!docRow||!docSel) return;
+  const supplier = supSel.value;
+  if(!supplier){ docRow.style.display='none'; return; }
+
+  // Ищем документы (транзакции) по данному поставщику
+  const docs = moneyTx.filter(t=>t.counterparty===supplier && t.flow==='expense')
+    .sort((a,b)=>b.date.localeCompare(a.date))
+    .slice(0,50);
+
+  if(docs.length > 0){
+    docRow.style.display='';
+    docSel.innerHTML = '<option value="">— без документа —</option>' +
+      docs.map(t=>`<option value="${t.sbId||t.id}">${t.date} — ₸${Math.round(t.amount).toLocaleString('ru-RU')} — ${(t.desc||'').substring(0,40)}</option>`).join('');
+  } else {
+    docRow.style.display='none';
+  }
+}
+
+function updateAdvLineCat(){
+  const catSel = document.getElementById('adv-line-cat');
+  const subcatCol = document.getElementById('adv-line-subcat-col');
+  const subcatSel = document.getElementById('adv-line-subcat');
+  if(!catSel||!subcatSel||!subcatCol) return;
+  const parentCode = catSel.value;
+  const subs = (_expenseCats||[]).filter(c=>c.parent_code===parentCode)
+    .sort((a,b)=>a.sort_order-b.sort_order);
+  if(subs.length > 0){
+    subcatCol.style.display='';
+    subcatSel.innerHTML = '<option value="">— выберите статью —</option>' +
+      subs.map(c=>`<option value="${c.code}">${c.name}${c.is_fixed?' 📌':''}</option>`).join('');
+  } else {
+    subcatCol.style.display='none';
+  }
 }
 
 function addAdvLine(){
@@ -9290,12 +9389,15 @@ function addAdvLine(){
   const desc   = document.getElementById('adv-line-desc').value.trim();
   const amount = parseFloat(document.getElementById('adv-line-amount').value)||0;
   const supplier = document.getElementById('adv-line-supplier')?.value.trim()||'';
+  const supplierDocId = document.getElementById('adv-line-supplier-doc')?.value||'';
   const matId  = parseInt(document.getElementById('adv-line-material')?.value||0)||null;
   if(!amount){alert('Укажите сумму');return;}
   if(type==='material'&&!matId){alert('Выберите материал из справочника');return;}
+  const cat = document.getElementById('adv-line-cat')?.value||'';
+  const subcat = document.getElementById('adv-line-subcat')?.value||'';
   window._advLines.push({
-    id: advLineSeq++, type, desc, amount, supplier,
-    materialId: matId,
+    id: advLineSeq++, type, desc, amount, supplier, supplierDocId,
+    materialId: matId, category: cat, subcategory: subcat,
   });
   // Сброс формы
   document.getElementById('adv-line-desc').value='';
