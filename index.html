@@ -5923,7 +5923,7 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="modal-body" style="display:grid;gap:12px">
             <input type="hidden" id="ec-edit-code">
-            <div>
+            <div id="ec-parent-row">
               <label class="label">Категория первого уровня</label>
               <select id="ec-parent" style="font-size:13px;width:100%"></select>
             </div>
@@ -8401,15 +8401,7 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
 // ── Управление справочником статей расходов ──────────────────────────────────
 
 async function initExpenseCatsPage(){
-  await loadExpenseCategories();
-  // Заполняем фильтр по родительской категории
-  const filterSel = document.getElementById('ec-filter-parent');
-  if(filterSel && filterSel.options.length <= 1){
-    filterSel.innerHTML = '<option value="">Все категории</option>' +
-      _expenseCats.filter(c=>!c.parent_code)
-        .sort((a,b)=>a.sort_order-b.sort_order)
-        .map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
-  }
+  if(!_expenseCatsLoaded) await loadExpenseCategories();
   renderExpCats();
 }
 
@@ -8419,9 +8411,39 @@ function renderExpCats(){
   const filterParent = document.getElementById('ec-filter-parent')?.value||'';
   const onlyFixed = document.getElementById('ec-show-fixed')?.checked;
 
-  const topCats = _expenseCats.filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
+  // Обновляем фильтр
+  const filterSel = document.getElementById('ec-filter-parent');
+  if(filterSel){
+    const curFilter = filterSel.value;
+    filterSel.innerHTML = '<option value="">Все категории</option>' +
+      _expenseCats.filter(c=>!c.parent_code)
+        .sort((a,b)=>a.sort_order-b.sort_order)
+        .map(c=>`<option value="${c.code}"${c.code===curFilter?' selected':''}>${c.name}</option>`).join('');
+  }
 
-  let html = '';
+  const topCats = _expenseCats.filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
+  if(!topCats.length){
+    wrap.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">Нет данных. Проверьте таблицу expense_categories в Supabase.</div>';
+    return;
+  }
+
+  let html = '<div style="margin-bottom:24px"><h3 style="font-size:14px;font-weight:700;margin-bottom:10px">Категории первого уровня</h3>';
+  html += '<table class="data-table" style="width:100%"><thead><tr>'
+    +'<th>Название</th><th>Код</th><th>Порядок</th><th></th>'
+    +'</tr></thead><tbody>';
+  topCats.forEach(c=>{
+    html += `<tr>
+      <td style="font-weight:600">${c.name}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--text3)">${c.code}</td>
+      <td style="text-align:center;color:var(--text3)">${c.sort_order}</td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openExpCatModal('${c.code}',null,true)">✏️</button></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  html += '<button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="openExpCatModal(null,null,true)">+ Добавить категорию</button></div>';
+
+  html += '<h3 style="font-size:14px;font-weight:700;margin-bottom:10px">Статьи второго уровня</h3>';
+
   topCats.forEach(top=>{
     if(filterParent && top.code!==filterParent) return;
     const subs = _expenseCats.filter(c=>c.parent_code===top.code)
@@ -8429,61 +8451,70 @@ function renderExpCats(){
       .sort((a,b)=>a.sort_order-b.sort_order);
 
     html += `<div style="margin-bottom:20px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="font-weight:700;font-size:14px">${top.name}</span>
-        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openExpCatModal(null,'${top.code}')">+ Добавить</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-weight:600;font-size:13px;color:var(--accent)">${top.name}</span>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openExpCatModal(null,'${top.code}',false)">+ Добавить</button>
       </div>
       <table class="data-table" style="width:100%">
-        <thead><tr>
-          <th>Название</th><th>Код</th><th>Постоянный</th><th>Порядок</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${subs.length ? subs.map(s=>`<tr>
-            <td>${s.name}</td>
-            <td style="font-family:monospace;font-size:12px;color:var(--text3)">${s.code}</td>
-            <td style="text-align:center">${s.is_fixed?'📌 Да':'—'}</td>
-            <td style="text-align:center;color:var(--text3)">${s.sort_order}</td>
-            <td style="white-space:nowrap">
-              <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openExpCatModal('${s.code}')">✏️</button>
-            </td>
-          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:12px">Нет статей</td></tr>'}
+        <thead><tr><th>Название</th><th>Код</th><th>📌 Постоянный</th><th>Порядок</th><th></th></tr></thead>
+        <tbody>${subs.length ? subs.map(s=>`<tr>
+          <td>${s.name}</td>
+          <td style="font-family:monospace;font-size:12px;color:var(--text3)">${s.code}</td>
+          <td style="text-align:center">${s.is_fixed?'📌 Да':'—'}</td>
+          <td style="text-align:center;color:var(--text3)">${s.sort_order}</td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openExpCatModal('${s.code}',null,false)">✏️</button>
+          </td>
+        </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:8px">Нет статей</td></tr>'}
         </tbody>
       </table>
     </div>`;
   });
 
-  html += `<div style="margin-top:16px">
-    <button class="btn btn-ghost btn-sm" onclick="openExpCatMergeModal()">🔀 Объединить две статьи</button>
-  </div>`;
-
+  html += '<div style="margin-top:16px"><button class="btn btn-ghost btn-sm" onclick="openExpCatMergeModal()">🔀 Объединить две статьи</button></div>';
   wrap.innerHTML = html;
 }
 
-function openExpCatModal(code, defaultParent){
+function openExpCatModal(code, defaultParent, isTop){
   const cat = code ? _expenseCats.find(c=>c.code===code) : null;
+  const isTopLevel = isTop !== undefined ? isTop : (cat ? !cat.parent_code : false);
   const topCats = _expenseCats.filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
 
-  document.getElementById('ec-modal-title').textContent = cat ? 'Редактировать статью' : 'Новая статья';
+  document.getElementById('ec-modal-title').textContent = cat
+    ? (isTopLevel ? 'Редактировать категорию' : 'Редактировать статью')
+    : (isTopLevel ? 'Новая категория' : 'Новая статья');
   document.getElementById('ec-edit-code').value = cat?.code||'';
   document.getElementById('ec-name').value = cat?.name||'';
   document.getElementById('ec-code').value = cat?.code||'';
-  document.getElementById('ec-code').disabled = !!cat; // нельзя менять код существующей
+  document.getElementById('ec-code').disabled = !!cat;
   document.getElementById('ec-is-fixed').checked = cat?.is_fixed||false;
   document.getElementById('ec-sort').value = cat?.sort_order||50;
   document.getElementById('ec-error').textContent = '';
   document.getElementById('ec-delete-btn').style.display = cat?'':'none';
 
+  const parentRow = document.getElementById('ec-parent-row');
   const parentSel = document.getElementById('ec-parent');
-  parentSel.innerHTML = topCats.map(c=>`<option value="${c.code}"${(cat?.parent_code||defaultParent)===c.code?' selected':''}>${c.name}</option>`).join('');
 
+  if(isTopLevel){
+    if(parentRow) parentRow.style.display='none';
+  } else {
+    if(parentRow) parentRow.style.display='';
+    parentSel.innerHTML = topCats.map(c=>
+      `<option value="${c.code}"${(cat?.parent_code||defaultParent)===c.code?' selected':''}>${c.name}</option>`
+    ).join('');
+  }
+
+  // Сохраняем флаг isTop для saveExpCat
+  document.getElementById('ec-edit-code').dataset.isTop = isTopLevel ? '1' : '0';
   showModal('expCatModal');
 }
 
 async function saveExpCat(){
   const editCode = document.getElementById('ec-edit-code').value;
+  const isTop = document.getElementById('ec-edit-code').dataset.isTop === '1';
   const name = document.getElementById('ec-name').value.trim();
   const code = document.getElementById('ec-code').value.trim();
-  const parent_code = document.getElementById('ec-parent').value;
+  const parent_code = isTop ? null : (document.getElementById('ec-parent').value||null);
   const is_fixed = document.getElementById('ec-is-fixed').checked;
   const sort_order = parseInt(document.getElementById('ec-sort').value)||50;
   const errEl = document.getElementById('ec-error');
@@ -8505,11 +8536,6 @@ async function saveExpCat(){
     }
     closeModal('expCatModal');
     renderExpCats();
-    // Обновляем фильтр
-    const filterSel = document.getElementById('ec-filter-parent');
-    if(filterSel) filterSel.innerHTML = '<option value="">Все категории</option>'+
-      _expenseCats.filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order)
-        .map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
   } catch(e){ errEl.textContent='Ошибка: '+e.message; }
 }
 
