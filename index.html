@@ -5504,23 +5504,38 @@ window.onerror = function(msg, src, line, col){
 
       <!-- АВАНСОВЫЕ ОТЧЁТЫ -->
       <div id="money-tab-advances" style="display:none">
-        <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
-          <div style="flex:1"></div>
+        <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+          <input type="search" id="adv-search" placeholder="🔍 Сотрудник, цель..." 
+            style="font-size:13px;flex:1;min-width:160px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)"
+            oninput="renderAdvances()">
+          <select id="adv-status-filter" onchange="renderAdvances()" style="font-size:13px">
+            <option value="">Все статусы</option>
+            <option value="open">Открытые</option>
+            <option value="reported">Отчитались</option>
+            <option value="closed">Закрытые</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="_advancesLoaded=false;loadAdvancesFromDB().then(()=>renderAdvances())">🔄</button>
           <button class="btn btn-primary btn-sm" onclick="openAdvanceModal(null)">+ Авансовый отчёт</button>
         </div>
+        <div style="overflow:auto;max-height:calc(100vh - 320px)">
         <table class="data-table">
           <thead><tr>
-            <th>№</th><th>Дата</th><th>Сотрудник</th>
+            <th>№</th>
+            <th>Подотчётное лицо</th>
+            <th>Дата выдачи</th>
+            <th>Документы выдачи</th>
             <th>Цель</th>
             <th style="text-align:right">Выдано</th>
-            <th style="text-align:right">Потрачено</th>
+            <th style="text-align:right;color:var(--red)">Потрачено</th>
             <th style="text-align:right;color:var(--green)">Возврат</th>
-            <th style="text-align:right;color:var(--amber)">Остаток</th>
-            <th>Статус</th><th></th>
+            <th style="text-align:right;color:var(--amber)">Остаток/Перерасход</th>
+            <th>Дата отчёта</th>
+            <th>Статус</th>
+            <th></th>
           </tr></thead>
           <tbody id="advances-tbody"></tbody>
         </table>
-      </div>
+        </div>
 
       <!-- ВСЕ ОПЕРАЦИИ -->
       <div id="money-tab-all" style="display:none">
@@ -7491,7 +7506,7 @@ function showMoneyTab(tab, el){
   });
   if(tab==='cash')     renderCashTx();
   if(tab==='bank')     { renderBankAccounts(); renderBankTx(); }
-  if(tab==='advances') renderAdvances();
+  if(tab==='advances'){ loadAdvancesFromDB().then(()=>renderAdvances()); }
   if(tab==='all')      renderAllTx();
   if(tab==='calendar') renderPayCalendar();
   renderMoneyKPIs();
@@ -7878,40 +7893,80 @@ function renderBankTx(){
 }
 
 // ── Авансовые отчёты ─────────────────────────────────────────────────────────
+let _advancesLoaded = false;
+
+async function loadAdvancesFromDB(){
+  if(_advancesLoaded) return;
+  try{
+    const data = await sbFetch('advance_reports','select=*&order=date.desc');
+    if(data && data.length >= 0){
+      advanceReports = data.map(a=>({
+        id:       a.id,
+        sbId:     a.id,
+        date:     a.date,
+        empName:  a.emp_name,
+        purpose:  a.purpose||'',
+        issued:   a.issued||0,
+        spent:    a.spent||0,
+        returned: a.returned||0,
+        status:   a.status||'open',
+        accountId:a.account_id||'',
+        txIds:    a.tx_ids||[],
+        docNum:   a.doc_num||'',
+        reportDate: a.report_date||'',
+        lines:    [],
+      }));
+      _advancesLoaded = true;
+    }
+  } catch(e){ console.warn('⚠️ Ошибка загрузки авансовых отчётов:', e.message); }
+}
+
 function renderAdvances(){
   const tbody=document.getElementById('advances-tbody');
   if(!tbody) return;
   const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  const searchQ = (document.getElementById('adv-search')?.value||'').toLowerCase();
+  const statusF = document.getElementById('adv-status-filter')?.value||'';
 
-  tbody.innerHTML=advanceReports.map(a=>{
+  let rows = advanceReports;
+  if(searchQ) rows = rows.filter(a=>
+    a.empName.toLowerCase().includes(searchQ)||
+    (a.purpose||'').toLowerCase().includes(searchQ));
+  if(statusF) rows = rows.filter(a=>a.status===statusF);
+
+  tbody.innerHTML=rows.map(a=>{
     const spent    = advTotalSpent(a);
     const returned = a.returned||0;
     const bal      = advBalance(a);
     const si       = advStatus(a);
-    const hasLines = (a.lines||[]).length > 0;
 
-    const balColor = Math.abs(bal)<0.5 ? 'var(--green)' : bal>0 ? 'var(--amber)' : 'var(--red)';
-    const balLabel = Math.abs(bal)<0.5 ? '✓' : bal>0 ? fmt(bal) : '+ '+fmt(-bal);
+    const balColor = Math.abs(bal)<0.5?'var(--green)':bal>0?'var(--amber)':'var(--red)';
+    const balLabel = Math.abs(bal)<0.5?'✓':bal>0?fmt(bal):'⬆️ '+fmt(-bal);
 
-    return `<tr onclick="openAdvanceModal('${a.id}')" style="cursor:pointer">
-      <td style="font-family:monospace;color:var(--accent);font-size:12px">АО-${String(a.id).padStart(3,'0')}</td>
-      <td style="font-size:12px">${a.date}</td>
+    // Документы выдачи из money_tx
+    const txDocs = moneyTx.filter(t=>(a.txIds||[]).includes(t.sbId)||
+      (t.counterparty===a.empName && t.flow==='expense' && 
+       t.category==='advance_out' && t.date===a.date))
+      .map(t=>`${t.date} ${fmt(t.amount)}`)
+      .join(', ');
+
+    return `<tr onclick="openAdvanceModal('${a.sbId||a.id}')" style="cursor:pointer">
+      <td style="font-family:monospace;color:var(--accent);font-size:12px">${a.docNum||'АО-'+String(a.id).substring(0,6)}</td>
       <td style="font-weight:500">${a.empName}</td>
-      <td style="font-size:12px">${a.purpose}${hasLines?` <span style="font-size:10px;color:var(--text3)">(${(a.lines||[]).length} строк)</span>`:''}
-      </td>
+      <td style="font-size:12px;white-space:nowrap">${a.date}</td>
+      <td style="font-size:11px;color:var(--text3)">${txDocs||'—'}</td>
+      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.purpose||'—'}</td>
       <td style="text-align:right;font-family:monospace">${fmt(a.issued)}</td>
-      <td style="text-align:right;font-family:monospace;color:${spent>0?'var(--red)':'var(--text3)'}">
-        ${spent>0?fmt(spent):'—'}</td>
-      <td style="text-align:right;font-family:monospace;color:var(--green)">
-        ${returned>0?fmt(returned):'—'}</td>
-      <td style="text-align:right;font-family:monospace;font-weight:600;color:${balColor}">
-        ${balLabel}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--red)">${spent>0?fmt(spent):'—'}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--green)">${returned>0?fmt(returned):'—'}</td>
+      <td style="text-align:right;font-family:monospace;font-weight:600;color:${balColor}">${balLabel}</td>
+      <td style="font-size:12px;white-space:nowrap">${a.reportDate||'—'}</td>
       <td><span class="badge ${si.cls}" style="font-size:10px">${si.label}</span></td>
       <td onclick="event.stopPropagation()">
-        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAdvanceModal('${a.id}')">✏️</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAdvanceModal('${a.sbId||a.id}')">✏️</button>
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--text3)">Авансовых отчётов нет</td></tr>`;
+  }).join('') || `<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--text3)">Авансовых отчётов нет</td></tr>`;
 }
 
 // ── Все операции ──────────────────────────────────────────────────────────────
