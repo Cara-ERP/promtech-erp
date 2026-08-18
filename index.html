@@ -8432,7 +8432,20 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   document.getElementById('tx-flow').value = initFlow;
   // Сначала устанавливаем категорию
   if(tx) document.getElementById('tx-category').value = tx.category||'';
-  if(tx) document.getElementById('tx-account').value  = tx.accountId||'';
+
+  // Счёт: для существующей — из записи; для новой — из активного фильтра журнала
+  const accEl = document.getElementById('tx-account');
+  if(tx){
+    accEl.value = tx.accountId||'';
+    // Сумма из существующей записи
+    document.getElementById('tx-amount').value = tx.amount||'';
+  } else {
+    // Берём из фильтра активного журнала
+    const bankFilter = document.getElementById('bank-account-filter')?.value;
+    const cashFilter = document.getElementById('cash-account-select')?.value;
+    const activeFilter = (window._activeCashTab==='bank' ? bankFilter : cashFilter)||'';
+    if(activeFilter && activeFilter !== 'all') accEl.value = activeFilter;
+  }
   // Теперь вызываем setTxFlow (внутри updateTxForm читает категорию)
   setTxFlow(initFlow);
   // Восстанавливаем подкатегорию после updateTxForm
