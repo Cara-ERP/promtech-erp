@@ -5655,7 +5655,7 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="form-row" style="grid-column:1/-1">
             <label class="label">Категория</label>
-            <select id="tx-category" style="font-size:13px" onchange="updateTxForm()"></select>
+            <select id="tx-category" style="font-size:13px" onchange="updateTxSubcategory()"></select>
             <div id="tx-subcategory-row" style="display:none;margin-top:6px">
               <select id="tx-subcategory" style="font-size:13px;width:100%" onchange="onTxSubcatChange()">
                 <option value="">— выберите статью —</option>
@@ -8739,7 +8739,10 @@ function updateTxForm(){
   const subCatRow = document.getElementById('tx-subcategory-row');
   if(catSel){
     if(flow==='income' || isTransfer){
+      const curVal = catSel.value;
       catSel.innerHTML = TX_INCOME_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
+      // Восстанавливаем если значение есть в новом списке
+      if(curVal && TX_INCOME_CATS.find(c=>c.id===curVal)) catSel.value=curVal;
       if(subCatRow) subCatRow.style.display='none';
     } else {
       // Расход — двухуровневые из expense_categories
@@ -9193,6 +9196,14 @@ function deleteBankAccount(){
 
 // ── Авансовые отчёты CRUD ────────────────────────────────────────────────────
 function openAdvanceModal(id){
+  // Загружаем данные если нужно, потом открываем форму
+  const loads = [];
+  if(!_cacheLoaded.money) loads.push(loadMoneyFromDB());
+  if(!_expenseCatsLoaded || !_expenseCats.length) loads.push(loadExpenseCategories());
+  if(loads.length > 0){
+    Promise.all(loads).then(()=>openAdvanceModal(id));
+    return;
+  }
   const a = id ? advanceReports.find(x=>(x.sbId||x.id)===id) : null;
   document.getElementById('advance-modal-title').textContent =
     a ? (a.docNum||'АО') + ' · ' + a.empName : 'Новый авансовый отчёт';
