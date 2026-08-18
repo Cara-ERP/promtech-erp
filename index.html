@@ -8246,9 +8246,12 @@ function onTxOrderSelect(){
   const descEl   = document.getElementById('tx-desc');
   const ctpEl    = document.getElementById('tx-counterparty');
 
-  if(amountEl) amountEl.value = Math.round(debt)||Math.round(total);
+  const isEdit = !!document.getElementById('tx-edit-id')?.value;
+  const curAmt = parseFloat(amountEl?.value)||0;
+  if(amountEl && curAmt === 0) amountEl.value = Math.round(debt)||Math.round(total);
   if(descEl)   descEl.value   = `Оплата ${orderNum}`;
-  if(ctpEl)    ctpEl.value    = order.salonClientName||order.customer||'';
+  // Контрагент перезаписываем только для новых записей
+  if(ctpEl && !isEdit) ctpEl.value = order.salonClientName||order.customer||'';
 
   // Автовыбор счёта по каналу заказа
   const accSel = document.getElementById('tx-account');
