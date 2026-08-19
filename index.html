@@ -7779,7 +7779,7 @@ function renderCashTx(){
       <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
       <td style="font-size:12px;color:var(--text3)">${subcat?subcat.name:'—'}</td>
-      <td style="font-size:12px">${t.desc||'—'}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
+      <td style="font-size:12px">${t.desc||'—'}${txOrderTag(t)}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
@@ -7835,6 +7835,19 @@ function sortBankTx(col){
     if(el) el.textContent = c===_bankSortCol ? (_bankSortAsc?'▲':'▼') : '';
   });
   renderBankTx();
+}
+
+
+function txOrderNums(t){
+  const nums = [];
+  if(t.orderNum) nums.push(t.orderNum);
+  (window._orderPaymentsData||[]).filter(p=>p.tx_id===(t.sbId||t.id)).forEach(p=>{ if(!nums.includes(p.order_num)) nums.push(p.order_num); });
+  return nums;
+}
+function txOrderTag(t){
+  const nums = txOrderNums(t);
+  if(!nums.length) return '';
+  return ' '+nums.map(n=>`<span style="color:var(--accent);font-size:11px">(${n})</span>`).join(' ');
 }
 
 function renderBankTx(){
@@ -7936,7 +7949,7 @@ function renderBankTx(){
       +'<td style="font-size:12px;font-weight:500">'+(acc?.name||'—')+'</td>'
       +'<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(subcat?subcat.name:'—')+'</td>'
-      +'<td style="font-size:12px">'+(t.desc||'—')+(t.orderNum?' <span style="color:var(--accent);font-size:11px">('+t.orderNum+')</span>':'')+'</td>'
+      +'<td style="font-size:12px">'+(t.desc||'—')+txOrderTag(t)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(t.counterparty||'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmt(t.amount):'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmt(t.amount):'—')+'</td>'
@@ -8211,7 +8224,7 @@ function renderAllTx(){
       <td style="font-size:12px">${acc?.name||'—'}</td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
       <td style="font-size:12px;color:var(--text3)">${subcat?subcat.name:'—'}</td>
-      <td style="font-size:12px">${t.desc}${t.orderNum?` <span style="color:var(--accent);font-size:11px">(${t.orderNum})</span>`:''}</td>
+      <td style="font-size:12px">${t.desc}${txOrderTag(t)}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
@@ -9910,7 +9923,7 @@ async function renderSalonMoney(){
         <td style="font-size:12px;font-family:monospace">${t.date}</td>
         <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
         <td style="font-size:11px">${txCatLabel(t.category)}</td>
-        <td style="font-size:12px">${t.desc||'—'}${t.orderNum?`<br><span style="font-size:10px;color:var(--accent)">${t.orderNum}</span>`:''}</td>
+        <td style="font-size:12px">${t.desc||'—'}${txOrderTag(t)}</td>
         <td style="text-align:right;font-family:monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
         <td style="text-align:right;font-family:monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
         <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(bal)}</td>
