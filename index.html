@@ -1263,7 +1263,26 @@ let _ordersLoadedForChannel = null;
 async function loadOrderPaymentsFromDB(){
   try{
     const data = await sbFetch('order_payments','select=*');
-    if(data) window._orderPaymentsData = data;
+    if(data){
+      window._orderPaymentsData = data;
+      // Пересчитываем % оплаты заказов
+      if(ordersData.length > 0){
+        ordersData.forEach(order=>{
+          const multi = data.filter(p=>p.order_num===order.num).reduce((s,p)=>s+(p.amount||0),0);
+          if(multi > 0){
+            const total = orderTotal(order);
+            if(total > 0){
+              const direct = (window.moneyTx||moneyTx)
+                .filter(t=>t.orderNum===order.num && t.flow==='income')
+                .reduce((s,t)=>s+(t.amount||0),0);
+              order.payment = Math.min(100, Math.round((direct+multi)/total*100));
+            }
+          }
+        });
+        // Перерисовываем если открыт журнал заказов
+        if(typeof renderOrdersTable==='function') renderOrdersTable();
+      }
+    }
   } catch(e){ console.warn('⚠️ order_payments:', e.message); }
 }
 
