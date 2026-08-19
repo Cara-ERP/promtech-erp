@@ -7737,10 +7737,15 @@ function renderCashTx(){
         .reduce((s,t)=>s+(t.flow==='income'?t.amount:-t.amount), 0)
     : 0;
 
+  const hasPeriod = !!(moneyPeriod.from||moneyPeriod.to);
+  const displayBalance = hasPeriod
+    ? openBal + stats.income - stats.expense  // остаток за период
+    : stats.income - stats.expense;           // текущий остаток
+
   set('cash-open-balance', fmt(openBal));
   set('cash-income',  fmt(stats.income));
   set('cash-expense', fmt(stats.expense));
-  set('cash-balance', fmt(openBal + stats.income - stats.expense));
+  set('cash-balance', fmt(displayBalance));
 
   const tbody = document.getElementById('cash-tbody');
   if(!tbody) return;
@@ -7816,9 +7821,13 @@ function renderBankAccounts(){
   const grid = document.getElementById('bank-accounts-grid');
   if(!grid) return;
   const bankOnly = bankAccounts.filter(a=>a.type==='bank');
+  const filtered = moneyFilteredTx(moneyTx);
+  const hasPeriod = !!(moneyPeriod.from||moneyPeriod.to);
   grid.innerHTML = bankOnly.map(acc=>{
-    const stats = calcAccountStats(acc.id);
+    const stats    = calcAccountStats(acc.id, filtered);
+    const allStats = calcAccountStats(acc.id);
     const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+    const displayBalance = hasPeriod ? stats.income - stats.expense : allStats.income - allStats.expense;
     return `<div class="card" style="padding:16px;cursor:pointer" onclick="openBankAccountModal('${acc.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
@@ -7828,15 +7837,17 @@ function renderBankAccounts(){
         </div>
         <span class="badge badge-blue" style="font-size:10px">${acc.currency}</span>
       </div>
-      <div style="font-size:22px;font-weight:700;color:var(--accent);margin-bottom:8px">
-        ${acc.currency==='KZT'?'₸':acc.currency} ${stats.balance.toLocaleString('ru-RU')}
+      <div style="font-size:22px;font-weight:700;color:var(--accent);margin-bottom:4px">
+        ${acc.currency==='KZT'?'₸':acc.currency} ${displayBalance.toLocaleString('ru-RU')}
       </div>
+      ${hasPeriod?'<div style="font-size:10px;color:var(--text3);margin-bottom:4px">Текущий остаток ↑↓ за период</div>':''}
       <div style="display:flex;gap:12px;font-size:12px">
         <div><span style="color:var(--green)">↑ ${fmt(stats.income)}</span></div>
         <div><span style="color:var(--red)">↓ ${fmt(stats.expense)}</span></div>
       </div>
     </div>`;
   }).join('');
+
   const sel = document.getElementById('bank-account-filter');
   if(sel&&sel.options.length<=1){
     bankOnly.forEach(a=>{const o=document.createElement('option');o.value=a.id;o.textContent=a.name;sel.appendChild(o);});
