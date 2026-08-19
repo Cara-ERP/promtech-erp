@@ -8315,13 +8315,23 @@ function renderTxOrderLines(){
   const list = document.getElementById('tx-orders-list');
   if(!list) return;
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-  list.innerHTML = _txOrderLines.map(l=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg3);border-radius:6px;font-size:13px">
-      <span style="color:var(--accent);font-family:monospace">${l.orderNum}</span>
-      <span style="flex:1;color:var(--text3)">${ordersData.find(o=>o.num===l.orderNum)?.salonClientName||''}</span>
-      <span style="font-weight:600">${fmt(l.amount)}</span>
+  list.innerHTML = _txOrderLines.map(l=>{
+    const order = ordersData.find(o=>o.num===l.orderNum);
+    const client = order?.salonClientName||order?.customer||'';
+    const total  = order ? orderTotal(order) : 0;
+    const paid   = order ? (moneyTx.filter(t=>t.orderNum===l.orderNum&&t.flow==='income').reduce((s,t)=>s+t.amount,0)
+                          + (window._orderPaymentsData||[]).filter(p=>p.order_num===l.orderNum).reduce((s,p)=>s+p.amount,0)) : 0;
+    const debt   = Math.max(0, total - paid);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:6px;font-size:13px">
+      <span style="color:var(--accent);font-family:monospace;font-weight:600">${l.orderNum}</span>
+      ${client?`<span style="color:var(--text2)">${client}</span>`:''}
+      ${total?`<span style="color:var(--text3)">💰 ${fmt(total)}</span>`:''}
+      ${debt>0?`<span style="color:var(--red)">⏳ ${fmt(debt)}</span>`:`<span style="color:var(--green)">✅</span>`}
+      <span style="font-weight:700;margin-left:auto">${fmt(l.amount)}</span>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openEditOrderModal('${l.orderNum}')">🔍</button>
       <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removeTxOrderLine('${l.orderNum}')">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function clearTxOrderLines(){
@@ -8538,6 +8548,18 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   const srch=document.getElementById('tx-order-search');
   if(srch) srch.value='';
   clearTxOrderLines();
+  // Загружаем привязанные заказы из order_payments для существующей записи
+  if(tx?.sbId){
+    const linked = (window._orderPaymentsData||[]).filter(p=>p.tx_id===tx.sbId);
+    if(linked.length > 0){
+      linked.forEach(p=>{ _txOrderLines.push({orderNum: p.order_num, amount: p.amount}); });
+      renderTxOrderLines();
+    } else if(tx.orderNum){
+      // Одиночный заказ из order_num
+      _txOrderLines.push({orderNum: tx.orderNum, amount: tx.amount});
+      renderTxOrderLines();
+    }
+  }
   const info=document.getElementById('tx-order-info');
   if(info){ info.style.display='none'; info.innerHTML=''; }
   const lnk=document.getElementById('tx-order-link');
@@ -8589,6 +8611,24 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   }
   // Теперь вызываем setTxFlow (внутри updateTxForm читает категорию)
   setTxFlow(initFlow);
+
+  // Восстанавливаем тип контрагента для order_payment
+  if(tx?.category==='order_payment' || (flow==='income' && tx)){
+    const ctpTypeEl = document.getElementById('tx-counterparty-type');
+    if(ctpTypeEl && tx?.counterparty){
+      // Определяем тип по контрагенту
+      const ctp = tx.counterparty;
+      if(ctp.includes('Армада')) ctpTypeEl.value = 'salon_armada';
+      else if(ctp.includes('Назарбаева')) ctpTypeEl.value = 'salon_nazarbayeva';
+      else if(ctp.includes('Астана')) ctpTypeEl.value = 'dealer_astana';
+      else if(ctp.includes('Актау')) ctpTypeEl.value = 'dealer_aktau';
+      else if(ctp.includes('Атырау')) ctpTypeEl.value = 'dealer_atyrau';
+      else if(ctp.includes('Шымкент')) ctpTypeEl.value = 'dealer_shymkent';
+      else if(ctp.includes('Актобе')) ctpTypeEl.value = 'dealer_aktobe';
+      else ctpTypeEl.value = 'free';
+      updateTxCounterpartyType();
+    }
+  }
   // Восстанавливаем подкатегорию после updateTxForm
   if(tx?.subcategory){
     setTimeout(()=>{
