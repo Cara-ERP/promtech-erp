@@ -843,6 +843,7 @@ async function loadMoneyFromDB(){
             flow:        t.flow||'income',
             category:    t.category||'other_in',
             subcategory: t.subcategory||'',
+            endClient:   t.end_client||'',
             amount:      t.amount||0,
             desc:        t.description||'',
             counterparty:t.counterparty||'',
@@ -8249,9 +8250,11 @@ function onTxOrderSelect(){
   const isEdit = !!document.getElementById('tx-edit-id')?.value;
   const curAmt = parseFloat(amountEl?.value)||0;
   if(amountEl && curAmt === 0) amountEl.value = Math.round(debt)||Math.round(total);
-  if(descEl)   descEl.value   = `Оплата ${orderNum}`;
-  // Контрагент перезаписываем только для новых записей
-  if(ctpEl && !isEdit) ctpEl.value = order.salonClientName||order.customer||'';
+  if(descEl && !isEdit && !descEl.value) descEl.value = `Оплата ${orderNum}`;
+  if(ctpEl && !isEdit && !ctpEl.value) ctpEl.value = order.salonClientName||order.customer||'';
+  // Конечный клиент — только если новая запись и поле пустое
+  const endClientEl = document.getElementById('tx-end-client');
+  if(endClientEl && !isEdit && !endClientEl.value) endClientEl.value = order.salonClientName||'';
 
   // Автовыбор счёта по каналу заказа
   const accSel = document.getElementById('tx-account');
@@ -8397,6 +8400,9 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   document.getElementById('tx-amount').value=tx?.amount||'';
   document.getElementById('tx-desc').value=tx?.desc||'';
   document.getElementById('tx-counterparty').value=tx?.counterparty||'';
+  // Конечный клиент
+  const endClientEl = document.getElementById('tx-end-client');
+  if(endClientEl) endClientEl.value = tx?.endClient||'';
   // Сбрасываем поиск и инфо о заказе при открытии
   const srch=document.getElementById('tx-order-search');
   if(srch) srch.value='';
