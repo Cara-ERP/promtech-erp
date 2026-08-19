@@ -7640,9 +7640,8 @@ function setMoneyPeriod(mode){
 
   // Перерендериваем активную вкладку
   renderMoneyKPIs();
-  const activeTx = document.querySelector('#page-money .money-tab[style*="block"]');
+  if(document.getElementById('money-tab-bank')?.style.display!=='none')     { renderBankAccounts(); renderBankTx(); }
   if(document.getElementById('money-tab-cash')?.style.display!=='none')     renderCashTx();
-  if(document.getElementById('money-tab-bank')?.style.display!=='none')     renderBankTx();
   if(document.getElementById('money-tab-all')?.style.display!=='none')      renderAllTx();
   if(document.getElementById('money-tab-calendar')?.style.display!=='none'){
     // рендерится через showMoneyTab
