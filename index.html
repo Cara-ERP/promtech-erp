@@ -5664,14 +5664,20 @@ window.onerror = function(msg, src, line, col){
             </div>
           </div>
           <div class="form-row" id="tx-order-row" style="grid-column:1/-1">
-            <label class="label">Связанный заказ <span style="color:var(--text3);font-size:11px">(если есть)</span></label>
+            <label class="label">Связанные заказы <span style="color:var(--text3);font-size:11px">(если есть)</span></label>
+            <!-- Список добавленных заказов -->
+            <div id="tx-orders-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px"></div>
+            <!-- Добавление нового заказа -->
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              <input id="tx-order-search" type="search" placeholder="🔍 Поиск по номеру..." 
+              <input id="tx-order-search" type="search" placeholder="🔍 Поиск по номеру..."
                 style="font-size:13px;width:160px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)"
                 oninput="filterTxOrders(this.value)">
               <select id="tx-order" style="font-size:13px;flex:1" onchange="onTxOrderSelect()">
                 <option value="">— не привязан —</option>
               </select>
+              <input id="tx-order-amount" type="number" placeholder="Сумма" min="0"
+                style="font-size:13px;width:110px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)">
+              <button class="btn btn-ghost btn-sm" onclick="addTxOrderLine()" style="white-space:nowrap">+ Добавить</button>
               <span id="tx-order-link" style="display:none">
                 <button class="btn btn-ghost btn-sm" style="font-size:11px;white-space:nowrap"
                   onclick="openEditOrderModal(document.getElementById('tx-order').value)">
@@ -8204,6 +8210,56 @@ function renderAllTx(){
 }
 
 // ── Форма операции ────────────────────────────────────────────────────────────
+// ── Оплата за несколько заказов ──────────────────────────────────────────────
+let _txOrderLines = []; // [{orderNum, amount}]
+
+function addTxOrderLine(){
+  const orderNum = document.getElementById('tx-order')?.value;
+  const amount   = parseFloat(document.getElementById('tx-order-amount')?.value)||0;
+  if(!orderNum){ alert('Выберите заказ'); return; }
+  if(amount <= 0){ alert('Введите сумму'); return; }
+  if(_txOrderLines.find(l=>l.orderNum===orderNum)){
+    alert('Этот заказ уже добавлен'); return;
+  }
+  _txOrderLines.push({orderNum, amount});
+  renderTxOrderLines();
+  // Обновляем общую сумму
+  const total = _txOrderLines.reduce((s,l)=>s+l.amount, 0);
+  const amtEl = document.getElementById('tx-amount');
+  if(amtEl) amtEl.value = Math.round(total);
+  // Сбрасываем поля выбора
+  document.getElementById('tx-order').value = '';
+  document.getElementById('tx-order-amount').value = '';
+  const info = document.getElementById('tx-order-info');
+  if(info){ info.style.display='none'; info.innerHTML=''; }
+}
+
+function removeTxOrderLine(orderNum){
+  _txOrderLines = _txOrderLines.filter(l=>l.orderNum!==orderNum);
+  renderTxOrderLines();
+  const total = _txOrderLines.reduce((s,l)=>s+l.amount, 0);
+  const amtEl = document.getElementById('tx-amount');
+  if(amtEl && total > 0) amtEl.value = Math.round(total);
+}
+
+function renderTxOrderLines(){
+  const list = document.getElementById('tx-orders-list');
+  if(!list) return;
+  const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+  list.innerHTML = _txOrderLines.map(l=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg3);border-radius:6px;font-size:13px">
+      <span style="color:var(--accent);font-family:monospace">${l.orderNum}</span>
+      <span style="flex:1;color:var(--text3)">${ordersData.find(o=>o.num===l.orderNum)?.salonClientName||''}</span>
+      <span style="font-weight:600">${fmt(l.amount)}</span>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removeTxOrderLine('${l.orderNum}')">✕</button>
+    </div>`).join('');
+}
+
+function clearTxOrderLines(){
+  _txOrderLines = [];
+  renderTxOrderLines();
+}
+
 function onTxOrderSelect(){
   const orderNum = document.getElementById('tx-order')?.value||'';
   const linkEl   = document.getElementById('tx-order-link');
@@ -8249,6 +8305,9 @@ function onTxOrderSelect(){
 
   const isEdit = !!document.getElementById('tx-edit-id')?.value;
   const curAmt = parseFloat(amountEl?.value)||0;
+  // Заполняем поле суммы для добавления заказа
+  const orderAmtEl = document.getElementById('tx-order-amount');
+  if(orderAmtEl && !orderAmtEl.value) orderAmtEl.value = Math.round(debt)||Math.round(total);
   if(amountEl && curAmt === 0) amountEl.value = Math.round(debt)||Math.round(total);
   if(descEl && !isEdit && !descEl.value) descEl.value = `Оплата ${orderNum}`;
   if(ctpEl && !isEdit && !ctpEl.value) ctpEl.value = order.salonClientName||order.customer||'';
@@ -8406,6 +8465,7 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   // Сбрасываем поиск и инфо о заказе при открытии
   const srch=document.getElementById('tx-order-search');
   if(srch) srch.value='';
+  clearTxOrderLines();
   const info=document.getElementById('tx-order-info');
   if(info){ info.style.display='none'; info.innerHTML=''; }
   const lnk=document.getElementById('tx-order-link');
@@ -9090,8 +9150,26 @@ function saveMoneyTx(){
       order_num:   obj.orderNum||'',
     }).then(res=>{
       console.log('✅ Транзакция сохранена в Supabase');
-      // Присваиваем sbId чтобы при перезагрузке не было дубля
-      if(res?.id) newTx.sbId = res.id;
+      if(res?.id){
+        newTx.sbId = res.id;
+        // Сохраняем привязки к заказам
+        if(_txOrderLines.length > 0){
+          _txOrderLines.forEach(line=>{
+            sbInsert('order_payments',{
+              tx_id: res.id,
+              order_num: line.orderNum,
+              amount: line.amount,
+            }).catch(e=>console.warn('⚠️ order_payments:', e.message));
+          });
+        } else if(obj.orderNum){
+          // Одиночный заказ — тоже сохраняем
+          sbInsert('order_payments',{
+            tx_id: res.id,
+            order_num: obj.orderNum,
+            amount: obj.amount,
+          }).catch(e=>console.warn('⚠️ order_payments:', e.message));
+        }
+      }
     }).catch(e=>console.warn('⚠️ Ошибка сохранения транзакции:', e.message));
 
     // Выдача аванса → создаём авансовый отчёт
