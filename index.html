@@ -7830,7 +7830,16 @@ function renderBankAccounts(){
     const stats    = calcAccountStats(acc.id, filtered);
     const allStats = calcAccountStats(acc.id);
     const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-    const displayBalance = hasPeriod ? stats.income - stats.expense : allStats.income - allStats.expense;
+    // Сальдо на начало периода
+    const fromStr = moneyPeriod.from ? moneyPeriod.from.toISOString().slice(0,10) : '';
+    const openingBal = fromStr
+      ? moneyTx.filter(t=>t.accountId===acc.id && t.date < fromStr)
+          .reduce((s,t)=>s+(t.flow==='income'?t.amount:-t.amount), 0)
+        + (acc.openingBalance||0)
+      : (acc.openingBalance||0);
+    const displayBalance = hasPeriod
+      ? openingBal + stats.income - stats.expense
+      : allStats.income - allStats.expense + (acc.openingBalance||0);
     return `<div class="card" style="padding:16px;cursor:pointer" onclick="openBankAccountModal('${acc.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
