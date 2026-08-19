@@ -28354,13 +28354,24 @@ function renderOrderModalPayments(){
   const sumEl = document.getElementById('eo-payments-summary');
   if(tbody) tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">⏳ Загрузка...</td></tr>';
 
-  // Загружаем платежи напрямую из Supabase
-  sbFetch('money_tx', `select=*&order_num=eq.${encodeURIComponent(orderNum)}&flow=eq.income&order=date`)
-    .then(payments=>{
-      payments = payments||[];
-      const paid = payments.length
-        ? payments.reduce((s,t)=>s+(t.amount||0), 0)
-        : 0;
+  // Загружаем платежи из обоих источников
+  Promise.all([
+    sbFetch('money_tx', `select=*&order_num=eq.${encodeURIComponent(orderNum)}&flow=eq.income&order=date`),
+    sbFetch('order_payments', `select=*,money_tx(*)`+`&order_num=eq.${encodeURIComponent(orderNum)}`)
+  ]).then(([directPayments, multiPayments])=>{
+    directPayments = directPayments||[];
+    multiPayments = multiPayments||[];
+
+    // Строим единый список — из прямых и из order_payments (избегаем дублей)
+    const directIds = new Set(directPayments.map(p=>p.id));
+    const multiRows = multiPayments
+      .filter(p=>p.money_tx && !directIds.has(p.money_tx.id))
+      .map(p=>({...p.money_tx, amount: p.amount, _fromMulti: true}));
+
+    const payments = [...directPayments, ...multiRows]
+      .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+
+    const paid = payments.reduce((s,t)=>s+(t.amount||0), 0);
       const debt = Math.max(0, total - paid);
       const pct  = total>0 ? Math.round(paid/total*100) : 0;
 
