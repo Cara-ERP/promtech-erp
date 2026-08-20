@@ -7160,6 +7160,30 @@ window.onerror = function(msg, src, line, col){
             <div style="font-size:16px;font-weight:500;margin-bottom:8px" id="cab-aup-name">—</div>
             <div style="font-size:13px;color:var(--text3)">Личный кабинет</div>
           </div>
+
+          <!-- Настройки пользователя -->
+          <div class="card" style="padding:16px;margin-top:16px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:14px">⚙️ Настройки</div>
+            <div style="display:grid;gap:12px">
+
+              <div>
+                <label class="label">Категория расхода по умолчанию</label>
+                <select id="pref-default-expense-cat" style="font-size:13px;width:100%" onchange="saveUserPref('defaultExpenseCat',this.value)">
+                  <option value="">— не задана (Поставщику) —</option>
+                </select>
+                <div style="font-size:11px;color:var(--text3);margin-top:4px">Будет автоматически выбираться при открытии формы расхода</div>
+              </div>
+
+              <div>
+                <label class="label">Счёт расхода по умолчанию</label>
+                <select id="pref-default-expense-acc" style="font-size:13px;width:100%" onchange="saveUserPref('defaultExpenseAcc',this.value)">
+                  <option value="">— не задан —</option>
+                </select>
+              </div>
+
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -8607,7 +8631,9 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
     const bankFilter = document.getElementById('bank-account-filter')?.value;
     const cashFilter = document.getElementById('cash-account-select')?.value;
     const activeFilter = (window._activeCashTab==='bank' ? bankFilter : cashFilter)||'';
+    const defAcc = getUserPref('defaultExpenseAcc','');
     if(activeFilter && activeFilter !== 'all') accEl.value = activeFilter;
+    else if(defAcc) accEl.value = defAcc;
   }
   // Теперь вызываем setTxFlow (внутри updateTxForm читает категорию)
   setTxFlow(initFlow);
@@ -8903,6 +8929,42 @@ function onTxSubcatChange(){
   // Можно добавить логику при выборе подкатегории
 }
 
+// ── Настройки пользователя ────────────────────────────────────────────────────
+function getUserPrefs(){
+  try{ return JSON.parse(localStorage.getItem('erp_prefs_'+(window._currentUsername||''))||'{}'); }
+  catch(e){ return {}; }
+}
+
+function saveUserPref(key, value){
+  const prefs = getUserPrefs();
+  prefs[key] = value;
+  localStorage.setItem('erp_prefs_'+(window._currentUsername||''), JSON.stringify(prefs));
+}
+
+function getUserPref(key, def=''){
+  return getUserPrefs()[key] ?? def;
+}
+
+function initUserPrefsUI(){
+  const prefs = getUserPrefs();
+
+  // Категория расхода по умолчанию
+  const catSel = document.getElementById('pref-default-expense-cat');
+  if(catSel && _expenseCats.length > 0){
+    catSel.innerHTML = '<option value="">— не задана (Поставщику) —</option>' +
+      _expenseCats.filter(c=>!c.parent_code)
+        .sort((a,b)=>a.sort_order-b.sort_order)
+        .map(c=>`<option value="${c.code}"${prefs.defaultExpenseCat===c.code?' selected':''}>${c.name}</option>`).join('');
+  }
+
+  // Счёт по умолчанию
+  const accSel = document.getElementById('pref-default-expense-acc');
+  if(accSel){
+    accSel.innerHTML = '<option value="">— не задан —</option>' +
+      bankAccounts.map(a=>`<option value="${a.id}"${prefs.defaultExpenseAcc===a.id?' selected':''}>${a.icon||''} ${a.name}</option>`).join('');
+  }
+}
+
 function updateTxForm(){
   const flow = document.getElementById('tx-flow')?.value;
   const isTransfer = flow==='transfer';
@@ -8944,7 +9006,13 @@ function updateTxForm(){
       const curVal = catSel.value;
       if(topCats.length > 0){
         catSel.innerHTML = topCats.map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
-        if(curVal && topCats.find(c=>c.code===curVal)) catSel.value=curVal;
+        if(curVal && topCats.find(c=>c.code===curVal)){
+          catSel.value=curVal;
+        } else {
+          // Берём из настроек пользователя или по умолчанию Поставщику
+          const defCat = getUserPref('defaultExpenseCat','supplier');
+          catSel.value = topCats.find(c=>c.code===defCat) ? defCat : (topCats[0]?.code||'supplier');
+        }
       } else {
         catSel.innerHTML = TX_EXPENSE_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');
       }
@@ -9027,13 +9095,25 @@ function updateTxForm(){
     if(cat==='advance_return' && advRetRow) advRetRow.style.display='';
 
   } else if(ctpConfig.type==='supplier'){
-    // Datalist поставщиков
-    if(inputEl){ inputEl.style.display='block'; inputEl.placeholder='Выберите поставщика...'; }
-    const dl = document.getElementById('tx-counterparty-list')||document.createElement('datalist');
-    dl.id='tx-counterparty-list';
-    dl.innerHTML = suppliersData.slice(0,100).map(s=>`<option value="${s.name||s}">`).join('');
-    if(!document.getElementById('tx-counterparty-list')) inputEl?.parentNode.appendChild(dl);
-    if(inputEl) inputEl.setAttribute('list','tx-counterparty-list');
+    // Select поставщиков
+    if(inputEl) inputEl.style.display='none';
+    if(selEl){
+      selEl.style.display='block';
+      const fillSuppliers = () => {
+        const opts = [...new Set([
+          ...suppliersData.map(s=>s.name||s.company||s),
+          ...moneyTx.filter(t=>t.category==='supplier'&&t.counterparty).map(t=>t.counterparty)
+        ])].filter(Boolean).sort();
+        selEl.innerHTML='<option value="">— выберите поставщика —</option>'+
+          opts.map(n=>`<option value="${n}">${n}</option>`).join('');
+        selEl.onchange=()=>{ if(inputEl){ inputEl.value=selEl.value; inputEl.style.display='none'; } };
+        // Восстанавливаем текущее значение
+        const curVal = inputEl?.value||document.getElementById('tx-counterparty')?.value||'';
+        if(curVal) selEl.value=curVal;
+      };
+      if(suppliersData.length > 0){ fillSuppliers(); }
+      else { loadSuppliersFromDB ? loadSuppliersFromDB().then(fillSuppliers) : fillSuppliers(); }
+    }
 
   } else if(ctpConfig.type==='fixed'){
     // Селект с фиксированными значениями
@@ -11015,6 +11095,7 @@ function showPage(id, el){
   }
 
   if(id==='money_salon'){ renderSalonMoney(); }
+  if(id==='mycabinet') setTimeout(initUserPrefsUI, 300);
   if(id==='expense_cats') initExpenseCatsPage();
   if(id==='reconcile'){
     const loads=[loadOrdersFromDB()];
