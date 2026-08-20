@@ -10789,7 +10789,7 @@ function printPaysheet(){
   const a = document.getElementById('paysheet-print-area');
   if(!a) return;
   const w = window.open('','_blank');
-  w.document.write('<html><head><title>Ведомость</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:6px 10px;font-size:12px}th{background:#f5f5f5}tfoot tr{background:#eee}</style></head><body>'+a.innerHTML+'<'+'/'+'body><'+'/'+'html>');
+  w.document.write('<html><head><title>Ведомость</title><sty'+'le>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:6px 10px;font-size:12px}th{background:#f5f5f5}tfoot tr{background:#eee}<\/style></head></head><body>'+a.innerHTML+'<'+'/'+'body><'+'/'+'html>');
   w.document.close(); w.print();
 }
 window.printPaysheet = printPaysheet;
@@ -17202,7 +17202,7 @@ function exportPayrollCardPdf(){
 
   const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
-<style>
+<sty`+`le>
   body{font-family:Arial,sans-serif;font-size:10pt;margin:20mm;color:#000}
   h2{font-size:13pt;margin-bottom:4px}
   .sub{font-size:10pt;color:#555;margin-bottom:16px}
@@ -17217,7 +17217,8 @@ function exportPayrollCardPdf(){
   .summary-label{font-size:9pt;color:#555}
   .summary-value{font-size:16pt;font-weight:bold;color:${row.debt>0?'#c00':'#080'}}
   @media print{body{margin:10mm}}
-</style>
+</sty`+`le>
+</head
 </head><body>
   <h2>Расчётный листок</h2>
   <div class="sub">${staff.name} · ${staff.pos} · ${monthNames[pm]} ${py} г.</div>
