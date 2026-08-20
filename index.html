@@ -822,7 +822,7 @@ async function loadMoneyFromDB(){
     while(true){
       updateLoading(Math.min(from/100, 85), `Загружено: ${from} записей...`);
       const page = await sbFetch('money_tx',
-        `select=*&order=date.desc&limit=${pageSize}&offset=${from}`);
+        `select=*&order=date.desc,id.asc&limit=${pageSize}&offset=${from}`);
       if(!page || page.length === 0) break;
       allTxs = allTxs.concat(page);
       if(page.length < pageSize) break;
