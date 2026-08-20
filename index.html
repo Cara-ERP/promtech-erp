@@ -8568,7 +8568,9 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   // Конечный клиент
   const endClientEl = document.getElementById('tx-end-client');
   if(endClientEl) endClientEl.value = tx?.endClient||'';
-  // Сбрасываем поиск и инфо о заказе при открытии
+  // Сбрасываем поиск поставщика
+  const supWrap = document.getElementById('tx-supplier-wrap');
+  if(supWrap) supWrap.innerHTML='';
   const srch=document.getElementById('tx-order-search');
   if(srch) srch.value='';
   clearTxOrderLines();
@@ -8930,6 +8932,36 @@ function onTxSubcatChange(){
 }
 
 // ── Настройки пользователя ────────────────────────────────────────────────────
+function filterSupplierOpts(query){
+  const wrap = document.getElementById('tx-supplier-wrap');
+  const sel  = document.getElementById('tx-supplier-sel');
+  const ctpEl = document.getElementById('tx-counterparty');
+  if(!wrap||!sel) return;
+
+  const q = query.trim().toLowerCase();
+  const allOpts = wrap._allOpts||[];
+
+  if(q.length >= 2){
+    const filtered = allOpts.filter(n=>n.toLowerCase().includes(q));
+    sel.innerHTML = filtered.map(n=>`<option value="${n}">${n}</option>`).join('');
+    sel.style.display = filtered.length ? 'block' : 'none';
+  } else {
+    sel.style.display='none';
+  }
+
+  // Обновляем поле контрагента при вводе
+  if(ctpEl) ctpEl.value = query;
+}
+
+function onSupplierSelChange(value){
+  const search = document.getElementById('tx-supplier-search');
+  const sel    = document.getElementById('tx-supplier-sel');
+  const ctpEl  = document.getElementById('tx-counterparty');
+  if(search) search.value = value;
+  if(sel) sel.style.display='none';
+  if(ctpEl) ctpEl.value = value;
+}
+
 function getUserPrefs(){
   try{ return JSON.parse(localStorage.getItem('erp_prefs_'+(window._currentUsername||''))||'{}'); }
   catch(e){ return {}; }
@@ -9095,25 +9127,49 @@ function updateTxForm(){
     if(cat==='advance_return' && advRetRow) advRetRow.style.display='';
 
   } else if(ctpConfig.type==='supplier'){
-    // Select поставщиков
+    // Поиск + select поставщиков
     if(inputEl) inputEl.style.display='none';
-    if(selEl){
-      selEl.style.display='block';
-      const fillSuppliers = () => {
-        const opts = [...new Set([
-          ...suppliersData.map(s=>s.name||s.company||s),
-          ...moneyTx.filter(t=>t.category==='supplier'&&t.counterparty).map(t=>t.counterparty)
-        ])].filter(Boolean).sort();
-        selEl.innerHTML='<option value="">— выберите поставщика —</option>'+
-          opts.map(n=>`<option value="${n}">${n}</option>`).join('');
-        selEl.onchange=()=>{ if(inputEl){ inputEl.value=selEl.value; inputEl.style.display='none'; } };
-        // Восстанавливаем текущее значение
-        const curVal = inputEl?.value||document.getElementById('tx-counterparty')?.value||'';
-        if(curVal) selEl.value=curVal;
-      };
-      if(suppliersData.length > 0){ fillSuppliers(); }
-      else { loadSuppliersFromDB ? loadSuppliersFromDB().then(fillSuppliers) : fillSuppliers(); }
+    if(selEl) selEl.style.display='none';
+
+    // Создаём блок поиска если нет
+    let supWrap = document.getElementById('tx-supplier-wrap');
+    if(!supWrap){
+      supWrap = document.createElement('div');
+      supWrap.id = 'tx-supplier-wrap';
+      supWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px';
+      selEl?.parentNode?.insertBefore(supWrap, selEl);
     }
+
+    const fillSuppliers = () => {
+      const opts = [...new Set([
+        ...suppliersData.map(s=>s.name||s.company||s),
+        ...moneyTx.filter(t=>t.category==='supplier'&&t.counterparty).map(t=>t.counterparty)
+      ])].filter(Boolean).sort();
+
+      const curVal = document.getElementById('tx-counterparty')?.value||'';
+
+      supWrap.innerHTML = `
+        <input id="tx-supplier-search" type="search" placeholder="🔍 Начните вводить название..."
+          style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)"
+          oninput="filterSupplierOpts(this.value)" value="${curVal}">
+        <select id="tx-supplier-sel" size="5"
+          style="font-size:13px;width:100%;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);display:none"
+          onchange="onSupplierSelChange(this.value)">
+          ${opts.map(n=>`<option value="${n}">${n}</option>`).join('')}
+        </select>`;
+
+      // Если уже есть значение — показываем его в поле
+      if(curVal){
+        const search = document.getElementById('tx-supplier-search');
+        if(search) search.value = curVal;
+      }
+
+      // Сохраняем полный список для фильтрации
+      supWrap._allOpts = opts;
+    };
+
+    if(suppliersData.length > 0){ fillSuppliers(); }
+    else { loadSuppliersFromDB ? loadSuppliersFromDB().then(fillSuppliers) : fillSuppliers(); }
 
   } else if(ctpConfig.type==='fixed'){
     // Селект с фиксированными значениями
