@@ -9354,17 +9354,35 @@ function saveMoneyTx(){
 
   if(flow==='transfer'){
     const acc2 = document.getElementById('tx-account2').value;
-    const tx1={id:txSeq++,...obj,flow:'expense',category:'transfer_out',
-      desc:'Перевод → '+bankAccounts.find(a=>a.id===acc2)?.name};
-    const tx2={id:txSeq++,...obj,accountId:acc2,flow:'income',category:'transfer_in',
-      desc:'Перевод ← '+bankAccounts.find(a=>a.id===obj.accountId)?.name};
-    moneyTx.push(tx1); moneyTx.push(tx2);
-    Promise.all([
-      sbInsert('money_tx',{date:tx1.date,account_id:tx1.accountId,flow:tx1.flow,
-        category:tx1.category,amount:tx1.amount,description:tx1.desc,counterparty:tx1.counterparty||''}),
-      sbInsert('money_tx',{date:tx2.date,account_id:tx2.accountId,flow:tx2.flow,
-        category:tx2.category,amount:tx2.amount,description:tx2.desc,counterparty:tx2.counterparty||''}),
-    ]).then(()=>console.log('✅ Перевод сохранён'));
+    if(editId){
+      // Редактирование перевода — обновляем существующую запись
+      const idx = moneyTx.findIndex(t=>t.sbId===editId||String(t.id)===String(editId));
+      if(idx>=0){
+        moneyTx[idx]={...moneyTx[idx],...obj};
+        const sbId = moneyTx[idx].sbId;
+        if(sbId){
+          sbPatch('money_tx', `id=eq.${sbId}`, {
+            date: obj.date, account_id: obj.accountId, flow: 'expense',
+            category: 'transfer_out', amount: obj.amount,
+            description: 'Перевод → '+(bankAccounts.find(a=>a.id===acc2)?.name||''),
+            counterparty: obj.counterparty||'',
+          }).then(()=>console.log('✅ Перевод обновлён'));
+        }
+      }
+    } else {
+      // Новый перевод
+      const tx1={id:txSeq++,...obj,flow:'expense',category:'transfer_out',
+        desc:'Перевод → '+bankAccounts.find(a=>a.id===acc2)?.name};
+      const tx2={id:txSeq++,...obj,accountId:acc2,flow:'income',category:'transfer_in',
+        desc:'Перевод ← '+bankAccounts.find(a=>a.id===obj.accountId)?.name};
+      moneyTx.push(tx1); moneyTx.push(tx2);
+      Promise.all([
+        sbInsert('money_tx',{date:tx1.date,account_id:tx1.accountId,flow:tx1.flow,
+          category:tx1.category,amount:tx1.amount,description:tx1.desc,counterparty:tx1.counterparty||''}),
+        sbInsert('money_tx',{date:tx2.date,account_id:tx2.accountId,flow:tx2.flow,
+          category:tx2.category,amount:tx2.amount,description:tx2.desc,counterparty:tx2.counterparty||''}),
+      ]).then(()=>console.log('✅ Перевод сохранён'));
+    }
 
   } else if(editId){
     // Редактирование существующей транзакции
