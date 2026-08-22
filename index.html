@@ -9174,13 +9174,25 @@ let _esfData = null;
 async function initEsfPage(){
   if(!_esfData){
     try{
-      const [invoices, items, aliases] = await Promise.all([
+      // Загружаем инвойсы и алиасы
+      const [invoices, aliases] = await Promise.all([
         sbFetch('incoming_invoices','select=*&order=date.desc'),
-        sbFetch('incoming_invoice_items','select=*'),
         sbFetch('material_aliases','select=*'),
       ]);
-      _esfData = { invoices: invoices||[], items: items||[] };
+      // Загружаем строки постранично
+      const pageSize = 1000;
+      let items = [], offset = 0;
+      while(true){
+        const page = await sbFetch('incoming_invoice_items',
+          `select=*&limit=${pageSize}&offset=${offset}`);
+        if(!page||page.length===0) break;
+        items.push(...page);
+        if(page.length < pageSize) break;
+        offset += pageSize;
+      }
+      _esfData = { invoices: invoices||[], items };
       window._materialAliases = aliases||[];
+      console.log(`✅ ЭСФ: ${invoices?.length} инвойсов, ${items.length} строк`);
     } catch(e){ console.warn('⚠️ ЭСФ:', e.message); return; }
   }
   renderEsfList();
