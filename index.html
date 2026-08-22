@@ -9067,11 +9067,31 @@ let _payrollData = null;
 async function initPayrollPage(){
   if(!_payrollData){
     try {
-      const [accruals, payments] = await Promise.all([
-        sbFetch('salary_accruals','select=*&type=eq.salary&order=date,emp_name'),
-        sbFetch('salary_accruals','select=*&type=eq.payment&order=date,emp_name'),
-      ]);
-      _payrollData = { accruals: accruals||[], payments: payments||[] };
+      // Загружаем все начисления постранично
+      const pageSize = 1000;
+      let accruals = [], payments = [], offset = 0;
+
+      while(true){
+        const page = await sbFetch('salary_accruals',
+          `select=*&type=eq.salary&order=date,emp_name&limit=${pageSize}&offset=${offset}`);
+        if(!page||page.length===0) break;
+        accruals.push(...page);
+        if(page.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      offset = 0;
+      while(true){
+        const page = await sbFetch('salary_accruals',
+          `select=*&type=eq.payment&order=date,emp_name&limit=${pageSize}&offset=${offset}`);
+        if(!page||page.length===0) break;
+        payments.push(...page);
+        if(page.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      _payrollData = { accruals, payments };
+      console.log(`✅ ЗП: ${accruals.length} начислений, ${payments.length} выдач`);
     } catch(e){ console.warn('⚠️ Ошибка загрузки ЗП:', e.message); return; }
   }
   renderPayroll();
