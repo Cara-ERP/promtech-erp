@@ -9122,7 +9122,8 @@ function renderPayroll(){
 
   // Строим ведомость
   const rows = monthAccruals.map(a=>{
-    const details = typeof a.details === 'string' ? JSON.parse(a.details||'{}') : (a.details||{});
+    const details = a.details && typeof a.details === 'object' ? a.details : 
+                    (typeof a.details === 'string' ? JSON.parse(a.details||'{}') : {});
     const acc = details.accruals||[];
     const ded = details.deductions||[];
 
