@@ -9249,6 +9249,82 @@ function renderEsfList(){
 
 let _currentEsfId = null;
 
+function openEsfDetail(id){
+  _currentEsfId = id;
+  const inv = (_esfData?.invoices||[]).find(i=>i.id===id);
+  if(!inv) return;
+  const items = (_esfData?.items||[]).filter(it=>it.invoice_id===id);
+  const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+  const aliases = window._materialAliases||[];
+  const warehouse = window.warehouseData||[];
+
+  function findMaterial(desc){
+    const d = desc.toLowerCase();
+    const direct = warehouse.find(w=>w.name?.toLowerCase()===d);
+    if(direct) return {mat: direct, via: 'direct'};
+    const alias = aliases.find(a=>a.alias_name?.toLowerCase()===d ||
+      d.includes(a.alias_name?.toLowerCase()||'__') ||
+      (a.alias_name?.toLowerCase()||'__').includes(d));
+    if(alias){
+      const mat = warehouse.find(w=>w.name===alias.material_name);
+      return mat ? {mat, via: 'alias'} : null;
+    }
+    return null;
+  }
+
+  const statusLabel = {DELIVERED:'✅ Доставлен', CREATED:'📝 Создан', CANCELLED:'❌ Отменён', POSTED:'🏷 Проведён'};
+
+  document.getElementById('esf-modal-title').textContent = `ЭСФ №${inv.num} от ${inv.date}`;
+  document.getElementById('esf-modal-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:13px">
+      <div><div style="color:var(--text3);font-size:11px">Поставщик</div><div style="font-weight:500">${inv.supplier_name||'—'}</div><div style="color:var(--text3)">${inv.supplier_bin||''}</div></div>
+      <div><div style="color:var(--text3);font-size:11px">Покупатель</div><div style="font-weight:500">${inv.buyer_name||'—'}</div></div>
+      <div><div style="color:var(--text3);font-size:11px">Рег. номер</div><div style="font-size:11px;font-family:monospace">${inv.reg_num||'—'}</div></div>
+      <div><div style="color:var(--text3);font-size:11px">Статус</div><div>${statusLabel[inv.status]||inv.status||'—'}</div></div>
+    </div>
+    <table class="data-table" style="margin-bottom:12px;font-size:12px">
+      <thead><tr>
+        <th>#</th><th>Наименование</th>
+        <th style="text-align:right">Кол-во</th>
+        <th style="text-align:right">Цена</th>
+        <th style="text-align:right">Сумма</th>
+        <th style="text-align:right">НДС%</th>
+        <th style="text-align:right">НДС</th>
+        <th style="text-align:right">Итого</th>
+        <th>Склад</th>
+      </tr></thead>
+      <tbody>${items.map((it,i)=>{
+        const found = findMaterial(it.description||'');
+        const warehouseCell = found
+          ? `<span style="color:var(--green);font-size:11px">✅ ${found.mat.name}</span>
+             <button class="btn btn-ghost btn-sm" style="font-size:10px;display:block;margin-top:2px"
+               onclick="acceptItemToWarehouse('${it.id}','${inv.id}','${found.mat.id}')">📦 Принять</button>`
+          : `<button class="btn btn-ghost btn-sm" style="font-size:11px"
+               onclick="acceptItemToWarehouse('${it.id}','${inv.id}',null)">📦 На склад</button>`;
+        return `<tr>
+          <td style="color:var(--text3)">${i+1}</td>
+          <td>${it.description||'—'}</td>
+          <td style="text-align:right">${it.qty}</td>
+          <td style="text-align:right;font-family:monospace">${fmt(it.unit_price)}</td>
+          <td style="text-align:right;font-family:monospace">${fmt(it.amount)}</td>
+          <td style="text-align:right;color:var(--text3)">${it.nds_rate}%</td>
+          <td style="text-align:right;font-family:monospace;color:var(--amber)">${fmt(it.nds_amount)}</td>
+          <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(it.total)}</td>
+          <td>${warehouseCell}</td>
+        </tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr style="font-weight:700">
+        <td colspan="4">Итого</td>
+        <td style="text-align:right;font-family:monospace">${fmt(inv.total_amount)}</td>
+        <td></td>
+        <td style="text-align:right;font-family:monospace;color:var(--amber)">${fmt(inv.total_nds)}</td>
+        <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(inv.total_with_nds)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>`;
+  showModal('esfDetailModal');
+}
+
 function createExpenseFromEsf(){
   const inv = _esfData?.invoices.find(i=>i.id===_currentEsfId);
   if(!inv) return;
