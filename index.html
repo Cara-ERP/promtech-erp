@@ -2385,6 +2385,7 @@ window.onerror = function(msg, src, line, col){
         <table class="data-table">
           <thead><tr>
             <th>Дата</th><th>Номер</th><th>Тип</th>
+            <th>Поставщик</th>
             <th>Откуда / Куда</th><th>Позиций</th>
             <th style="text-align:right">Сумма</th>
             <th>Основание</th><th>Статус</th><th></th>
@@ -2610,6 +2611,15 @@ window.onerror = function(msg, src, line, col){
           <div class="form-row" id="whdoc-order-row" style="display:none">
             <label class="label">Заказ</label>
             <select id="whdoc-order" style="font-size:13px"></select>
+          </div>
+          <div class="form-row" id="whdoc-supplier-row" style="display:none;grid-column:1/-1">
+            <label class="label">Поставщик</label>
+            <input id="whdoc-supplier" type="text" placeholder="Название поставщика" list="whdoc-supplier-list" style="font-size:13px">
+            <datalist id="whdoc-supplier-list"></datalist>
+          </div>
+          <div class="form-row" id="whdoc-esf-row" style="display:none;grid-column:1/-1">
+            <label class="label">ЭСФ (основание)</label>
+            <input id="whdoc-esf-ref" type="text" placeholder="ESF-... или №..." style="font-size:13px">
           </div>
           <div class="form-row" style="grid-column:1/-1">
             <label class="label">Примечание</label>
@@ -2962,6 +2972,51 @@ window.onerror = function(msg, src, line, col){
           <div class="modal-body" id="esf-modal-body"></div>
           <div class="modal-footer">
             <button class="btn btn-ghost" onclick="closeModal('esfDetailModal')">Закрыть</button>
+            <button class="btn btn-primary" onclick="createExpenseFromEsf()" id="esf-create-expense-btn">💳 Создать расход</button>
+          </div>
+        </div>
+      </div>
+      <!-- Модал создания расхода из ЭСФ -->
+      <div class="modal-overlay" id="esfExpenseModal">
+        <div class="modal" style="max-width:480px">
+          <div class="modal-header">
+            <div class="modal-title">💳 Создать расход из ЭСФ</div>
+            <button class="modal-close" onclick="closeModal('esfExpenseModal')">✕</button>
+          </div>
+          <div class="modal-body" style="display:grid;gap:12px">
+            <div id="esf-expense-info" style="padding:10px;background:var(--bg3);border-radius:6px;font-size:13px"></div>
+            <div>
+              <label class="label">Дата расхода</label>
+              <input id="esf-exp-date" type="date" class="input">
+            </div>
+            <div>
+              <label class="label">Счёт списания</label>
+              <select id="esf-exp-account" style="font-size:13px;width:100%"></select>
+            </div>
+            <div>
+              <label class="label">Категория расхода</label>
+              <select id="esf-exp-cat" style="font-size:13px;width:100%" onchange="updateEsfExpSubcat()"></select>
+            </div>
+            <div id="esf-exp-subcat-row">
+              <label class="label">Статья расхода</label>
+              <select id="esf-exp-subcat" style="font-size:13px;width:100%"></select>
+            </div>
+            <div>
+              <label class="label">Сумма (₸)</label>
+              <input id="esf-exp-amount" type="number" class="input">
+            </div>
+            <div>
+              <label class="label">Описание</label>
+              <input id="esf-exp-desc" type="text" class="input">
+            </div>
+            <div id="esf-exp-warning" style="color:var(--amber);font-size:12px;display:none">
+              ⚠️ За эту дату уже есть похожий расход — проверьте дубль
+            </div>
+            <div id="esf-exp-error" style="color:var(--red);font-size:13px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('esfExpenseModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveEsfExpense()">💾 Создать расход</button>
           </div>
         </div>
       </div>
@@ -9119,11 +9174,13 @@ let _esfData = null;
 async function initEsfPage(){
   if(!_esfData){
     try{
-      const [invoices, items] = await Promise.all([
+      const [invoices, items, aliases] = await Promise.all([
         sbFetch('incoming_invoices','select=*&order=date.desc'),
         sbFetch('incoming_invoice_items','select=*'),
+        sbFetch('material_aliases','select=*'),
       ]);
       _esfData = { invoices: invoices||[], items: items||[] };
+      window._materialAliases = aliases||[];
     } catch(e){ console.warn('⚠️ ЭСФ:', e.message); return; }
   }
   renderEsfList();
@@ -9190,61 +9247,155 @@ function renderEsfList(){
   </div>` : '<div style="text-align:center;padding:40px;color:var(--text3)">Нет ЭСФ</div>';
 }
 
-function openEsfDetail(id){
-  const inv = _esfData.invoices.find(i=>i.id===id);
-  if(!inv) return;
-  const items = _esfData.items.filter(it=>it.invoice_id===id);
-  const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+let _currentEsfId = null;
 
-  document.getElementById('esf-modal-title').textContent = `ЭСФ №${inv.num} от ${inv.date}`;
-  document.getElementById('esf-modal-body').innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:13px">
-      <div><div style="color:var(--text3);font-size:11px">Поставщик</div><div style="font-weight:500">${inv.supplier_name||'—'}</div><div style="color:var(--text3)">${inv.supplier_bin||''}</div></div>
-      <div><div style="color:var(--text3);font-size:11px">Покупатель</div><div style="font-weight:500">${inv.buyer_name||'—'}</div><div style="color:var(--text3)">${inv.buyer_bin||''}</div></div>
-      <div><div style="color:var(--text3);font-size:11px">Регистрационный номер</div><div style="font-size:11px;font-family:monospace">${inv.reg_num||'—'}</div></div>
-      <div><div style="color:var(--text3);font-size:11px">Статус</div><div>${inv.status||'—'}</div></div>
-    </div>
-    <table class="data-table" style="margin-bottom:12px">
-      <thead><tr><th>#</th><th>Наименование</th><th style="text-align:right">Кол-во</th><th style="text-align:right">Цена</th><th style="text-align:right">Сумма</th><th style="text-align:right">НДС%</th><th style="text-align:right">НДС</th><th style="text-align:right">Итого</th><th></th></tr></thead>
-      <tbody>${items.map((it,i)=>`<tr>
-        <td style="color:var(--text3)">${i+1}</td>
-        <td style="font-size:12px">${it.description||'—'}</td>
-        <td style="text-align:right">${it.qty}</td>
-        <td style="text-align:right;font-family:monospace">${fmt(it.unit_price)}</td>
-        <td style="text-align:right;font-family:monospace">${fmt(it.amount)}</td>
-        <td style="text-align:right;color:var(--text3)">${it.nds_rate}%</td>
-        <td style="text-align:right;font-family:monospace;color:var(--amber)">${fmt(it.nds_amount)}</td>
-        <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(it.total)}</td>
-        <td>${it.nds_rate==0?'<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="acceptToWarehouse(\''+it.id+'\',\''+inv.id+'\')">📦 На склад</button>':''}</td>
-      </tr>`).join('')}</tbody>
-      <tfoot><tr style="font-weight:700">
-        <td colspan="4">Итого</td>
-        <td style="text-align:right;font-family:monospace">${fmt(inv.total_amount)}</td>
-        <td></td>
-        <td style="text-align:right;font-family:monospace;color:var(--amber)">${fmt(inv.total_nds)}</td>
-        <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(inv.total_with_nds)}</td>
-        <td></td>
-      </tr></tfoot>
-    </table>`;
-  showModal('esfDetailModal');
+function createExpenseFromEsf(){
+  const inv = _esfData?.invoices.find(i=>i.id===_currentEsfId);
+  if(!inv) return;
+
+  // Заполняем инфо
+  document.getElementById('esf-expense-info').innerHTML =
+    `<b>${inv.supplier_name||'—'}</b> | ЭСФ №${inv.num} от ${inv.date}<br>
+     Сумма с НДС: <b>₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</b>`;
+
+  // Дата
+  document.getElementById('esf-exp-date').value = inv.date||'';
+
+  // Счета
+  const accSel = document.getElementById('esf-exp-account');
+  accSel.innerHTML = bankAccounts.map(a=>`<option value="${a.id}">${a.icon||''} ${a.name}</option>`).join('');
+
+  // Категории из expense_categories
+  const catSel = document.getElementById('esf-exp-cat');
+  const topCats = (_expenseCats||[]).filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
+  catSel.innerHTML = topCats.map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+  // Поставщик по умолчанию
+  catSel.value = 'supplier';
+  updateEsfExpSubcat();
+
+  // Сумма
+  document.getElementById('esf-exp-amount').value = Math.round(inv.total_with_nds);
+
+  // Описание
+  const items = _esfData.items.filter(it=>it.invoice_id===inv.id);
+  const desc = items.length === 1 ? items[0].description : `ЭСФ №${inv.num} — ${inv.supplier_name}`;
+  document.getElementById('esf-exp-desc').value = desc;
+
+  // Проверка дублей
+  const warning = document.getElementById('esf-exp-warning');
+  const existing = moneyTx.filter(t=>
+    t.date === inv.date &&
+    t.flow === 'expense' &&
+    Math.abs(t.amount - inv.total_with_nds) < 1
+  );
+  warning.style.display = existing.length > 0 ? '' : 'none';
+
+  document.getElementById('esf-exp-error').textContent = '';
+  closeModal('esfDetailModal');
+  showModal('esfExpenseModal');
 }
 
-async function acceptToWarehouse(itemId, invId){
+function updateEsfExpSubcat(){
+  const catSel = document.getElementById('esf-exp-cat');
+  const subcatRow = document.getElementById('esf-exp-subcat-row');
+  const subcatSel = document.getElementById('esf-exp-subcat');
+  const parentCode = catSel?.value;
+  const subs = (_expenseCats||[]).filter(c=>c.parent_code===parentCode).sort((a,b)=>a.sort_order-b.sort_order);
+  if(subs.length > 0){
+    subcatRow.style.display = '';
+    subcatSel.innerHTML = '<option value="">— выберите статью —</option>' +
+      subs.map(c=>`<option value="${c.code}">${c.name}${c.is_fixed?' 📌':''}</option>`).join('');
+  } else {
+    subcatRow.style.display = 'none';
+  }
+}
+
+async function saveEsfExpense(){
+  const inv = _esfData?.invoices.find(i=>i.id===_currentEsfId);
+  if(!inv) return;
+  const errEl = document.getElementById('esf-exp-error');
+
+  const date     = document.getElementById('esf-exp-date').value;
+  const accountId= document.getElementById('esf-exp-account').value;
+  const category = document.getElementById('esf-exp-cat').value;
+  const subcat   = document.getElementById('esf-exp-subcat')?.value||'';
+  const amount   = parseFloat(document.getElementById('esf-exp-amount').value)||0;
+  const desc     = document.getElementById('esf-exp-desc').value.trim();
+
+  if(!date){ errEl.textContent='Укажите дату'; return; }
+  if(!amount){ errEl.textContent='Укажите сумму'; return; }
+
+  try{
+    const res = await sbInsert('money_tx',{
+      date, account_id: accountId, flow: 'expense',
+      category, subcategory: subcat||null,
+      amount, description: desc,
+      counterparty: inv.supplier_name||'',
+      order_num: '',
+    });
+
+    // Помечаем ЭСФ как проведённый
+    await sbPatch('incoming_invoices', `id=eq.${inv.id}`, {status: 'POSTED'});
+    const idx = _esfData.invoices.findIndex(i=>i.id===inv.id);
+    if(idx>=0) _esfData.invoices[idx].status = 'POSTED';
+
+    // Добавляем в локальный список транзакций
+    if(res) moneyTx.unshift({
+      sbId: res.id, id: res.id, date, accountId, flow:'expense',
+      category, subcategory: subcat, amount, desc, counterparty: inv.supplier_name||'',
+    });
+
+    closeModal('esfExpenseModal');
+    renderEsfList();
+    alert(`✅ Расход ₸${Math.round(amount).toLocaleString('ru-RU')} создан`);
+  } catch(e){ errEl.textContent = 'Ошибка: '+e.message; }
+}
+
+async function acceptItemToWarehouse(itemId, invId, existingMatId){
   const item = _esfData.items.find(i=>i.id===itemId);
   const inv  = _esfData.invoices.find(i=>i.id===invId);
   if(!item||!inv) return;
-  const name = prompt('Название материала на складе:', item.description);
-  if(!name) return;
-  try{
-    await sbInsert('warehouse',{
-      name, qty: item.qty, unit: 'шт',
-      price: item.unit_price,
-      supplier: inv.supplier_name,
-      date: inv.date,
-      comment: `ЭСФ №${inv.num}`,
-    });
-    alert(`✅ "${name}" добавлен на склад`);
-  } catch(e){ alert('Ошибка: '+e.message); }
+
+  if(existingMatId){
+    // Обновляем существующий материал — добавляем количество
+    const mat = (warehouseData||[]).find(w=>w.id===existingMatId||String(w.id)===String(existingMatId));
+    const newQty = (mat?.qty||0) + item.qty;
+    if(!confirm(`Добавить ${item.qty} ед. к "${mat?.name||'материал'}"?\nБудет: ${newQty} ед.`)) return;
+    try{
+      await sbPatch('warehouse', `id=eq.${existingMatId}`, {qty: newQty});
+      if(mat) mat.qty = newQty;
+      alert(`✅ Остаток обновлён: ${mat?.name} → ${newQty} ед.`);
+    } catch(e){ alert('Ошибка: '+e.message); }
+  } else {
+    // Создаём новый материал
+    const name = prompt('Название материала на складе:', item.description);
+    if(!name) return;
+    const unit = prompt('Единица измерения:', 'шт') || 'шт';
+    try{
+      const res = await sbInsert('warehouse',{
+        name, qty: item.qty, unit,
+        price: item.unit_price,
+        supplier: inv.supplier_name,
+        date: inv.date,
+        comment: `ЭСФ №${inv.num}`,
+      });
+      if(res) warehouseData.push(res);
+      // Автоматически создаём алиас
+      if(name !== item.description){
+        await sbInsert('material_aliases',{
+          material_name: name,
+          alias_name: item.description,
+          category: 'esf'
+        }).catch(()=>{});
+      }
+      alert(`✅ "${name}" добавлен на склад: ${item.qty} ${unit}`);
+      closeModal('esfDetailModal');
+    } catch(e){ alert('Ошибка: '+e.message); }
+  }
+}
+
+async function acceptToWarehouse(itemId, invId){
+  await acceptItemToWarehouse(itemId, invId, null);
 }
 
 async function initSalaryLedgerPage(){
@@ -21088,6 +21239,7 @@ function renderWhDocs(){
       <td style="font-size:12px">${d.date}</td>
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent);font-size:12px">${d.num}</td>
       <td><span class="badge ${typeCls[d.type]||'badge-blue'}">${typeLabel[d.type]||d.type}</span></td>
+      <td style="font-size:12px;color:var(--text3);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.supplier||'—'}</td>
       <td style="font-size:12px">${direction}</td>
       <td style="text-align:center;font-size:12px">${d.items.length}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace">₸${total.toLocaleString('ru-RU')}</td>
@@ -21168,11 +21320,21 @@ function openWhDoc(type, wsId='', toWs=''){
     .map(o=>`<option value="${o.num}">${o.num} — ${resolveCustomerName(o)}</option>`).join('');
 
   // Show/hide rows
-  document.getElementById('whdoc-fromwh-row').style.display=type==='writeoff'?'none':'';
+  document.getElementById('whdoc-fromwh-row').style.display=type==='writeoff'?'none':type==='incoming'?'none':'';
   document.getElementById('whdoc-tows-row').style.display=type==='transfer'?'':'none';
   document.getElementById('whdoc-wsid-row').style.display=type==='writeoff'?'':'none';
   document.getElementById('whdoc-wotype-row').style.display=type==='writeoff'?'':'none';
   document.getElementById('whdoc-order-row').style.display=type==='writeoff'?'':'none';
+  // Поставщик и ЭСФ — только для прихода
+  const isIncoming = type==='incoming';
+  document.getElementById('whdoc-supplier-row').style.display = isIncoming ? '' : 'none';
+  document.getElementById('whdoc-esf-row').style.display = isIncoming ? '' : 'none';
+  // Заполняем список поставщиков
+  if(isIncoming){
+    const dl = document.getElementById('whdoc-supplier-list');
+    const supp = [...new Set(suppliersData.map(s=>s.name||s.company).filter(Boolean))].sort();
+    if(dl) dl.innerHTML = supp.map(s=>`<option value="${s}">`).join('');
+  }
 
   _whDocItems=[];
   renderWhDocItems();
@@ -21231,6 +21393,8 @@ function saveWhDoc(status){
     type, status,
     date:document.getElementById('whdoc-date').value,
     note:document.getElementById('whdoc-note').value,
+    supplier: document.getElementById('whdoc-supplier')?.value||'',
+    esfRef: document.getElementById('whdoc-esf-ref')?.value||'',
     createdBy:window.currentUser?.name||'Кладовщик',
     items:_whDocItems.filter(it=>it.materialId&&it.qty>0),
   };
