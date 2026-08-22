@@ -6805,13 +6805,13 @@ window.onerror = function(msg, src, line, col){
           <div class="section-sub">Начисления, удержания, выдача</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-ghost btn-sm" onclick="exportPayrollExcel()">📥 Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportSalaryLedger()">📥 Excel</button>
         </div>
       </div>
 
       <!-- Фильтры -->
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-        <select id="payroll-month" style="font-size:13px" onchange="renderPayroll()">
+        <select id="payroll-month" style="font-size:13px" onchange="renderSalaryLedger()">
           <option value="2025-12">Декабрь 2025</option>
           <option value="2026-01">Январь 2026</option>
           <option value="2026-02">Февраль 2026</option>
@@ -6822,13 +6822,13 @@ window.onerror = function(msg, src, line, col){
           <option value="2026-07">Июль 2026</option>
           <option value="2026-08" selected>Август 2026</option>
         </select>
-        <select id="payroll-dept" style="font-size:13px" onchange="renderPayroll()">
+        <select id="payroll-dept" style="font-size:13px" onchange="renderSalaryLedger()">
           <option value="all">Все</option>
           <option value="production">Производство / Офис</option>
           <option value="salon">Салоны</option>
         </select>
         <input id="payroll-search" type="search" placeholder="🔍 Поиск..." style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:180px" oninput="renderPayroll()">
-        <button class="btn btn-ghost btn-sm" onclick="_payrollData=null;initPayrollPage()">🔄</button>
+        <button class="btn btn-ghost btn-sm" onclick="_payrollData=null;initSalaryLedgerPage()">🔄</button>
       </div>
 
       <!-- Итоги -->
@@ -9064,7 +9064,7 @@ function onSupplierSelChange(value){
 // ── Зарплатная ведомость ────────────────────────────────────────────────────
 let _payrollData = null;
 
-async function initPayrollPage(){
+async function initSalaryLedgerPage(){
   if(!_payrollData){
     try {
       // Загружаем все начисления постранично
@@ -9097,7 +9097,7 @@ async function initPayrollPage(){
   renderPayroll();
 }
 
-function renderPayroll(){
+function renderSalaryLedger(){
   const tbody = document.getElementById('payroll-tbody');
   const tfoot = document.getElementById('payroll-tfoot');
   const kpi   = document.getElementById('payroll-kpi');
@@ -9222,7 +9222,7 @@ function renderPayroll(){
     </div>`).join('');
 }
 
-function exportPayrollExcel(){
+function exportSalaryLedger(){
   alert('Экспорт в разработке');
 }
 
@@ -11439,7 +11439,7 @@ function showPage(id, el){
   }
 
   if(id==='money_salon'){ renderSalonMoney(); }
-  if(id==='payroll') initPayrollPage();
+  if(id==='payroll') initSalaryLedgerPage();
   if(id==='mycabinet') setTimeout(initUserPrefsUI, 300);
   if(id==='expense_cats') initExpenseCatsPage();
   if(id==='reconcile'){
