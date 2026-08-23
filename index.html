@@ -618,10 +618,12 @@ const sbHeaders = {
   'Prefer':        'return=representation',
 };
 
-const sbFetch = async (table, params='')=>{
+const sbFetch = async (table, params='', rangeFrom=null, rangeTo=null)=>{
+  const headers = {...sbHeaders, 'Prefer':'count=none'};
+  if(rangeFrom !== null) headers['Range'] = `${rangeFrom}-${rangeTo!==null?rangeTo:''}`;
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/${table}${params?'?'+params:''}`,
-    { method:'GET', headers: {...sbHeaders, 'Prefer':'count=none'} }
+    { method:'GET', headers }
   );
   if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
@@ -9181,25 +9183,33 @@ let _esfData = null;
 async function initEsfPage(){
   if(!_esfData){
     try{
-      // Загружаем инвойсы и алиасы
-      const [invoices, aliases] = await Promise.all([
-        sbFetch('incoming_invoices','select=*&order=date.desc'),
-        sbFetch('material_aliases','select=*'),
-      ]);
-      // Загружаем строки постранично
+      // Загружаем инвойсы постранично через Range
       const pageSize = 1000;
-      let items = [], offset = 0;
+      let invoices = [], items = [], offset = 0;
+      while(true){
+        const page = await sbFetch('incoming_invoices',
+          `select=*&order=date.desc`, offset, offset+pageSize-1);
+        if(!page||page.length===0) break;
+        invoices.push(...page);
+        if(page.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      // Загружаем строки постранично через Range
+      offset = 0;
       while(true){
         const page = await sbFetch('incoming_invoice_items',
-          `select=*&limit=${pageSize}&offset=${offset}`);
+          `select=*`, offset, offset+pageSize-1);
         if(!page||page.length===0) break;
         items.push(...page);
         if(page.length < pageSize) break;
         offset += pageSize;
       }
-      _esfData = { invoices: invoices||[], items };
+
+      const aliases = await sbFetch('material_aliases','select=*');
+      _esfData = { invoices, items };
       window._materialAliases = aliases||[];
-      console.log(`✅ ЭСФ: ${invoices?.length} инвойсов, ${items.length} строк`);
+      console.log(`✅ ЭСФ: ${invoices.length} инвойсов, ${items.length} строк`);
     } catch(e){ console.warn('⚠️ ЭСФ:', e.message); return; }
   }
   renderEsfList();
