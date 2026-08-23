@@ -3186,6 +3186,13 @@ window.onerror = function(msg, src, line, col){
           </div>
         </div>
         <div id="sup-card-error" style="color:var(--red);font-size:12px;margin-top:8px;min-height:16px"></div>
+
+        <!-- ЭСФ поставщика -->
+        <div id="sup-card-esf-section" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:8px">📄 Входящие ЭСФ</div>
+          <div id="sup-card-esf-list" style="font-size:12px;max-height:200px;overflow-y:auto"></div>
+        </div>
+
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost btn-sm" id="sup-card-delete" onclick="deleteSupplier()"
             style="margin-right:auto;color:var(--red);display:none">🗑 Удалить</button>
@@ -13218,6 +13225,47 @@ function openSupplierCard(id){
   document.getElementById('sup-card-comment').value=sup?.comment||'';
   document.getElementById('sup-card-name')._editId=id||null;
   document.getElementById('sup-card-error').textContent='';
+
+  // ЭСФ поставщика
+  const esfSection = document.getElementById('sup-card-esf-section');
+  const esfList = document.getElementById('sup-card-esf-list');
+  if(sup?.bin || sup?.name){
+    esfSection.style.display = '';
+    esfList.innerHTML = '<div style="color:var(--text3)">⏳ Загрузка...</div>';
+    const bin = sup.bin||'';
+    const name = sup.name||'';
+    const query = bin
+      ? `select=id,num,date,total_with_nds,status&supplier_bin=eq.${encodeURIComponent(bin)}&order=date.desc&limit=20`
+      : `select=id,num,date,total_with_nds,status&supplier_name=ilike.*${encodeURIComponent(name.replace(/"/g,''))}*&order=date.desc&limit=20`;
+    sbFetch('incoming_invoices', query).then(invs=>{
+      if(!invs||!invs.length){
+        esfList.innerHTML = '<div style="color:var(--text3);padding:8px">ЭСФ не найдены</div>';
+        return;
+      }
+      const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+      const statusLabel = {DELIVERED:'✅',CREATED:'📝',CANCELLED:'❌',POSTED:'🏷'};
+      esfList.innerHTML = `<table style="width:100%;border-collapse:collapse">
+        <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:4px">Дата</th>
+          <th style="text-align:left;padding:4px">Номер</th>
+          <th style="text-align:right;padding:4px">Сумма</th>
+          <th style="padding:4px"></th>
+        </tr></thead>
+        <tbody>${invs.map(inv=>`<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:4px;color:var(--text3)">${inv.date||''}</td>
+          <td style="padding:4px;font-family:monospace">${inv.num||''}</td>
+          <td style="padding:4px;text-align:right;font-weight:600">${fmt(inv.total_with_nds)}</td>
+          <td style="padding:4px">${statusLabel[inv.status]||inv.status||''}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr><td colspan="2" style="padding:4px;color:var(--text3)">Итого ${invs.length} ЭСФ</td>
+          <td style="padding:4px;text-align:right;font-weight:700">${fmt(invs.reduce((s,i)=>s+i.total_with_nds,0))}</td>
+          <td></td></tr></tfoot>
+      </table>`;
+    }).catch(()=>{ esfList.innerHTML='<div style="color:var(--red)">Ошибка загрузки</div>'; });
+  } else {
+    esfSection.style.display = 'none';
+  }
+
   showModal('supplierCardModal');
 }
 
