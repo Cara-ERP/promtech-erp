@@ -9183,27 +9183,38 @@ let _esfData = null;
 async function initEsfPage(){
   if(!_esfData){
     try{
-      // Загружаем инвойсы постранично через Range
+      // Загружаем инвойсы постранично через limit/offset
       const pageSize = 1000;
       let invoices = [], items = [], offset = 0;
-      while(true){
-        const page = await sbFetch('incoming_invoices',
-          `select=*&order=date.desc`, offset, offset+pageSize-1);
-        if(!page||page.length===0) break;
-        invoices.push(...page);
-        if(page.length < pageSize) break;
-        offset += pageSize;
+      const page0 = await sbFetch('incoming_invoices','select=*&order=date.desc&limit='+pageSize);
+      if(page0) invoices.push(...page0);
+      if(page0?.length === pageSize){
+        const offsets = [];
+        for(let off = pageSize; off < 10000; off += pageSize) offsets.push(off);
+        const pages = await Promise.all(offsets.map(off=>
+          sbFetch('incoming_invoices',`select=*&order=date.desc&limit=${pageSize}&offset=${off}`)
+        ));
+        for(const page of pages){
+          if(!page||page.length===0) break;
+          invoices.push(...page);
+          if(page.length < pageSize) break;
+        }
       }
 
-      // Загружаем строки постранично через Range
-      offset = 0;
-      while(true){
-        const page = await sbFetch('incoming_invoice_items',
-          `select=*`, offset, offset+pageSize-1);
-        if(!page||page.length===0) break;
-        items.push(...page);
-        if(page.length < pageSize) break;
-        offset += pageSize;
+      // Загружаем строки постранично
+      const items0 = await sbFetch('incoming_invoice_items','select=*&limit='+pageSize);
+      if(items0) items.push(...items0);
+      if(items0?.length === pageSize){
+        const offsets = [];
+        for(let off = pageSize; off < 20000; off += pageSize) offsets.push(off);
+        const pages = await Promise.all(offsets.map(off=>
+          sbFetch('incoming_invoice_items',`select=*&limit=${pageSize}&offset=${off}`)
+        ));
+        for(const page of pages){
+          if(!page||page.length===0) break;
+          items.push(...page);
+          if(page.length < pageSize) break;
+        }
       }
 
       const aliases = await sbFetch('material_aliases','select=*');
@@ -9255,13 +9266,26 @@ function renderEsfList(){
   list.innerHTML = invs.length ? `<div class="card" style="padding:0">
     <table class="data-table">
       <thead><tr>
+        <th>Тип</th>
         <th>Дата</th><th>Номер</th><th>Поставщик</th><th>БИН</th>
         <th style="text-align:right">Без НДС</th>
         <th style="text-align:right">НДС</th>
         <th style="text-align:right;color:var(--green)">С НДС</th>
         <th>Статус</th><th></th>
       </tr></thead>
-      <tbody>${invs.map(inv=>`<tr style="cursor:pointer" onclick="openEsfDetail('${inv.id}')">
+      <tbody>${invs.map(inv=>{
+        const typeLabel = {goods:'📦 Товары', service:'🔧 Услуги', general:'📋 Общее'};
+        const typeColor = {goods:'var(--accent)', service:'var(--green)', general:'var(--text3)'};
+        const t = inv.invoice_type||'general';
+        return `<tr style="cursor:pointer" onclick="openEsfDetail('${inv.id}')">
+        <td onclick="event.stopPropagation()">
+          <select style="font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:${typeColor[t]};padding:2px 4px"
+            onchange="setEsfType('${inv.id}',this.value)">
+            <option value="general" ${t==='general'?'selected':''}>📋 Общее</option>
+            <option value="service" ${t==='service'?'selected':''}>🔧 Услуги</option>
+            <option value="goods" ${t==='goods'?'selected':''}>📦 Товары</option>
+          </select>
+        </td>
         <td style="font-size:12px;white-space:nowrap">${inv.date||'—'}</td>
         <td style="font-family:monospace;font-size:12px">${inv.num||'—'}</td>
         <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inv.supplier_name||'—'}</td>
@@ -9271,9 +9295,18 @@ function renderEsfList(){
         <td style="text-align:right;font-family:monospace;font-size:12px;font-weight:600;color:var(--green)">${fmt(inv.total_with_nds)}</td>
         <td><span style="font-size:11px;color:${statusColor[inv.status]||'var(--text3)'}">${statusLabel[inv.status]||inv.status}</span></td>
         <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="event.stopPropagation();openEsfDetail('${inv.id}')">📋</button></td>
-      </tr>`).join('')}</tbody>
+      </tr>`;}).join('')}</tbody>
     </table>
   </div>` : '<div style="text-align:center;padding:40px;color:var(--text3)">Нет ЭСФ</div>';
+}
+
+async function setEsfType(id, type){
+  const inv = _esfData?.invoices.find(i=>i.id===id);
+  if(!inv) return;
+  inv.invoice_type = type;
+  try{
+    await sbPatch('incoming_invoices', `id=eq.${id}`, {invoice_type: type});
+  } catch(e){ console.warn('⚠️ Ошибка сохранения типа ЭСФ:', e.message); }
 }
 
 let _currentEsfId = null;
