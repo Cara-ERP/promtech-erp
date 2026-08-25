@@ -6928,7 +6928,9 @@ window.onerror = function(msg, src, line, col){
 
       <!-- Фильтры -->
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-        <select id="payroll-month" style="font-size:13px" onchange="renderSalaryLedger()">
+        <select id="payroll-month" style="font-size:13px" onchange="onPayrollMonthChange()">
+          <option value="">— Произвольный период —</option>
+          <option value="2025-11">Ноябрь 2025</option>
           <option value="2025-12">Декабрь 2025</option>
           <option value="2026-01">Январь 2026</option>
           <option value="2026-02">Февраль 2026</option>
@@ -6939,6 +6941,10 @@ window.onerror = function(msg, src, line, col){
           <option value="2026-07">Июль 2026</option>
           <option value="2026-08" selected>Август 2026</option>
         </select>
+        <span style="font-size:13px;color:var(--text3)">или вручную:</span>
+        <input id="payroll-from" type="date" style="font-size:13px" onchange="document.getElementById('payroll-month').value='';renderSalaryLedger()">
+        <span style="font-size:13px;color:var(--text3)">—</span>
+        <input id="payroll-to" type="date" style="font-size:13px" onchange="document.getElementById('payroll-month').value='';renderSalaryLedger()">
         <select id="payroll-dept" style="font-size:13px" onchange="renderSalaryLedger()">
           <option value="all">Все</option>
           <option value="production">Производство / Офис</option>
@@ -9830,22 +9836,40 @@ async function initSalaryLedgerPage(){
   renderPayroll();
 }
 
+function onPayrollMonthChange(){
+  const month = document.getElementById('payroll-month')?.value||'';
+  if(month){
+    const fromEl = document.getElementById('payroll-from');
+    const toEl   = document.getElementById('payroll-to');
+    if(fromEl) fromEl.value='';
+    if(toEl)   toEl.value='';
+  }
+  renderSalaryLedger();
+}
+
 function renderSalaryLedger(){
   const tbody = document.getElementById('payroll-tbody');
   const tfoot = document.getElementById('payroll-tfoot');
   const kpi   = document.getElementById('payroll-kpi');
   if(!tbody||!_payrollData) return;
 
-  const month  = document.getElementById('payroll-month')?.value||'2026-08';
+  const month  = document.getElementById('payroll-month')?.value||'';
+  const fromVal= document.getElementById('payroll-from')?.value||'';
+  const toVal  = document.getElementById('payroll-to')?.value||'';
   const dept   = document.getElementById('payroll-dept')?.value||'all';
   const search = (document.getElementById('payroll-search')?.value||'').toLowerCase();
+
+  const dateFrom = month ? month+'-01' : fromVal;
+  const dateTo   = month ? month+'-31' : toVal;
+  const periodStart = dateFrom;
 
   const fmt = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
   const fmtC = (n, cls) => n ? `<span style="color:var(--${cls})">${fmt(n)}</span>` : '—';
 
-  // Начисления за месяц
+  // Начисления за период
   const monthAccruals = (_payrollData.accruals||[]).filter(a=>{
-    if(!a.date?.startsWith(month)) return false;
+    if(dateFrom && a.date < dateFrom) return false;
+    if(dateTo && a.date > dateTo) return false;
     if(search && !a.emp_name?.toLowerCase().includes(search)) return false;
     return true;
   });
@@ -9884,8 +9908,8 @@ function renderSalaryLedger(){
 
     const k_vydache = a.net||0;
 
-    // Дата начала текущего месяца
-    const monthStart = month + '-01';
+    // Дата начала текущего периода
+    const monthStart = periodStart||a.date.substring(0,7)+'-01';
 
     // Остаток на начало месяца — всё до первого числа текущего месяца
     const prevAccruals = (_payrollData.accruals||[])
@@ -9899,7 +9923,7 @@ function renderSalaryLedger(){
     // Выдано за текущий месяц
     const empPayments = allPayments.filter(p=>p.emp_name===a.emp_name);
     const vydano_month = empPayments
-      .filter(p=>p.date>=monthStart && p.date<=a.date)
+      .filter(p=>p.date>=monthStart && (!dateTo||p.date<=dateTo))
       .reduce((s,p)=>s+(p.amount||0),0);
 
     // Итоговый остаток = остаток на начало + к выдаче - выдано за месяц
