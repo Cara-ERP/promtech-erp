@@ -9707,8 +9707,8 @@ function openAccrualModal(id){
 
   // Заполняем список сотрудников
   const dl = document.getElementById('accrual-emp-list');
-  if(dl && staffData?.length){
-    dl.innerHTML = staffData.map(s=>`<option value="${s.name}">`).join('');
+  if(dl && employeesData?.length){
+    dl.innerHTML = employeesData.map(s=>`<option value="${s.name}">`).join('');
   }
 
   document.getElementById('accrual-emp').value = a?.emp_name||'';
