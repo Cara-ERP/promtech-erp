@@ -9621,26 +9621,26 @@ function renderSalaryLedger(){
 
     const k_vydache = a.net||0;
 
-    // Остаток на начало месяца
+    // Дата начала текущего месяца
+    const monthStart = month + '-01';
+
+    // Остаток на начало месяца — всё до первого числа текущего месяца
     const prevAccruals = (_payrollData.accruals||[])
-      .filter(x=>x.emp_name===a.emp_name && x.date < a.date)
+      .filter(x=>x.emp_name===a.emp_name && x.date < monthStart)
       .reduce((s,x)=>s+(x.net||0),0);
     const prevPayments = allPayments
-      .filter(p=>p.emp_name===a.emp_name && p.date < a.date)
+      .filter(p=>p.emp_name===a.emp_name && p.date < monthStart)
       .reduce((s,p)=>s+(p.amount||0),0);
     const ostatok_nachalo = prevAccruals - prevPayments;
 
-    // Выдано за этот и предыдущие месяцы — остаток
-    const empPayments = allPayments.filter(p=>p.emp_name===a.emp_name && p.date<=a.date);
-    const vydano_month = allPayments.filter(p=>p.emp_name===a.emp_name && p.date?.startsWith(month))
+    // Выдано за текущий месяц
+    const empPayments = allPayments.filter(p=>p.emp_name===a.emp_name);
+    const vydano_month = empPayments
+      .filter(p=>p.date>=monthStart && p.date<=a.date)
       .reduce((s,p)=>s+(p.amount||0),0);
 
-    // Суммарный остаток с учётом всех периодов
-    const total_acc_all = (_payrollData.accruals||[])
-      .filter(x=>x.emp_name===a.emp_name && x.date<=a.date)
-      .reduce((s,x)=>s+(x.net||0),0);
-    const total_paid_all = empPayments.reduce((s,p)=>s+(p.amount||0),0);
-    const ostatok = total_acc_all - total_paid_all;
+    // Итоговый остаток = остаток на начало + к выдаче - выдано за месяц
+    const ostatok = ostatok_nachalo + k_vydache - vydano_month;
 
     const ostatok_color = ostatok > 0 ? 'var(--amber)' : ostatok < 0 ? 'var(--red)' : 'var(--green)';
     const nach_color = ostatok_nachalo > 0 ? 'var(--amber)' : ostatok_nachalo < 0 ? 'var(--red)' : 'var(--text3)';
