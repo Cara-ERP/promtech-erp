@@ -9599,6 +9599,7 @@ function renderSalaryLedger(){
                     (typeof a.details === 'string' ? JSON.parse(a.details||'{}') : {});
     const acc = details.accruals||[];
     const ded = details.deductions||[];
+    const hasDetails = acc.length > 0;
 
     const getAcc = (...keys) => acc.filter(x=>keys.some(k=>x.type?.includes(k))).reduce((s,x)=>s+x.amount,0);
     const getDed = (...keys) => ded.filter(x=>keys.some(k=>x.type?.includes(k))).reduce((s,x)=>s+x.amount,0);
@@ -9610,6 +9611,8 @@ function renderSalaryLedger(){
     const bolnichn   = getAcc('Больничный');
     const zaim_nach  = getAcc('Займ');
     const total_acc  = a.amount||0;
+    // Если детализации нет — неразнесённый остаток
+    const neraznesen = hasDetails ? 0 : total_acc;
 
     const obed       = getDed('Обед');
     const zaim_pog   = getDed('Погашение займа');
@@ -9645,7 +9648,8 @@ function renderSalaryLedger(){
     const ostatok_color = ostatok > 0 ? 'var(--amber)' : ostatok < 0 ? 'var(--red)' : 'var(--green)';
     const nach_color = ostatok_nachalo > 0 ? 'var(--amber)' : ostatok_nachalo < 0 ? 'var(--red)' : 'var(--text3)';
 
-    return { a, oklad, sdelnaya, premiya, otpusk, bolnichn, zaim_nach, total_acc,
+    return { a, oklad: oklad||neraznesen, sdelnaya: hasDetails?sdelnaya:0,
+             premiya, otpusk, bolnichn, zaim_nach, total_acc,
              obed, zaim_pog, opv, osms_so, shtraf, prochie, total_ded,
              k_vydache, vydano_month, ostatok, ostatok_color, ostatok_nachalo, nach_color };
   });
