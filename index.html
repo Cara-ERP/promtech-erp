@@ -1498,7 +1498,7 @@ async function updateOrderInDB(num, fields){
 // Содержит всё необходимое для входа — доступен сразу при клике.
  var _USERS={
   director:   {name:'Тургамбаев Булат Сагинтаевич', initials:'ТБ', color:'#4f8ef7', label:'Директор',
-    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','expense_cats','reconcile','hr','wages','payroll','techcards','mycabinet','ai']},
+    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','expense_cats','reconcile','hr','wages','payroll','accruals','techcards','mycabinet','ai']},
   manager:    {name:'Алтыбасова Акерке', initials:'АА', color:'#3dd68c', label:'Бухгалтер (продажи)',
     pages:['dashboard','catalog','sales','customers','crm','mycabinet']},
   storekeeper:{name:'Угламова Халидам',  initials:'УХ', color:'#f5a623', label:'Кладовщик',
@@ -2049,6 +2049,10 @@ window.onerror = function(msg, src, line, col){
     <div class="nav-item" onclick="showPage('payroll',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span>Зарплатная ведомость</span>
+    </div>
+    <div class="nav-item" onclick="showPage('accruals',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <span>Начисления ЗП</span>
     </div>
     <div class="nav-item" onclick="showPage('techcards',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
@@ -6971,11 +6975,117 @@ window.onerror = function(msg, src, line, col){
               <th style="text-align:right;color:var(--amber);font-weight:700">К выдаче</th>
               <th style="text-align:right;color:var(--green)">Выдано</th>
               <th style="text-align:right;font-weight:700">Остаток</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="payroll-tbody"></tbody>
           <tfoot id="payroll-tfoot"></tfoot>
         </table>
+      </div>
+    </div>
+
+    <div class="page" id="page-accruals">
+      <div class="section-header">
+        <div>
+          <div class="section-title">📋 Начисления ЗП</div>
+          <div class="section-sub">Журнал начислений по сотрудникам</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openAccrualModal(null)">+ Начисление</button>
+      </div>
+
+      <!-- Фильтры -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+        <select id="accrual-month-filter" style="font-size:13px" onchange="renderAccrualsList()">
+          <option value="">Все периоды</option>
+          <option value="2025-11">Ноябрь 2025</option>
+          <option value="2025-12">Декабрь 2025</option>
+          <option value="2026-01">Январь 2026</option>
+          <option value="2026-02">Февраль 2026</option>
+          <option value="2026-03">Март 2026</option>
+          <option value="2026-04">Апрель 2026</option>
+          <option value="2026-05">Май 2026</option>
+          <option value="2026-06">Июнь 2026</option>
+          <option value="2026-07">Июль 2026</option>
+          <option value="2026-08" selected>Август 2026</option>
+        </select>
+        <input id="accrual-search" type="search" placeholder="🔍 Сотрудник..."
+          style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:200px"
+          oninput="renderAccrualsList()">
+        <button class="btn btn-ghost btn-sm" onclick="_payrollData=null;initSalaryLedgerPage().then(renderAccrualsList)">🔄</button>
+      </div>
+
+      <!-- Таблица -->
+      <div style="overflow:auto;max-height:calc(100vh - 240px)">
+        <table class="data-table" id="accruals-table">
+          <thead>
+            <tr style="position:sticky;top:0;background:var(--bg2);z-index:1">
+              <th style="text-align:left">Сотрудник</th>
+              <th>Период</th>
+              <th style="text-align:right;color:var(--accent)">Оклад</th>
+              <th style="text-align:right;color:var(--accent)">Сдельная</th>
+              <th style="text-align:right;color:var(--accent)">Премия</th>
+              <th style="text-align:right;color:var(--accent)">Отпускные</th>
+              <th style="text-align:right;color:var(--accent)">Прочие</th>
+              <th style="text-align:right;color:var(--green);font-weight:700">Итого нач.</th>
+              <th style="text-align:right;color:var(--red)">Удержано</th>
+              <th style="text-align:right;color:var(--amber);font-weight:700">К выдаче</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="accruals-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Модал редактирования начисления -->
+      <div class="modal-overlay" id="accrualModal">
+        <div class="modal" style="max-width:560px">
+          <div class="modal-header">
+            <div class="modal-title" id="accrual-modal-title">Начисление ЗП</div>
+            <button class="modal-close" onclick="closeModal('accrualModal')">✕</button>
+          </div>
+          <div class="modal-body" style="display:grid;gap:12px">
+            <input type="hidden" id="accrual-edit-id">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label class="label">Сотрудник</label>
+                <input id="accrual-emp" type="text" list="accrual-emp-list" class="input" placeholder="ФИО сотрудника">
+                <datalist id="accrual-emp-list"></datalist>
+              </div>
+              <div>
+                <label class="label">Период (последний день)</label>
+                <input id="accrual-date" type="date" class="input">
+              </div>
+            </div>
+            <div style="font-weight:600;font-size:13px;color:var(--accent)">Начисления</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div><label class="label">Оклад</label><input id="ac-oklad" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Сдельная</label><input id="ac-sdel" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Премия</label><input id="ac-premiya" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Отпускные</label><input id="ac-otpusk" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Займ (начисл.)</label><input id="ac-zaim-n" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Больничные</label><input id="ac-boln" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+            </div>
+            <div style="font-weight:600;font-size:13px;color:var(--red)">Удержания</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div><label class="label">Обед</label><input id="ac-obed" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Займ (погаш.)</label><input id="ac-zaim-p" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">ОПВ</label><input id="ac-opv" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">ОСМС/СО</label><input id="ac-osms" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Штрафы</label><input id="ac-shtraf" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Прочие</label><input id="ac-prochie" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;background:var(--bg3);padding:10px;border-radius:8px;font-size:13px">
+              <div><div style="color:var(--text3)">Итого начислено</div><div id="ac-total-acc" style="font-weight:700;color:var(--green)">₸0</div></div>
+              <div><div style="color:var(--text3)">Итого удержано</div><div id="ac-total-ded" style="font-weight:700;color:var(--red)">₸0</div></div>
+              <div><div style="color:var(--text3)">К выдаче</div><div id="ac-net" style="font-weight:700;color:var(--amber)">₸0</div></div>
+            </div>
+            <div id="accrual-error" style="color:var(--red);font-size:13px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('accrualModal')">Отмена</button>
+            <button class="btn btn-primary" onclick="saveAccrual()">💾 Сохранить</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -9537,6 +9647,156 @@ async function acceptToWarehouse(itemId, invId){
   await acceptItemToWarehouse(itemId, invId, null);
 }
 
+// ── Журнал начислений ЗП ──────────────────────────────────────────────────────
+async function initAccrualsPage(){
+  if(!_payrollData) await initSalaryLedgerPage();
+  else renderAccrualsList();
+}
+
+function renderAccrualsList(){
+  const tbody = document.getElementById('accruals-tbody');
+  if(!tbody||!_payrollData) return;
+
+  const month  = document.getElementById('accrual-month-filter')?.value||'';
+  const search = (document.getElementById('accrual-search')?.value||'').toLowerCase();
+  const fmt = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+
+  const accruals = (_payrollData.accruals||[]).filter(a=>{
+    if(month && !a.date?.startsWith(month)) return false;
+    if(search && !a.emp_name?.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  tbody.innerHTML = accruals.map(a=>{
+    const det = a.details && typeof a.details==='object' ? a.details : {};
+    const acc = det.accruals||[];
+    const ded = det.deductions||[];
+    const getA = (...k) => acc.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
+    const getD = (...k) => ded.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
+    const oklad = getA('Оклад'); const sdel = getA('Сдельная');
+    const prem = getA('Премия'); const otpusk = getA('Отпускные');
+    const prochie_a = getA('Больничный','Займ','Материальная','Районный');
+    const ded_total = a.deducted||0;
+    const net = a.net||0;
+    return `<tr>
+      <td style="font-weight:500;white-space:nowrap;font-size:13px">${a.emp_name}</td>
+      <td style="font-size:12px;color:var(--text3);white-space:nowrap">${a.date||''}</td>
+      <td style="text-align:right;font-size:12px">${oklad?fmt(oklad):'—'}</td>
+      <td style="text-align:right;font-size:12px">${sdel?fmt(sdel):'—'}</td>
+      <td style="text-align:right;font-size:12px">${prem?fmt(prem):'—'}</td>
+      <td style="text-align:right;font-size:12px">${otpusk?fmt(otpusk):'—'}</td>
+      <td style="text-align:right;font-size:12px">${prochie_a?fmt(prochie_a):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:var(--green);font-size:12px">${fmt(a.amount)}</td>
+      <td style="text-align:right;color:var(--red);font-size:12px">${ded_total?fmt(ded_total):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:var(--amber);font-size:12px">${fmt(net)}</td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAccrualModal('${a.id}')">✏️</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text3)">Нет данных</td></tr>';
+}
+
+function openAccrualModal(id){
+  const a = id ? (_payrollData?.accruals||[]).find(x=>x.id===id) : null;
+  document.getElementById('accrual-edit-id').value = id||'';
+  document.getElementById('accrual-modal-title').textContent = a ? `✏️ ${a.emp_name}` : 'Новое начисление';
+
+  // Заполняем список сотрудников
+  const dl = document.getElementById('accrual-emp-list');
+  if(dl && staffData?.length){
+    dl.innerHTML = staffData.map(s=>`<option value="${s.name}">`).join('');
+  }
+
+  document.getElementById('accrual-emp').value = a?.emp_name||'';
+  document.getElementById('accrual-date').value = a?.date||'';
+
+  const det = a?.details && typeof a.details==='object' ? a.details : {};
+  const acc = det.accruals||[];
+  const ded = det.deductions||[];
+  const getA = (...k) => acc.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
+  const getD = (...k) => ded.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
+
+  document.getElementById('ac-oklad').value  = getA('Оклад')||'';
+  document.getElementById('ac-sdel').value   = getA('Сдельная')||'';
+  document.getElementById('ac-premiya').value= getA('Премия')||'';
+  document.getElementById('ac-otpusk').value = getA('Отпускные')||'';
+  document.getElementById('ac-zaim-n').value = getA('Займ')||'';
+  document.getElementById('ac-boln').value   = getA('Больничный')||'';
+  document.getElementById('ac-obed').value   = getD('Обед')||'';
+  document.getElementById('ac-zaim-p').value = getD('Погашение займа')||'';
+  document.getElementById('ac-opv').value    = getD('Пенсионные')||'';
+  document.getElementById('ac-osms').value   = getD('Медицинское','Социальный')||'';
+  document.getElementById('ac-shtraf').value = getD('Штраф')||'';
+  document.getElementById('ac-prochie').value= getD('ИПН','Алименты','Корректировка')||'';
+
+  // Если нет детализации но есть amount — покажем в Оклад
+  if(!acc.length && a?.amount){
+    document.getElementById('ac-oklad').value = a.amount;
+  }
+
+  document.getElementById('accrual-error').textContent='';
+  calcAccrualTotal();
+  showModal('accrualModal');
+}
+
+function calcAccrualTotal(){
+  const v = id => parseFloat(document.getElementById(id)?.value)||0;
+  const acc = v('ac-oklad')+v('ac-sdel')+v('ac-premiya')+v('ac-otpusk')+v('ac-zaim-n')+v('ac-boln');
+  const ded = v('ac-obed')+v('ac-zaim-p')+v('ac-opv')+v('ac-osms')+v('ac-shtraf')+v('ac-prochie');
+  const net = acc - ded;
+  const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+  document.getElementById('ac-total-acc').textContent = fmt(acc);
+  document.getElementById('ac-total-ded').textContent = fmt(ded);
+  document.getElementById('ac-net').textContent = fmt(net);
+}
+
+async function saveAccrual(){
+  const errEl = document.getElementById('accrual-error');
+  const id    = document.getElementById('accrual-edit-id').value;
+  const emp   = document.getElementById('accrual-emp').value.trim();
+  const date  = document.getElementById('accrual-date').value;
+  if(!emp){ errEl.textContent='Укажите сотрудника'; return; }
+  if(!date){ errEl.textContent='Укажите период'; return; }
+
+  const v = eid => parseFloat(document.getElementById(eid)?.value)||0;
+  const accruals = [
+    {type:'Оклад',          amount:v('ac-oklad')},
+    {type:'Сдельная',       amount:v('ac-sdel')},
+    {type:'Премия',         amount:v('ac-premiya')},
+    {type:'Отпускные',      amount:v('ac-otpusk')},
+    {type:'Займ начислен',  amount:v('ac-zaim-n')},
+    {type:'Больничный',     amount:v('ac-boln')},
+  ].filter(x=>x.amount>0);
+  const deductions = [
+    {type:'Обед',                   amount:v('ac-obed')},
+    {type:'Погашение займа',        amount:v('ac-zaim-p')},
+    {type:'Пенсионные взносы',      amount:v('ac-opv')},
+    {type:'Медицинское страхование',amount:v('ac-osms')},
+    {type:'Штрафы',                 amount:v('ac-shtraf')},
+    {type:'Прочие удержания',       amount:v('ac-prochie')},
+  ].filter(x=>x.amount>0);
+
+  const amount   = accruals.reduce((s,x)=>s+x.amount,0);
+  const deducted = deductions.reduce((s,x)=>s+x.amount,0);
+  const net      = amount - deducted;
+  const details  = {accruals, deductions};
+
+  try{
+    if(id){
+      // Обновляем существующую запись
+      await sbPatch('salary_accruals', `id=eq.${id}`, {emp_name:emp, date, amount, deducted, net, details});
+      const idx = (_payrollData?.accruals||[]).findIndex(x=>x.id===id);
+      if(idx>=0) _payrollData.accruals[idx] = {..._payrollData.accruals[idx], emp_name:emp, date, amount, deducted, net, details};
+    } else {
+      // Новая запись
+      const res = await sbInsert('salary_accruals', {emp_name:emp, date, amount, deducted, net, type:'salary', comment:'Начисление ЗП', details});
+      if(res) _payrollData?.accruals?.push(res);
+    }
+    closeModal('accrualModal');
+    renderAccrualsList();
+    // Обновим ведомость если открыта
+    if(document.getElementById('page-payroll')?.style.display==='block') renderSalaryLedger();
+  } catch(e){ errEl.textContent='Ошибка: '+e.message; }
+}
+
 async function initSalaryLedgerPage(){
   if(!_payrollData){
     try {
@@ -9674,6 +9934,7 @@ function renderSalaryLedger(){
     <td style="text-align:right;font-weight:700;color:var(--amber);user-select:text">${fmt(r.k_vydache)}</td>
     <td style="text-align:right;color:var(--green);user-select:text">${r.vydano_month?fmt(r.vydano_month):'—'}</td>
     <td style="text-align:right;font-weight:700;color:${r.ostatok_color};user-select:text">${fmt(r.ostatok)}</td>
+    <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showPage('accruals');setTimeout(()=>openAccrualModal('${r.a.id}'),300)">✏️</button></td>
   </tr>`).join('') || '<tr><td colspan="18" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за этот период</td></tr>';
 
   // Итоги по всем колонкам
@@ -11956,6 +12217,7 @@ function showPage(id, el){
 
   if(id==='money_salon'){ renderSalonMoney(); }
   if(id==='esf') initEsfPage();
+  if(id==='accruals') initAccrualsPage();
   if(id==='payroll') initSalaryLedgerPage();
   if(id==='mycabinet') setTimeout(initUserPrefsUI, 300);
   if(id==='expense_cats') initExpenseCatsPage();
