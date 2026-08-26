@@ -10590,6 +10590,11 @@ function renderSalaryLedger(){
   </tr>`;
 
   // KPI
+  const totalNachало = rows.reduce((s,r)=>s+r.ostatok_nachalo, 0);
+  const totalOstatok = rows.reduce((s,r)=>s+r.ostatok, 0);
+  const nach_color = totalNachало >= 0 ? 'var(--amber)' : 'var(--red)';
+  const ost_color  = totalOstatok >= 0 ? 'var(--amber)' : 'var(--red)';
+
   kpi.innerHTML = [
     ['👥 Сотрудников', rows.length, ''],
     ['💰 Начислено', fmt(totals.acc), 'var(--green)'],
@@ -10600,7 +10605,18 @@ function renderSalaryLedger(){
     <div class="card" style="padding:12px 14px">
       <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${label}</div>
       <div style="font-size:18px;font-weight:700;${color?'color:'+color:''}">${val}</div>
-    </div>`).join('');
+    </div>`).join('') + `
+    <div class="card" style="padding:10px 14px;display:flex;gap:16px;align-items:center;grid-column:1/-1">
+      <div>
+        <div style="font-size:11px;color:var(--text3)">Остаток на начало</div>
+        <div style="font-size:15px;font-weight:700;color:${nach_color}">${fmt(totalNachало)}</div>
+      </div>
+      <div style="color:var(--border2);font-size:20px">→</div>
+      <div>
+        <div style="font-size:11px;color:var(--text3)">Остаток на конец</div>
+        <div style="font-size:15px;font-weight:700;color:${ost_color}">${fmt(totalOstatok)}</div>
+      </div>
+    </div>`;
 }
 
 function exportSalaryLedger(){
