@@ -7005,20 +7005,24 @@ window.onerror = function(msg, src, line, col){
             <tr style="position:sticky;top:0;background:var(--bg2);z-index:1">
               <th style="min-width:160px;text-align:left">Сотрудник</th>
               <th style="text-align:right;color:var(--text3)">Остаток нач.</th>
-              <th style="text-align:right;color:var(--accent)">Оклад</th>
-              <th style="text-align:right;color:var(--accent)">Сдельная</th>
-              <th style="text-align:right;color:var(--accent)">Премия</th>
-              <th style="text-align:right;color:var(--accent)">Отпускные</th>
-              <th style="text-align:right;color:var(--accent)">Займ нач.</th>
-              <th style="text-align:right;color:var(--accent)">Больничные</th>
-              <th style="text-align:right;color:var(--green);font-weight:700">Итого нач.</th>
-              <th style="text-align:right;color:var(--red)">Обед</th>
-              <th style="text-align:right;color:var(--red)">Займ погаш.</th>
-              <th style="text-align:right;color:var(--red)">ОПВ</th>
-              <th style="text-align:right;color:var(--red)">ОСМС/СО</th>
-              <th style="text-align:right;color:var(--red)">Штрафы</th>
-              <th style="text-align:right;color:var(--red)">Прочие</th>
-              <th style="text-align:right;color:var(--red);font-weight:700">Итого удерж.</th>
+              <th class="col-acc" style="text-align:right;color:var(--accent)">Оклад</th>
+              <th class="col-acc" style="text-align:right;color:var(--accent)">Сдельная</th>
+              <th class="col-acc" style="text-align:right;color:var(--accent)">Премия</th>
+              <th class="col-acc" style="text-align:right;color:var(--accent)">Отпускные</th>
+              <th class="col-acc" style="text-align:right;color:var(--accent)">Займ нач.</th>
+              <th class="col-acc" style="text-align:right;color:var(--accent)">Больничные</th>
+              <th style="text-align:right;color:var(--green);font-weight:700;cursor:pointer;white-space:nowrap" onclick="togglePayrollCols('acc')">
+                <span id="toggle-acc-btn">◀</span> Итого нач.
+              </th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">Обед</th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">Займ погаш.</th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">ОПВ</th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">ОСМС/СО</th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">Штрафы</th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">Прочие</th>
+              <th style="text-align:right;color:var(--red);font-weight:700;cursor:pointer;white-space:nowrap" onclick="togglePayrollCols('ded')">
+                <span id="toggle-ded-btn">◀</span> Итого удерж.
+              </th>
               <th style="text-align:right;color:var(--amber);font-weight:700">К выдаче</th>
               <th style="text-align:right;color:var(--green)">Выдано</th>
               <th style="text-align:right;font-weight:700">Остаток</th>
@@ -7114,6 +7118,7 @@ window.onerror = function(msg, src, line, col){
               <div><label class="label">Отпускные</label><input id="ac-otpusk" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Займ (начисл.)</label><input id="ac-zaim-n" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Больничные</label><input id="ac-boln" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Прочие начисл.</label><input id="ac-prochie-acc" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
             </div>
             <div style="font-weight:600;font-size:13px;color:var(--red)">Удержания</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -9770,6 +9775,7 @@ function openAccrualModal(id){
   document.getElementById('ac-otpusk').value = getA('Отпускные')||'';
   document.getElementById('ac-zaim-n').value = getA('Займ')||'';
   document.getElementById('ac-boln').value   = getA('Больничный')||'';
+  document.getElementById('ac-prochie-acc').value = getA('Прочие начисления')||'';
   document.getElementById('ac-obed').value   = getD('Обед')||'';
   document.getElementById('ac-zaim-p').value = getD('Погашение займа')||'';
   document.getElementById('ac-opv').value    = getD('Пенсионные')||'';
@@ -9789,7 +9795,7 @@ function openAccrualModal(id){
 
 function calcAccrualTotal(){
   const v = id => parseFloat(document.getElementById(id)?.value)||0;
-  const acc = v('ac-oklad')+v('ac-sdel')+v('ac-premiya')+v('ac-otpusk')+v('ac-zaim-n')+v('ac-boln');
+  const acc = v('ac-oklad')+v('ac-sdel')+v('ac-premiya')+v('ac-otpusk')+v('ac-zaim-n')+v('ac-boln')+v('ac-prochie-acc');
   const ded = v('ac-obed')+v('ac-zaim-p')+v('ac-opv')+v('ac-osms')+v('ac-shtraf')+v('ac-prochie');
   const net = acc - ded;
   const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
@@ -9814,6 +9820,7 @@ async function saveAccrual(){
     {type:'Отпускные',      amount:v('ac-otpusk')},
     {type:'Займ начислен',  amount:v('ac-zaim-n')},
     {type:'Больничный',     amount:v('ac-boln')},
+    {type:'Прочие начисления', amount:v('ac-prochie-acc')},
   ].filter(x=>x.amount>0);
   const deductions = [
     {type:'Обед',                   amount:v('ac-obed')},
@@ -9878,6 +9885,14 @@ async function initSalaryLedgerPage(){
     } catch(e){ console.warn('⚠️ Ошибка загрузки ЗП:', e.message); return; }
   }
   renderPayroll();
+}
+
+function togglePayrollCols(group){
+  const cells = document.querySelectorAll(`#payroll-table .col-${group}`);
+  const btn   = document.getElementById(`toggle-${group}-btn`);
+  const hidden = cells.length && cells[0].style.display==='none';
+  cells.forEach(c=>c.style.display=hidden?'':'none');
+  if(btn) btn.textContent = hidden ? '◀' : '▶';
 }
 
 function onPayrollMonthChange(){
@@ -9986,18 +10001,18 @@ function renderSalaryLedger(){
     <td style="font-weight:500;white-space:nowrap;user-select:text">${r.a.emp_name}</td>
     <td style="text-align:right;user-select:text;color:${r.nach_color}">${r.ostatok_nachalo?fmt(r.ostatok_nachalo):'—'}</td>
     <td style="text-align:right;user-select:text">${r.oklad?fmt(r.oklad):'—'}</td>
-    <td style="text-align:right;user-select:text">${r.sdelnaya?fmt(r.sdelnaya):'—'}</td>
-    <td style="text-align:right;user-select:text">${r.premiya?fmt(r.premiya):'—'}</td>
-    <td style="text-align:right;user-select:text">${r.otpusk?fmt(r.otpusk):'—'}</td>
-    <td style="text-align:right;user-select:text">${r.zaim_nach?fmt(r.zaim_nach):'—'}</td>
-    <td style="text-align:right;user-select:text">${r.bolnichn?fmt(r.bolnichn):'—'}</td>
+    <td class="col-acc" style="text-align:right;user-select:text">${r.sdelnaya?fmt(r.sdelnaya):'—'}</td>
+    <td class="col-acc" style="text-align:right;user-select:text">${r.premiya?fmt(r.premiya):'—'}</td>
+    <td class="col-acc" style="text-align:right;user-select:text">${r.otpusk?fmt(r.otpusk):'—'}</td>
+    <td class="col-acc" style="text-align:right;user-select:text">${r.zaim_nach?fmt(r.zaim_nach):'—'}</td>
+    <td class="col-acc" style="text-align:right;user-select:text">${r.bolnichn?fmt(r.bolnichn):'—'}</td>
     <td style="text-align:right;font-weight:700;color:var(--green);user-select:text">${fmt(r.total_acc)}</td>
-    <td style="text-align:right;color:var(--red);user-select:text">${r.obed?fmt(r.obed):'—'}</td>
-    <td style="text-align:right;color:var(--red);user-select:text">${r.zaim_pog?fmt(r.zaim_pog):'—'}</td>
-    <td style="text-align:right;color:var(--red);user-select:text">${r.opv?fmt(r.opv):'—'}</td>
-    <td style="text-align:right;color:var(--red);user-select:text">${r.osms_so?fmt(r.osms_so):'—'}</td>
-    <td style="text-align:right;color:var(--red);user-select:text">${r.shtraf?fmt(r.shtraf):'—'}</td>
-    <td style="text-align:right;color:var(--red);user-select:text">${r.prochie?fmt(r.prochie):'—'}</td>
+    <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.obed?fmt(r.obed):'—'}</td>
+    <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.zaim_pog?fmt(r.zaim_pog):'—'}</td>
+    <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.opv?fmt(r.opv):'—'}</td>
+    <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.osms_so?fmt(r.osms_so):'—'}</td>
+    <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.shtraf?fmt(r.shtraf):'—'}</td>
+    <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.prochie?fmt(r.prochie):'—'}</td>
     <td style="text-align:right;font-weight:700;color:var(--red);user-select:text">${r.total_ded?fmt(r.total_ded):'—'}</td>
     <td style="text-align:right;font-weight:700;color:var(--amber);user-select:text">${fmt(r.k_vydache)}</td>
     <td style="text-align:right;color:var(--green);user-select:text">${r.vydano_month?fmt(r.vydano_month):'—'}</td>
