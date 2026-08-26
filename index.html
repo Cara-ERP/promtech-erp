@@ -7041,6 +7041,7 @@ window.onerror = function(msg, src, line, col){
           <div class="section-title">📋 Начисления ЗП</div>
           <div class="section-sub">Журнал начислений по сотрудникам</div>
         </div>
+        <button class="btn btn-ghost btn-sm" onclick="openVacationCalcModal()">🏖 Отпускные / Больничные</button>
         <button class="btn btn-ghost btn-sm" onclick="openSalaryCalcModal()">📊 Начислить оклад</button>
         <button class="btn btn-primary btn-sm" onclick="openAccrualModal(null)">+ Начисление</button>
       </div>
@@ -7089,6 +7090,71 @@ window.onerror = function(msg, src, line, col){
       </div>
 
       <!-- Модал редактирования начисления -->
+      <!-- Модал расчёта отпускных/больничных -->
+      <div class="modal-overlay" id="vacationCalcModal">
+        <div class="modal" style="max-width:560px">
+          <div class="modal-header">
+            <div class="modal-title" id="vc-title">🏖 Расчёт отпускных / больничных</div>
+            <button class="modal-close" onclick="closeModal('vacationCalcModal')">✕</button>
+          </div>
+          <div class="modal-body" style="display:grid;gap:12px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label class="label">Сотрудник</label>
+                <input id="vc-emp" type="text" list="vc-emp-list" class="input" placeholder="ФИО" oninput="loadVacationCalc()">
+                <datalist id="vc-emp-list"></datalist>
+              </div>
+              <div>
+                <label class="label">Тип</label>
+                <select id="vc-type" class="input">
+                  <option value="vacation">🏖 Отпускные</option>
+                  <option value="sick">🏥 Больничные</option>
+                </select>
+              </div>
+              <div>
+                <label class="label">Месяц начисления</label>
+                <input id="vc-month" type="month" class="input" oninput="loadVacationCalc()">
+              </div>
+              <div>
+                <label class="label">Количество дней</label>
+                <input id="vc-days" type="number" min="1" max="365" value="14" class="input" oninput="recalcVacation()">
+              </div>
+            </div>
+            <div id="vc-months-block" style="display:none">
+              <div style="font-weight:600;font-size:13px;margin-bottom:8px">Начисления за 11 месяцев</div>
+              <table class="data-table" style="font-size:12px">
+                <thead><tr>
+                  <th>Месяц</th>
+                  <th style="text-align:right">Начислено (К выдаче)</th>
+                </tr></thead>
+                <tbody id="vc-months-tbody"></tbody>
+              </table>
+            </div>
+            <div id="vc-result" style="display:none;background:var(--bg3);border-radius:8px;padding:14px">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:13px">
+                <div>
+                  <div style="color:var(--text3);font-size:11px">Среднемесячная ЗП</div>
+                  <div id="vc-avg-monthly" style="font-weight:700;font-size:15px"></div>
+                </div>
+                <div>
+                  <div style="color:var(--text3);font-size:11px">Среднедневная ЗП</div>
+                  <div id="vc-avg-daily" style="font-weight:700;font-size:15px;color:var(--accent)"></div>
+                </div>
+                <div>
+                  <div style="color:var(--text3);font-size:11px">К начислению (<span id="vc-days-label">14</span> дн.)</div>
+                  <div id="vc-total" style="font-weight:700;font-size:18px;color:var(--green)"></div>
+                </div>
+              </div>
+            </div>
+            <div id="vc-error" style="color:var(--red);font-size:13px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('vacationCalcModal')">Отмена</button>
+            <button class="btn btn-primary" id="vc-save-btn" style="display:none" onclick="saveVacationAccrual()">💾 Создать начисление</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Модал начисления оклада по табелю -->
       <div class="modal-overlay" id="salaryCalcModal">
         <div class="modal" style="max-width:900px;max-height:90vh;display:flex;flex-direction:column">
@@ -9754,6 +9820,131 @@ async function acceptItemToWarehouse(itemId, invId, existingMatId){
 
 async function acceptToWarehouse(itemId, invId){
   await acceptItemToWarehouse(itemId, invId, null);
+}
+
+// ── Расчёт отпускных / больничных ────────────────────────────────────────────
+function openVacationCalcModal(){
+  // Заполняем список сотрудников
+  const dl = document.getElementById('vc-emp-list');
+  if(dl) dl.innerHTML = employeesData.map(e=>`<option value="${e.name}">`).join('');
+  // Текущий месяц
+  const now = new Date();
+  const monthEl = document.getElementById('vc-month');
+  if(monthEl) monthEl.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('vc-months-block').style.display='none';
+  document.getElementById('vc-result').style.display='none';
+  document.getElementById('vc-save-btn').style.display='none';
+  document.getElementById('vc-error').textContent='';
+  showModal('vacationCalcModal');
+}
+
+function loadVacationCalc(){
+  const empName = document.getElementById('vc-emp')?.value?.trim();
+  const month   = document.getElementById('vc-month')?.value;
+  if(!empName || !month) return;
+
+  const errEl = document.getElementById('vc-error');
+  errEl.textContent='';
+
+  // 11 месяцев до месяца начисления
+  const [yr, mo] = month.split('-').map(Number);
+  const months11 = [];
+  for(let i=1; i<=11; i++){
+    let m = mo - i;
+    let y = yr;
+    while(m <= 0){ m+=12; y--; }
+    months11.push(`${y}-${String(m).padStart(2,'0')}`);
+  }
+  months11.reverse(); // хронологический порядок
+
+  // Ищем начисления за эти месяцы
+  const accruals = (_payrollData?.accruals||[]).filter(a=>
+    a.emp_name===empName && a.type==='salary'
+  );
+
+  const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+  const monthNames = {'01':'Янв','02':'Фев','03':'Мар','04':'Апр','05':'Май','06':'Июн',
+                      '07':'Июл','08':'Авг','09':'Сен','10':'Окт','11':'Ноя','12':'Дек'};
+
+  const tbody = document.getElementById('vc-months-tbody');
+  let totalNet = 0, countMonths = 0;
+
+  tbody.innerHTML = months11.map(m=>{
+    const [my, mm] = m.split('-');
+    const monthAcc = accruals.filter(a=>a.date?.startsWith(m));
+    const net = monthAcc.reduce((s,a)=>s+(a.net||0), 0);
+    if(net > 0){ totalNet += net; countMonths++; }
+    return `<tr>
+      <td>${monthNames[mm]||mm} ${my}</td>
+      <td style="text-align:right;font-family:monospace;${net?'':'color:var(--text3)'}">${net?fmt(net):'—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('vc-months-block').style.display='';
+
+  if(countMonths === 0){
+    errEl.textContent='Нет данных о начислениях за последние 11 месяцев';
+    document.getElementById('vc-result').style.display='none';
+    document.getElementById('vc-save-btn').style.display='none';
+    return;
+  }
+
+  window._vcData = {empName, month, totalNet, countMonths};
+  recalcVacation();
+}
+
+function recalcVacation(){
+  const data = window._vcData;
+  if(!data) return;
+
+  const days = parseFloat(document.getElementById('vc-days')?.value)||0;
+  const avgMonthly = data.totalNet / data.countMonths;
+  const avgDaily   = avgMonthly / 29.3; // КТ РК
+  const total      = Math.round(avgDaily * days);
+
+  const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+  document.getElementById('vc-avg-monthly').textContent = fmt(avgMonthly);
+  document.getElementById('vc-avg-daily').textContent   = fmt(avgDaily);
+  document.getElementById('vc-total').textContent       = fmt(total);
+  document.getElementById('vc-days-label').textContent  = days;
+  document.getElementById('vc-result').style.display='';
+  document.getElementById('vc-save-btn').style.display='';
+
+  window._vcData.avgMonthly = avgMonthly;
+  window._vcData.avgDaily   = avgDaily;
+  window._vcData.total      = total;
+  window._vcData.days       = days;
+}
+
+async function saveVacationAccrual(){
+  const d = window._vcData;
+  if(!d||!d.total) return;
+
+  const type    = document.getElementById('vc-type')?.value||'vacation';
+  const typeLabel = type==='vacation' ? 'Отпускные' : 'Больничные';
+  const [yr, mo] = d.month.split('-').map(Number);
+  const lastDay  = new Date(yr, mo, 0).getDate();
+  const date     = `${yr}-${String(mo).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+
+  const details = {
+    accruals: [{type: typeLabel, amount: d.total}],
+    deductions: [],
+    meta: {days: d.days, avgMonthly: Math.round(d.avgMonthly), avgDaily: Math.round(d.avgDaily)}
+  };
+
+  try{
+    const res = await sbInsert('salary_accruals',{
+      emp_name: d.empName, date, amount: d.total,
+      deducted: 0, net: d.total, type: 'salary',
+      comment: `${typeLabel} (${d.days} дн.)`, details
+    });
+    if(res && _payrollData) _payrollData.accruals.push(res);
+    closeModal('vacationCalcModal');
+    renderAccrualsList();
+    alert(`✅ ${typeLabel} ${d.empName.split(' ')[0]} — ₸${Math.round(d.total).toLocaleString('ru-RU')}`);
+  } catch(e){
+    document.getElementById('vc-error').textContent='Ошибка: '+e.message;
+  }
 }
 
 // ── Начисление оклада по табелю ───────────────────────────────────────────────
