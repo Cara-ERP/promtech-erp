@@ -706,9 +706,29 @@ async function loadStaffFromDB(){
             comment:s.comment||'',
             commissionPct:s.commission_pct||0,
             commissionMethod:s.commission_method||'sales',
+            // Условия труда
+            base_salary:        s.base_salary||0,
+            deduction_meal:     s.deduction_meal||0,
+            deduction_opv_pct:  s.deduction_opv_pct||10,
+            deduction_osms_pct: s.deduction_osms_pct||3,
+            deduction_so_pct:   s.deduction_so_pct||3.5,
+            deduction_opv_fixed:  s.deduction_opv_fixed||0,
+            deduction_osms_fixed: s.deduction_osms_fixed||0,
+            status:     s.status||'active',
+            fired_date: s.fired_date||null,
             initials:s.name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(),
             color:'rgba(79,142,247,.15)', tc:'var(--accent)',
           });
+        } else {
+          // Обновляем поля условий труда для уже загруженного сотрудника
+          exists.base_salary        = s.base_salary||0;
+          exists.deduction_meal     = s.deduction_meal||0;
+          exists.deduction_opv_pct  = s.deduction_opv_pct||10;
+          exists.deduction_osms_pct = s.deduction_osms_pct||3;
+          exists.deduction_opv_fixed  = s.deduction_opv_fixed||0;
+          exists.deduction_osms_fixed = s.deduction_osms_fixed||0;
+          exists.status     = s.status||'active';
+          exists.fired_date = s.fired_date||null;
         }
         // Обновляем PIN если есть
         if(s.pin){
@@ -17108,32 +17128,34 @@ async function fillAccrualFromCard(){
   const date    = document.getElementById('accrual-date').value;
   if(!empName){ alert('Укажите сотрудника'); return; }
 
-  const emp = employeesData.find(e=>e.name===empName);
+  // Ищем по точному совпадению или частичному
+  const emp = employeesData.find(e=>e.name===empName) ||
+              employeesData.find(e=>e.name?.toLowerCase().includes(empName.toLowerCase()));
   if(!emp){ alert('Сотрудник не найден в базе'); return; }
 
-  // Оклад × рабочие дни
+  // Подставляем полное имя
+  document.getElementById('accrual-emp').value = emp.name;
+
   const salary = emp.base_salary || emp.salary || 0;
-  const workDays = parseInt(prompt(`Рабочих дней в месяце (${date?.substring(0,7)||''}):`, '22'))||22;
-  const totalDays = parseInt(prompt('Отработано дней:', workDays))||workDays;
-  const oklad = Math.round(salary / workDays * totalDays);
+  if(!salary){ alert(`У ${emp.name} не указан оклад в карточке`); return; }
 
-  // Постоянные удержания
-  const meal    = emp.deduction_meal||0;
-  const opv     = Math.round(oklad * (emp.deduction_opv_pct||10) / 100);
-  const osms    = Math.round(oklad * (emp.deduction_osms_pct||3) / 100);
-  const so      = Math.round(oklad * (emp.deduction_so_pct||3.5) / 100);
+  const workDays = parseInt(prompt(`Рабочих дней в месяце:`, '22'))||22;
+  const factDays = parseInt(prompt(`Отработано дней (из ${workDays}):`, workDays))||workDays;
+  const oklad = Math.round(salary / workDays * factDays);
 
-  // Заполняем поля — только если они пустые или 0
-  const fillIfEmpty = (id, val) => {
-    const el = document.getElementById(id);
-    if(el && (!el.value || el.value==='0')) el.value = val||'';
-  };
+  const meal  = emp.deduction_meal||0;
+  const opv   = emp.deduction_opv_fixed || Math.round(oklad * (emp.deduction_opv_pct||10) / 100);
+  const osms  = emp.deduction_osms_fixed || Math.round(oklad * (emp.deduction_osms_pct||3) / 100);
 
   document.getElementById('ac-oklad').value = oklad||'';
-  fillIfEmpty('ac-obed',   meal);
-  fillIfEmpty('ac-opv',    opv);
-  fillIfEmpty('ac-osms',   osms);
-  // СО не удерживается у всех — не заполняем автоматически
+
+  const fillIfEmpty = (id, val) => {
+    const el = document.getElementById(id);
+    if(el && (!el.value || parseFloat(el.value)===0)) el.value = val||'';
+  };
+  fillIfEmpty('ac-obed',  meal);
+  fillIfEmpty('ac-opv',   opv);
+  fillIfEmpty('ac-osms',  osms);
 
   calcAccrualTotal();
 }
