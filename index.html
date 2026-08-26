@@ -7257,6 +7257,7 @@ window.onerror = function(msg, src, line, col){
             <div id="accrual-error" style="color:var(--red);font-size:13px"></div>
           </div>
           <div class="modal-footer">
+            <button class="btn btn-ghost btn-sm" id="accrual-history-btn" style="display:none;margin-right:auto" onclick="showAccrualHistory()">📋 История</button>
             <button class="btn btn-ghost" onclick="closeModal('accrualModal')">Отмена</button>
             <button class="btn btn-primary" onclick="saveAccrual()">💾 Сохранить</button>
           </div>
@@ -9822,6 +9823,24 @@ async function acceptToWarehouse(itemId, invId){
   await acceptItemToWarehouse(itemId, invId, null);
 }
 
+async function showAccrualHistory(){
+  const id = document.getElementById('accrual-edit-id')?.value;
+  if(!id) return;
+  try{
+    const rows = await sbFetch('salary_accruals_history',
+      `select=*&accrual_id=eq.${id}&order=changed_at.desc&limit=20`);
+    if(!rows||!rows.length){ alert('История изменений пуста'); return; }
+    const fmt = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+    const msg = rows.map(r=>{
+      const dt = r.changed_at ? new Date(r.changed_at).toLocaleString('ru-RU') : '—';
+      return `${dt}${r.changed_by?' ('+r.changed_by+')':''}\n` +
+             `Начислено: ${fmt(r.amount)} | Удержано: ${fmt(r.deducted)} | К выдаче: ${fmt(r.net)}\n` +
+             (r.comment?`Примечание: ${r.comment}`:'');
+    }).join('\n─────────────\n');
+    alert(`История изменений:\n\n${msg}`);
+  } catch(e){ alert('Ошибка загрузки истории: '+e.message); }
+}
+
 // ── Расчёт отпускных / больничных ────────────────────────────────────────────
 function openVacationCalcModal(){
   // Заполняем список сотрудников
@@ -10150,6 +10169,8 @@ function openAccrualModal(id){
   }
 
   document.getElementById('accrual-error').textContent='';
+  const histBtn = document.getElementById('accrual-history-btn');
+  if(histBtn) histBtn.style.display = id ? '' : 'none';
   calcAccrualTotal();
   showModal('accrualModal');
 }
@@ -10199,6 +10220,21 @@ async function saveAccrual(){
 
   try{
     if(id){
+      // Сохраняем предыдущую версию в историю
+      const prev = (_payrollData?.accruals||[]).find(x=>x.id===id);
+      if(prev){
+        sbInsert('salary_accruals_history',{
+          accrual_id: id,
+          emp_name: prev.emp_name,
+          date: prev.date,
+          amount: prev.amount,
+          deducted: prev.deducted||0,
+          net: prev.net||0,
+          details: prev.details||{},
+          comment: prev.comment||'',
+          changed_by: window._currentUsername||'',
+        }).catch(()=>{});
+      }
       // Обновляем существующую запись
       await sbPatch('salary_accruals', `id=eq.${id}`, {emp_name:emp, date, amount, deducted, net, details});
       const idx = (_payrollData?.accruals||[]).findIndex(x=>x.id===id);
