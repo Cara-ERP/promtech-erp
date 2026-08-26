@@ -6904,6 +6904,47 @@ window.onerror = function(msg, src, line, col){
           </div>
         </div>
         <div id="emp-card-error" style="color:var(--red);font-size:12px;margin-top:8px;min-height:16px"></div>
+
+        <!-- Условия труда -->
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
+            <span>💼 Условия труда</span>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openStaffChangesHistory()">📋 История изменений</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label class="label">Оклад (₸)</label>
+              <input id="emp-base-salary" type="number" min="0" placeholder="0" class="input">
+            </div>
+            <div>
+              <label class="label">Дата вступления в силу</label>
+              <input id="emp-change-date" type="date" class="input">
+            </div>
+            <div>
+              <label class="label">Удержание за обед (₸/мес)</label>
+              <input id="emp-meal" type="number" min="0" placeholder="0" class="input">
+            </div>
+            <div>
+              <label class="label">ОПВ %</label>
+              <input id="emp-opv-pct" type="number" min="0" max="100" placeholder="10" class="input">
+            </div>
+            <div>
+              <label class="label">ОСМС %</label>
+              <input id="emp-osms-pct" type="number" min="0" max="100" placeholder="3" class="input">
+            </div>
+            <div>
+              <label class="label">СО %</label>
+              <input id="emp-so-pct" type="number" min="0" max="100" placeholder="3.5" class="input">
+            </div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+            <select id="emp-status" style="font-size:13px">
+              <option value="active">✅ Работает</option>
+              <option value="fired">❌ Уволен</option>
+            </select>
+            <input id="emp-fired-date" type="date" style="font-size:13px;display:none" placeholder="Дата увольнения">
+          </div>
+        </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost btn-sm" id="emp-card-delete" onclick="dismissEmployee()"
             style="margin-right:auto;color:var(--red);display:none">🚪 Уволить</button>
@@ -7062,7 +7103,10 @@ window.onerror = function(msg, src, line, col){
                 <input id="accrual-date" type="date" class="input">
               </div>
             </div>
-            <div style="font-weight:600;font-size:13px;color:var(--accent)">Начисления</div>
+            <div style="font-weight:600;font-size:13px;color:var(--accent);display:flex;justify-content:space-between;align-items:center">
+              <span>Начисления</span>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="fillAccrualFromCard()">🔄 Заполнить по карточке</button>
+            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <div><label class="label">Оклад</label><input id="ac-oklad" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Сдельная</label><input id="ac-sdel" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
@@ -16585,6 +16629,58 @@ async function dismissEmployee(){
   } catch(e){ alert('Ошибка: '+e.message); }
 }
 
+function openStaffChangesHistory(){
+  const editId = document.getElementById('emp-card-name')._editId;
+  const name = document.getElementById('emp-card-name').value;
+  if(!editId && !name){ alert('Сохраните сотрудника сначала'); return; }
+  sbFetch('staff_changes',`select=*&staff_id=eq.${editId}&order=change_date.desc`).then(rows=>{
+    const fmt = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+    const typeLabel = {hire:'Приём',salary_change:'Изменение условий',fire:'Увольнение'};
+    alert('История изменений:\n\n'+(rows||[]).map(r=>
+      `${r.change_date} — ${typeLabel[r.change_type]||r.change_type}\n` +
+      `Оклад: ${fmt(r.base_salary)} | Обед: ${fmt(r.deduction_meal)}\n` +
+      `ОПВ: ${r.deduction_opv_pct}% | ОСМС: ${r.deduction_osms_pct}% | СО: ${r.deduction_so_pct}%\n` +
+      (r.comment?`Примечание: ${r.comment}`:'')
+    ).join('\n─────────────\n') || 'История пуста');
+  }).catch(()=>alert('Ошибка загрузки истории'));
+}
+
+// Автозаполнение начисления по карточке сотрудника
+async function fillAccrualFromCard(){
+  const empName = document.getElementById('accrual-emp').value.trim();
+  const date    = document.getElementById('accrual-date').value;
+  if(!empName){ alert('Укажите сотрудника'); return; }
+
+  const emp = employeesData.find(e=>e.name===empName);
+  if(!emp){ alert('Сотрудник не найден в базе'); return; }
+
+  // Оклад × рабочие дни
+  const salary = emp.base_salary || emp.salary || 0;
+  const workDays = parseInt(prompt(`Рабочих дней в месяце (${date?.substring(0,7)||''}):`, '22'))||22;
+  const totalDays = parseInt(prompt('Отработано дней:', workDays))||workDays;
+  const oklad = Math.round(salary / workDays * totalDays);
+
+  // Постоянные удержания
+  const meal    = emp.deduction_meal||0;
+  const opv     = Math.round(oklad * (emp.deduction_opv_pct||10) / 100);
+  const osms    = Math.round(oklad * (emp.deduction_osms_pct||3) / 100);
+  const so      = Math.round(oklad * (emp.deduction_so_pct||3.5) / 100);
+
+  // Заполняем поля — только если они пустые или 0
+  const fillIfEmpty = (id, val) => {
+    const el = document.getElementById(id);
+    if(el && (!el.value || el.value==='0')) el.value = val||'';
+  };
+
+  document.getElementById('ac-oklad').value = oklad||'';
+  fillIfEmpty('ac-obed',   meal);
+  fillIfEmpty('ac-opv',    opv);
+  fillIfEmpty('ac-osms',   osms);
+  // СО не удерживается у всех — не заполняем автоматически
+
+  calcAccrualTotal();
+}
+
 function openEmployeeCard(id){
   const emp=id?employeesData.find(e=>e.id===id):null;
   document.getElementById('emp-card-title').textContent=emp?emp.name:'Новый сотрудник';
@@ -16614,6 +16710,19 @@ function openEmployeeCard(id){
   const deleteBtn = document.getElementById('emp-card-delete');
   if(deleteBtn) deleteBtn.style.display = (emp && (isDirector || isSalonMgr)) ? '' : 'none';
   document.getElementById('emp-card-error').textContent='';
+
+  // Условия труда
+  document.getElementById('emp-base-salary').value = emp?.base_salary||'';
+  document.getElementById('emp-meal').value        = emp?.deduction_meal||'';
+  document.getElementById('emp-opv-pct').value     = emp?.deduction_opv_pct||10;
+  document.getElementById('emp-osms-pct').value    = emp?.deduction_osms_pct||3;
+  document.getElementById('emp-so-pct').value      = emp?.deduction_so_pct||3.5;
+  document.getElementById('emp-change-date').value = new Date().toISOString().slice(0,10);
+  const statusSel = document.getElementById('emp-status');
+  const firedDate = document.getElementById('emp-fired-date');
+  if(statusSel) statusSel.value = emp?.status||'active';
+  if(firedDate){ firedDate.value=emp?.fired_date||''; firedDate.style.display=emp?.status==='fired'?'':'none'; }
+  if(statusSel) statusSel.onchange = ()=>{ if(firedDate) firedDate.style.display=statusSel.value==='fired'?'':'none'; };
 
   // PIN — показываем только HR и директору
   const canSeePIN = ['director','hr'].includes(window._currentUser);
@@ -16660,7 +16769,31 @@ function saveEmployeeCard(){
     comment,
     initials:name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(),
     color:'rgba(79,142,247,.15)', tc:'var(--accent)',
+    // Условия труда
+    base_salary:     parseFloat(document.getElementById('emp-base-salary')?.value)||0,
+    deduction_meal:  parseFloat(document.getElementById('emp-meal')?.value)||0,
+    deduction_opv_pct:  parseFloat(document.getElementById('emp-opv-pct')?.value)||10,
+    deduction_osms_pct: parseFloat(document.getElementById('emp-osms-pct')?.value)||3,
+    deduction_so_pct:   parseFloat(document.getElementById('emp-so-pct')?.value)||3.5,
+    status:    document.getElementById('emp-status')?.value||'active',
+    fired_date:document.getElementById('emp-fired-date')?.value||null,
   };
+
+  // Записываем историю изменений условий труда
+  const changeDate = document.getElementById('emp-change-date')?.value;
+  if(changeDate && obj.base_salary){
+    sbInsert('staff_changes',{
+      staff_id: editId||null,
+      change_date: changeDate,
+      change_type: editId ? 'salary_change' : 'hire',
+      base_salary: obj.base_salary,
+      deduction_meal: obj.deduction_meal,
+      deduction_opv_pct: obj.deduction_opv_pct,
+      deduction_osms_pct: obj.deduction_osms_pct,
+      deduction_so_pct: obj.deduction_so_pct,
+      comment: `Оклад ${obj.base_salary.toLocaleString('ru-RU')} ₸`,
+    }).catch(()=>{});
+  }
 
   // Сохраняем PIN (только если HR или директор)
   const canSeePIN=['director','hr'].includes(window._currentUser);
@@ -16691,6 +16824,9 @@ function saveEmployeeCard(){
       pos:obj.pos, type:obj.type, ws:obj.ws,
       salary:obj.salary, phone:obj.phone, iin:obj.iin,
       hired:obj.hired, comment:obj.comment,
+      base_salary:obj.base_salary, deduction_meal:obj.deduction_meal,
+      deduction_opv_pct:obj.deduction_opv_pct, deduction_osms_pct:obj.deduction_osms_pct,
+      deduction_so_pct:obj.deduction_so_pct, status:obj.status, fired_date:obj.fired_date,
     }).catch(e=>console.warn('⚠️ Ошибка обновления сотрудника:', e.message));
   } else {
     const pinVal2=parseInt(document.getElementById('emp-card-pin')?.value)||null;
