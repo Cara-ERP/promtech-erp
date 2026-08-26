@@ -10312,6 +10312,63 @@ function togglePayrollCols(group){
   if(btn) btn.textContent = hidden ? '◀' : '▶';
 }
 
+function openPayrollRowMenu(e, accrualId, empName){
+  e.stopPropagation();
+  // Убираем старое меню
+  document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'payroll-row-menu';
+  menu.style.cssText = `position:fixed;z-index:999;background:var(--bg2);border:1px solid var(--border);
+    border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.3);min-width:200px;overflow:hidden;font-size:13px`;
+  menu.innerHTML = `
+    <div style="padding:6px 0">
+      <div style="padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center" 
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());showPage('accruals');setTimeout(()=>openAccrualModal('${accrualId}'),300)">
+        ✏️ Новое начисление
+      </div>
+      <div style="padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center"
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());openEmployeeCardByName('${empName}')">
+        👤 Карточка сотрудника
+      </div>
+      <div style="padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center"
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());showEmpPayrollHistory('${empName}')">
+        📋 Операции за период
+      </div>
+    </div>`;
+
+  // Позиция
+  const rect = e.target.getBoundingClientRect();
+  menu.style.top  = `${rect.bottom+4}px`;
+  menu.style.left = `${Math.min(rect.left, window.innerWidth-220)}px`;
+  document.body.appendChild(menu);
+
+  // Закрыть при клике вне
+  setTimeout(()=>document.addEventListener('click', function h(){
+    menu.remove(); document.removeEventListener('click',h);
+  }), 50);
+}
+
+function openEmployeeCardByName(name){
+  showPage('hr');
+  setTimeout(()=>{
+    const emp = employeesData.find(e=>e.name===name);
+    if(emp) openEmployeeCard(emp.id);
+  }, 300);
+}
+
+function showEmpPayrollHistory(empName){
+  // Переходим в журнал начислений с фильтром по сотруднику
+  showPage('accruals');
+  setTimeout(()=>{
+    const searchEl = document.getElementById('accrual-search');
+    if(searchEl){ searchEl.value = empName; renderAccrualsList(); }
+  }, 300);
+}
+
 function onPayrollMonthChange(){
   const month = document.getElementById('payroll-month')?.value||'';
   if(month){
@@ -10479,7 +10536,9 @@ function renderSalaryLedger(){
     <td style="text-align:right;font-weight:700;color:var(--amber);user-select:text">${fmt(r.k_vydache)}</td>
     <td style="text-align:right;color:var(--green);user-select:text">${r.vydano_month?fmt(r.vydano_month):'—'}</td>
     <td style="text-align:right;font-weight:700;color:${r.ostatok_color};user-select:text">${fmt(r.ostatok)}</td>
-    <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showPage('accruals');setTimeout(()=>openAccrualModal('${r.a.id}'),300)">✏️</button></td>
+    <td style="position:relative">
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPayrollRowMenu(event,'${r.a.id}','${r.a.emp_name.replace(/'/g,'')}')">⋯</button>
+    </td>
   </tr>`).join('') || '<tr><td colspan="18" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за этот период</td></tr>';
 
   // Итоги по всем колонкам
