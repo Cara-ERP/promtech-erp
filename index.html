@@ -10330,15 +10330,35 @@ function renderSalaryLedger(){
     return true;
   });
 
+  // Группируем по сотруднику (объединяем несколько записей за период)
+  const empMap = {};
+  for(const a of monthAccruals){
+    const key = a.emp_name;
+    if(!empMap[key]){
+      empMap[key] = {
+        id: a.id, emp_name: a.emp_name, date: a.date,
+        amount: 0, deducted: 0, net: 0,
+        details: {accruals:[], deductions:[]}
+      };
+    }
+    const g = empMap[key];
+    g.amount   += a.amount||0;
+    g.deducted += a.deducted||0;
+    g.net      += a.net||0;
+    const det = a.details && typeof a.details==='object' ? a.details :
+                (typeof a.details==='string' ? JSON.parse(a.details||'{}') : {});
+    g.details.accruals.push(...(det.accruals||[]));
+    g.details.deductions.push(...(det.deductions||[]));
+  }
+  const groupedAccruals = Object.values(empMap);
+
   // Все выдачи (для расчёта остатков по всем периодам)
   const allPayments = _payrollData.payments||[];
 
   // Строим ведомость
-  const rows = monthAccruals.map(a=>{
-    const details = a.details && typeof a.details === 'object' ? a.details : 
-                    (typeof a.details === 'string' ? JSON.parse(a.details||'{}') : {});
-    const acc = details.accruals||[];
-    const ded = details.deductions||[];
+  const rows = groupedAccruals.map(a=>{
+    const acc = a.details.accruals||[];
+    const ded = a.details.deductions||[];
     const hasDetails = acc.length > 0;
 
     const getAcc = (...keys) => acc.filter(x=>keys.some(k=>x.type?.includes(k))).reduce((s,x)=>s+x.amount,0);
