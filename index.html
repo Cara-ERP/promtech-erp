@@ -10350,10 +10350,35 @@ function renderSalaryLedger(){
     g.details.accruals.push(...(det.accruals||[]));
     g.details.deductions.push(...(det.deductions||[]));
   }
-  const groupedAccruals = Object.values(empMap);
 
-  // Все выдачи (для расчёта остатков по всем периодам)
+  // Добавляем сотрудников у кого есть остаток на начало периода но нет начислений
   const allPayments = _payrollData.payments||[];
+  const allAccruals = _payrollData.accruals||[];
+
+  if(dateFrom){
+    // Находим всех у кого были операции до начала периода
+    const prevNames = new Set([
+      ...allAccruals.filter(a=>a.date<dateFrom&&a.type==='salary').map(a=>a.emp_name),
+      ...allPayments.filter(p=>p.date<dateFrom).map(p=>p.emp_name),
+    ]);
+    for(const name of prevNames){
+      if(empMap[name]) continue; // уже есть начисление
+      if(search && !name.toLowerCase().includes(search)) continue;
+      // Считаем остаток на начало периода
+      const prevAcc = allAccruals.filter(x=>x.emp_name===name&&x.date<dateFrom).reduce((s,x)=>s+(x.net||0),0);
+      const prevPay = allPayments.filter(p=>p.emp_name===name&&p.date<dateFrom).reduce((s,p)=>s+(p.amount||0),0);
+      const bal = prevAcc - prevPay;
+      if(Math.abs(bal) < 1) continue; // нулевой остаток — не показываем
+      empMap[name] = {
+        id: null, emp_name: name, date: dateFrom,
+        amount: 0, deducted: 0, net: 0,
+        details: {accruals:[], deductions:[]}
+      };
+    }
+  }
+
+  const groupedAccruals = Object.values(empMap)
+    .sort((a,b)=>a.emp_name.localeCompare(b.emp_name,'ru'));
 
   // Строим ведомость
   const rows = groupedAccruals.map(a=>{
