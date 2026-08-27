@@ -10457,6 +10457,9 @@ function renderSalaryLedger(){
   const groupedAccruals = Object.values(empMap)
     .sort((a,b)=>a.emp_name.localeCompare(b.emp_name,'ru'));
 
+  // Сохраняем для экспорта
+  window._lastPayrollRows = null; // сбросим, заполним после rows
+
   // Строим ведомость
   const rows = groupedAccruals.map(a=>{
     const acc = a.details.accruals||[];
@@ -10515,6 +10518,9 @@ function renderSalaryLedger(){
              obed, zaim_pog, opv, osms_so, shtraf, prochie, total_ded,
              k_vydache, vydano_month, ostatok, ostatok_color, ostatok_nachalo, nach_color };
   });
+
+  // Сохраняем для экспорта
+  window._lastPayrollRows = rows;
 
   tbody.innerHTML = rows.map(r=>`<tr style="user-select:text">
     <td style="font-weight:500;white-space:nowrap;user-select:text">${r.a.emp_name}</td>
@@ -10629,77 +10635,38 @@ function exportSalaryLedger(){
     return;
   }
 
+  const rows = window._lastPayrollRows;
+  if(!rows||!rows.length){ alert('Сначала откройте ведомость'); return; }
+
   const month  = document.getElementById('payroll-month')?.value||'';
   const fromVal= document.getElementById('payroll-from')?.value||'';
   const toVal  = document.getElementById('payroll-to')?.value||'';
-  const dateFrom = month ? month+'-01' : fromVal;
-  const dateTo   = month ? month+'-31' : toVal;
-  const periodStart = dateFrom;
-
+  const period = month || `${fromVal}_${toVal}`;
   const fmt = n => n ? Math.round(n) : 0;
-
-  const accruals = (_payrollData.accruals||[]).filter(a=>{
-    if(dateFrom && a.date < dateFrom) return false;
-    if(dateTo && a.date > dateTo) return false;
-    return true;
-  });
-
-  const allPayments = _payrollData.payments||[];
 
   const headers = ['Сотрудник','Остаток нач.','Оклад','Сдельная','Премия','Отпускные',
     'Займ нач.','Больничные','Итого нач.','Обед','Займ погаш.','ОПВ','ОСМС/СО',
     'Штрафы','Прочие','Итого удерж.','К выдаче','Выдано','Остаток'];
 
-  const rows = accruals.map(a=>{
-    const det = a.details && typeof a.details==='object' ? a.details : {};
-    const acc = det.accruals||[];
-    const ded = det.deductions||[];
-    const getA = (...k) => acc.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
-    const getD = (...k) => ded.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
-
-    const monthStart = periodStart||a.date.substring(0,7)+'-01';
-    const prevAcc = (_payrollData.accruals||[]).filter(x=>x.emp_name===a.emp_name&&x.date<monthStart).reduce((s,x)=>s+(x.net||0),0);
-    const prevPay = allPayments.filter(p=>p.emp_name===a.emp_name&&p.date<monthStart).reduce((s,p)=>s+(p.amount||0),0);
-    const nach_bal = prevAcc - prevPay;
-
-    const hasDetails = acc.length > 0;
-    const oklad   = hasDetails ? getA('Оклад') : (a.amount||0);
-    const sdel    = hasDetails ? getA('Сдельная') : 0;
-    const prem    = getA('Премия');
-    const otpusk  = getA('Отпускные');
-    const zaim_n  = getA('Займ');
-    const boln    = getA('Больничный');
-    const total_acc = a.amount||0;
-    const obed    = getD('Обед');
-    const zaim_p  = getD('Погашение займа');
-    const opv     = getD('Пенсионные');
-    const osms    = getD('Медицинское','Социальный');
-    const shtraf  = getD('Штраф');
-    const prochie = getD('ИПН','Алименты','Корректировка');
-    const total_ded = a.deducted||0;
-    const k_vydache = a.net||0;
-    const vydano = allPayments.filter(p=>p.emp_name===a.emp_name&&p.date>=monthStart&&(!dateTo||p.date<=dateTo)).reduce((s,p)=>s+(p.amount||0),0);
-    const ostatok = nach_bal + k_vydache - vydano;
-
-    return [a.emp_name, fmt(nach_bal), fmt(oklad), fmt(sdel), fmt(prem), fmt(otpusk),
-            fmt(zaim_n), fmt(boln), fmt(total_acc), fmt(obed), fmt(zaim_p), fmt(opv),
-            fmt(osms), fmt(shtraf), fmt(prochie), fmt(total_ded), fmt(k_vydache),
-            fmt(vydano), fmt(ostatok)];
-  });
+  const data = rows.map(r=>[
+    r.a.emp_name,
+    fmt(r.ostatok_nachalo), fmt(r.oklad), fmt(r.sdelnaya), fmt(r.premiya),
+    fmt(r.otpusk), fmt(r.zaim_nach), fmt(r.bolnichn), fmt(r.total_acc),
+    fmt(r.obed), fmt(r.zaim_pog), fmt(r.opv), fmt(r.osms_so),
+    fmt(r.shtraf), fmt(r.prochie), fmt(r.total_ded),
+    fmt(r.k_vydache), fmt(r.vydano_month), fmt(r.ostatok)
+  ]);
 
   // Итоги
   const totals = ['ИТОГО'];
   for(let col=1; col<headers.length; col++){
-    totals.push(rows.reduce((s,r)=>s+(r[col]||0),0));
+    totals.push(data.reduce((s,r)=>s+(r[col]||0),0));
   }
-  rows.push(totals);
+  data.push(totals);
 
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-
-  // Ширина колонок
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
   ws['!cols'] = [{wch:30},...Array(headers.length-1).fill({wch:14})];
 
-  const period = month || `${fromVal}_${toVal}`;
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Ведомость ЗП');
   XLSX.writeFile(wb, `Ведомость_ЗП_${period}.xlsx`);
