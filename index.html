@@ -10519,7 +10519,7 @@ function renderSalaryLedger(){
   tbody.innerHTML = rows.map(r=>`<tr style="user-select:text">
     <td style="font-weight:500;white-space:nowrap;user-select:text">${r.a.emp_name}</td>
     <td style="text-align:right;user-select:text;color:${r.nach_color}">${r.ostatok_nachalo?fmt(r.ostatok_nachalo):'—'}</td>
-    <td style="text-align:right;user-select:text">${r.oklad?fmt(r.oklad):'—'}</td>
+    <td class="col-acc" style="text-align:right;user-select:text">${r.oklad?fmt(r.oklad):'—'}</td>
     <td class="col-acc" style="text-align:right;user-select:text">${r.sdelnaya?fmt(r.sdelnaya):'—'}</td>
     <td class="col-acc" style="text-align:right;user-select:text">${r.premiya?fmt(r.premiya):'—'}</td>
     <td class="col-acc" style="text-align:right;user-select:text">${r.otpusk?fmt(r.otpusk):'—'}</td>
@@ -10564,29 +10564,31 @@ function renderSalaryLedger(){
   }), {nach:0,oklad:0,sdel:0,premiya:0,otpusk:0,zaim_n:0,boln:0,acc:0,
        obed:0,zaim_p:0,opv:0,osms:0,shtraf:0,prochie:0,ded:0,k_vydache:0,vydano:0,ostatok:0});
 
-  const ft = (n,c='')=> n ? `<td style="text-align:right;font-weight:700;${c?'color:'+c:''};user-select:text">${fmt(n)}</td>`
-                           : `<td style="text-align:right;color:var(--text3)">—</td>`;
+  const ft  = (n,c='')=> n ? `<td style="text-align:right;font-weight:700;${c?'color:'+c:''};user-select:text">${fmt(n)}</td>` : `<td style="text-align:right;color:var(--text3)">—</td>`;
+  const fta = (n,c='')=> n ? `<td class="col-acc" style="text-align:right;font-weight:700;${c?'color:'+c:''};user-select:text">${fmt(n)}</td>` : `<td class="col-acc" style="text-align:right;color:var(--text3)">—</td>`;
+  const ftd = (n,c='')=> n ? `<td class="col-ded" style="text-align:right;font-weight:700;${c?'color:'+c:''};user-select:text">${fmt(n)}</td>` : `<td class="col-ded" style="text-align:right;color:var(--text3)">—</td>`;
 
   tfoot.innerHTML = `<tr style="font-weight:700;background:var(--bg3);border-top:2px solid var(--border)">
     <td>ИТОГО (${rows.length} чел.)</td>
     ${ft(totals.nach)}
-    ${ft(totals.oklad,'var(--accent)')}
-    ${ft(totals.sdel,'var(--accent)')}
-    ${ft(totals.premiya,'var(--accent)')}
-    ${ft(totals.otpusk,'var(--accent)')}
-    ${ft(totals.zaim_n,'var(--accent)')}
-    ${ft(totals.boln,'var(--accent)')}
+    ${fta(totals.oklad,'var(--accent)')}
+    ${fta(totals.sdel,'var(--accent)')}
+    ${fta(totals.premiya,'var(--accent)')}
+    ${fta(totals.otpusk,'var(--accent)')}
+    ${fta(totals.zaim_n,'var(--accent)')}
+    ${fta(totals.boln,'var(--accent)')}
     ${ft(totals.acc,'var(--green)')}
-    ${ft(totals.obed,'var(--red)')}
-    ${ft(totals.zaim_p,'var(--red)')}
-    ${ft(totals.opv,'var(--red)')}
-    ${ft(totals.osms,'var(--red)')}
-    ${ft(totals.shtraf,'var(--red)')}
-    ${ft(totals.prochie,'var(--red)')}
+    ${ftd(totals.obed,'var(--red)')}
+    ${ftd(totals.zaim_p,'var(--red)')}
+    ${ftd(totals.opv,'var(--red)')}
+    ${ftd(totals.osms,'var(--red)')}
+    ${ftd(totals.shtraf,'var(--red)')}
+    ${ftd(totals.prochie,'var(--red)')}
     ${ft(totals.ded,'var(--red)')}
     ${ft(totals.k_vydache,'var(--amber)')}
     ${ft(totals.vydano,'var(--green)')}
     ${ft(totals.ostatok, totals.ostatok>=0?'var(--amber)':'var(--red)')}
+    <td></td>
   </tr>`;
 
   // KPI
