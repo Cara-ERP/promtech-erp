@@ -9631,7 +9631,7 @@ async function exportEsfGoodsToExcel(){
 
   // Загружаем все товарные ЭСФ постранично
   const pageSize = 1000;
-  let invoices = [], items = [], offset = 0;
+  let invoices = [], offset = 0;
   while(true){
     const page = await sbFetch('incoming_invoices',`select=id,date,num,supplier_name&invoice_type=eq.goods&order=date.asc&limit=${pageSize}&offset=${offset}`);
     if(!page||!page.length) break;
@@ -9639,18 +9639,24 @@ async function exportEsfGoodsToExcel(){
     if(page.length < pageSize) break;
     offset += pageSize;
   }
+
+  // Строим Set ID для фильтрации
+  const goodsInvIds = new Set(invoices.map(i=>i.id));
+  const invMap = {};
+  invoices.forEach(i=>invMap[i.id]=i);
+
+  // Загружаем все строки постранично и фильтруем на клиенте
+  let items = [];
   offset = 0;
-  const invIds = invoices.map(i=>`"${i.id}"`).join(',');
   while(true){
-    const page = await sbFetch('incoming_invoice_items',`select=*&invoice_id=in.(${invIds})&limit=${pageSize}&offset=${offset}`);
+    const page = await sbFetch('incoming_invoice_items',`select=*&limit=${pageSize}&offset=${offset}`);
     if(!page||!page.length) break;
-    items.push(...page);
+    // Фильтруем только товарные ЭСФ
+    const filtered = page.filter(it=>goodsInvIds.has(it.invoice_id));
+    items.push(...filtered);
     if(page.length < pageSize) break;
     offset += pageSize;
   }
-
-  const invMap = {};
-  invoices.forEach(i=>invMap[i.id]=i);
 
   const headers = ['Дата','№ ЭСФ','Поставщик','Наименование товара','Кол-во','Цена','Сумма','СКЛАД (заполните)','item_id'];
   const rows = items.map(it=>{
