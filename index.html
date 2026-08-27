@@ -9664,11 +9664,17 @@ function openEsfDetail(id){
       </tr></thead>
       <tbody>${items.map((it,i)=>{
         const found = findMaterial(it.description||'');
+        const whList = (typeof PHYSICAL_WAREHOUSES !== 'undefined' ? PHYSICAL_WAREHOUSES : WAREHOUSES)
+          .filter(w=>w.type==='material'||!w.type);
+        const wsOptions = whList.map(w=>`<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
+
         const warehouseCell = found
-          ? `<span style="color:var(--green);font-size:11px">✅ ${found.mat.name}</span>
-             <button class="btn btn-ghost btn-sm" style="font-size:10px;display:block;margin-top:2px"
+          ? `<div style="font-size:11px;color:var(--green)">✅ ${found.mat.name}</div>
+             <select id="ws-sel-${it.id}" style="font-size:10px;margin-top:2px;width:100%">${wsOptions}</select>
+             <button class="btn btn-ghost btn-sm" style="font-size:10px;margin-top:2px;width:100%"
                onclick="acceptItemToWarehouse('${it.id}','${inv.id}','${found.mat.id}')">📦 Принять</button>`
-          : `<button class="btn btn-ghost btn-sm" style="font-size:11px"
+          : `<select id="ws-sel-${it.id}" style="font-size:10px;width:100%">${wsOptions}</select>
+             <button class="btn btn-ghost btn-sm" style="font-size:11px;margin-top:2px;width:100%"
                onclick="acceptItemToWarehouse('${it.id}','${inv.id}',null)">📦 На склад</button>`;
         return `<tr>
           <td style="color:var(--text3)">${i+1}</td>
@@ -9801,19 +9807,23 @@ async function acceptItemToWarehouse(itemId, invId, existingMatId){
   const inv  = _esfData.invoices.find(i=>i.id===invId);
   if(!item||!inv) return;
 
+  // Получаем выбранный склад
+  const wsSelEl = document.getElementById(`ws-sel-${itemId}`);
+  const wsId    = wsSelEl?.value || 'wh_main';
+  const whList  = typeof PHYSICAL_WAREHOUSES !== 'undefined' ? PHYSICAL_WAREHOUSES : WAREHOUSES;
+  const ws      = whList.find(w=>w.id===wsId)||{name:'Склад', icon:'📦'};
+
   if(existingMatId){
-    // Обновляем существующий материал — добавляем количество
     const mat = (warehouseData||[]).find(w=>w.id===existingMatId||String(w.id)===String(existingMatId));
     const newQty = (mat?.qty||0) + item.qty;
-    if(!confirm(`Добавить ${item.qty} ед. к "${mat?.name||'материал'}"?\nБудет: ${newQty} ед.`)) return;
+    if(!confirm(`Добавить ${item.qty} ед. к "${mat?.name||'материал'}" (${ws.icon} ${ws.name})?\nБудет: ${newQty} ед.`)) return;
     try{
-      await sbPatch('warehouse', `id=eq.${existingMatId}`, {qty: newQty});
-      if(mat) mat.qty = newQty;
+      await sbPatch('warehouse', `id=eq.${existingMatId}`, {qty: newQty, warehouse_id: wsId});
+      if(mat){ mat.qty = newQty; mat.warehouse_id = wsId; }
       alert(`✅ Остаток обновлён: ${mat?.name} → ${newQty} ед.`);
     } catch(e){ alert('Ошибка: '+e.message); }
   } else {
-    // Создаём новый материал
-    const name = prompt('Название материала на складе:', item.description);
+    const name = prompt(`Название материала (${ws.icon} ${ws.name}):`, item.description);
     if(!name) return;
     const unit = prompt('Единица измерения:', 'шт') || 'шт';
     try{
@@ -9822,25 +9832,19 @@ async function acceptItemToWarehouse(itemId, invId, existingMatId){
         price: item.unit_price,
         supplier: inv.supplier_name,
         date: inv.date,
+        warehouse_id: wsId,
         comment: `ЭСФ №${inv.num}`,
       });
       if(res) warehouseData.push(res);
-      // Автоматически создаём алиас
       if(name !== item.description){
         await sbInsert('material_aliases',{
-          material_name: name,
-          alias_name: item.description,
-          category: 'esf'
+          material_name: name, alias_name: item.description, category: 'esf'
         }).catch(()=>{});
       }
-      alert(`✅ "${name}" добавлен на склад: ${item.qty} ${unit}`);
+      alert(`✅ "${name}" → ${ws.icon} ${ws.name}: ${item.qty} ${unit}`);
       closeModal('esfDetailModal');
     } catch(e){ alert('Ошибка: '+e.message); }
   }
-}
-
-async function acceptToWarehouse(itemId, invId){
-  await acceptItemToWarehouse(itemId, invId, null);
 }
 
 async function showAccrualHistory(){
