@@ -2965,6 +2965,7 @@ window.onerror = function(msg, src, line, col){
           <div class="section-sub">Электронные счета-фактуры от поставщиков</div>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="_esfData=null;initEsfPage()">🔄</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportEsfGoodsToExcel()">📥 Товары в Excel</button>
       </div>
 
       <!-- Фильтры -->
@@ -9605,6 +9606,79 @@ function renderEsfList(){
       </tr>`;}).join('')}</tbody>
     </table>
   </div>` : '<div style="text-align:center;padding:40px;color:var(--text3)">Нет ЭСФ</div>';
+}
+
+async function exportEsfGoodsToExcel(){
+  if(typeof XLSX === 'undefined'){
+    await new Promise(r=>{ loadAsync('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js').then(r); });
+  }
+
+  // Правила определения склада по ключевым словам
+  const RULES = [
+    ['wh_paint',  ['грунт','лак','краска','отвердитель','растворитель','ral','полиуретан','патина','ведро','скотч','тара','штуцер','акрилов']],
+    ['wh_fabric', ['велюр','ткань','обивочный','букле','поролон','набивка','кожа','флок']],
+    ['wh_plates', ['фанера','лдсп','мдф','шпон','двп','плита','панель','стекло','зеркало']],
+    ['wh_wood',   ['брус','доска','рейка','пиломатер','бревно','балка','сосна','дуб']],
+    ['wh_main',   ['шуруп','болт','гайка','винт','заглушка','шайба','корпус','minifix','tandem','blumotion','замок','направляющ','петля','ручка','фурнитур','муфта','втулка','кабел','электр','щетки','makita','инструмент','механизм','подпятник','рамка','пакет','стрейч','пленка']],
+  ];
+  const WH_NAMES = {wh_paint:'🎨 Склад краски',wh_fabric:'🧵 Склад тканей',wh_plates:'🪵 Склад плитных материалов',wh_wood:'🌲 Склад леса',wh_main:'🏭 Основной склад','':`❓ Не определён`};
+
+  function guessWh(desc){
+    const d = (desc||'').toLowerCase();
+    for(const [wh, keys] of RULES) if(keys.some(k=>d.includes(k))) return wh;
+    return '';
+  }
+
+  // Загружаем все товарные ЭСФ постранично
+  const pageSize = 1000;
+  let invoices = [], items = [], offset = 0;
+  while(true){
+    const page = await sbFetch('incoming_invoices',`select=id,date,num,supplier_name&invoice_type=eq.goods&order=date.asc&limit=${pageSize}&offset=${offset}`);
+    if(!page||!page.length) break;
+    invoices.push(...page);
+    if(page.length < pageSize) break;
+    offset += pageSize;
+  }
+  offset = 0;
+  const invIds = invoices.map(i=>`"${i.id}"`).join(',');
+  while(true){
+    const page = await sbFetch('incoming_invoice_items',`select=*&invoice_id=in.(${invIds})&limit=${pageSize}&offset=${offset}`);
+    if(!page||!page.length) break;
+    items.push(...page);
+    if(page.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  const invMap = {};
+  invoices.forEach(i=>invMap[i.id]=i);
+
+  const headers = ['Дата','№ ЭСФ','Поставщик','Наименование товара','Кол-во','Цена','Сумма','СКЛАД (заполните)','item_id'];
+  const rows = items.map(it=>{
+    const inv = invMap[it.invoice_id]||{};
+    const wh = guessWh(it.description);
+    return [inv.date||'', inv.num||'', inv.supplier_name||'', it.description||'',
+            it.qty||0, it.unit_price||0, it.total||0, WH_NAMES[wh]||'❓ Не определён', it.id];
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!cols'] = [{wch:12},{wch:16},{wch:30},{wch:50},{wch:8},{wch:10},{wch:12},{wch:28},{wch:38}];
+  // Подсветим незаполненные
+  XLSX.utils.book_append_sheet(wb, ws, 'Товары из ЭСФ');
+
+  // Лист справочник складов
+  const ws2 = XLSX.utils.aoa_to_sheet([
+    ['ID склада','Название'],
+    ['wh_paint','🎨 Склад краски'],
+    ['wh_fabric','🧵 Склад тканей'],
+    ['wh_plates','🪵 Склад плитных материалов'],
+    ['wh_wood','🌲 Склад леса'],
+    ['wh_main','🏭 Основной склад'],
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Склады');
+
+  XLSX.writeFile(wb, `ЭСФ_товары_склады.xlsx`);
+  alert(`✅ Выгружено ${rows.length} позиций из ${invoices.length} ЭСФ`);
 }
 
 async function setEsfType(id, type){
