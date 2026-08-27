@@ -22225,11 +22225,36 @@ function showWhTab(tab, el){
   if(tab==='warehouses') renderWhWarehouses();
   if(tab==='stocks')     renderWhStocks();
   if(tab==='workshops')  renderWhWorkshops();
-  if(tab==='docs')       renderWhDocs();
+  if(tab==='docs')       loadWhDocsFromDB().then(renderWhDocs);
   if(tab==='remains')    renderWarehouse();
   if(tab==='inventory')  renderWhInventory();
   if(tab==='cost')       renderWhCost();
   if(tab==='aliases')    loadAliasesFromDB().then(renderAliases);
+}
+
+async function loadWhDocsFromDB(){
+  try{
+    const rows = await sbFetch('wh_documents','select=*&order=date.desc&limit=500');
+    if(!rows||!rows.length) return;
+    // Добавляем записи из Supabase которых нет в локальном массиве
+    for(const r of rows){
+      const exists = whDocuments.find(d=>d.sbId===r.id||d.id===r.id);
+      if(!exists){
+        whDocuments.unshift({
+          id: r.id, sbId: r.id,
+          num: r.num||'—',
+          type: r.type||'incoming',
+          date: r.date||'',
+          status: r.status||'done',
+          supplier: r.supplier||'',
+          note: r.note||r.comment||'',
+          esfId: r.esf_id||null,
+          items: r.items||[],
+          createdBy: r.created_by||'',
+        });
+      }
+    }
+  } catch(e){ console.warn('⚠️ Ошибка загрузки документов склада:', e.message); }
 }
 
 function renderWhWarehouses(){
