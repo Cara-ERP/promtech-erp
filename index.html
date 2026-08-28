@@ -802,6 +802,7 @@ async function loadWarehouseFromDB(){
           minQty:   item.min_qty||0,
           price:    item.price||0,
           supplier: item.supplier||'',
+          warehouse_id: item.warehouse_id||'',
         });
       });
       console.log('✅ Склад загружен из Supabase: '+allData.length+' позиций');
@@ -2423,6 +2424,14 @@ window.onerror = function(msg, src, line, col){
       <!-- ВСЕ ОСТАТКИ -->
       <div id="wh-tab-remains" style="display:none">
         <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <select id="wh-wh-filter" onchange="renderWarehouse()" style="font-size:13px;width:auto">
+            <option value="">Все склады</option>
+            <option value="wh_plates">🪵 Склад плитных материалов</option>
+            <option value="wh_fabric">🧵 Склад тканей</option>
+            <option value="wh_wood">🌲 Склад леса</option>
+            <option value="wh_paint">🎨 Склад краски</option>
+            <option value="wh_main">🏭 Основной склад</option>
+          </select>
           <select id="wh-type-filter" onchange="onWhTypeFilterChange()" style="font-size:13px;width:auto">
             <option value="all">Все типы</option>
             <option value="material">🏭 Материалы</option>
@@ -22401,13 +22410,11 @@ function renderWhWarehouses(){
 }
 
 function filterWhByPhysical(whId){
-  const wh=PHYSICAL_WAREHOUSES.find(w=>w.id===whId);
+  const wh = PHYSICAL_WAREHOUSES.find(w=>w.id===whId);
   if(!wh) return;
   showWhTab('remains', document.querySelectorAll('#page-warehouse .tab')[4]);
-  const sel=document.getElementById('wh-cat-filter');
-  if(sel){ sel.value=''; } // Сбрасываем фильтр — показываем все категории склада
-  // Фильтруем через поиск по категориям
-  renderWarehouse(wh.cats);
+  // Фильтруем по warehouse_id или по категориям
+  renderWarehouse(null, whId);
 }
 
 function whStatus(item){
@@ -22959,7 +22966,7 @@ function applyInventory(){
   renderWhKPIs();
 }
 
-function renderWarehouse(filterCats){
+function renderWarehouse(filterCats, filterWhId){
   renderWhKPIs();
 
   // Заполняем фильтр категорий из реальных данных
@@ -22973,9 +22980,16 @@ function renderWarehouse(filterCats){
   }
 
   const typeF     = document.getElementById('wh-type-filter')?.value||'all';
+  const activeWh  = filterWhId || document.getElementById('wh-wh-filter')?.value||'';
   const activeCat = catFilter?.value||'';
   const search    = (document.getElementById('wh-search')?.value||'').toLowerCase();
   const statusF   = document.getElementById('wh-status-filter')?.value||'all';
+
+  // Установим фильтр склада в селект если пришёл из клика
+  if(filterWhId){
+    const whSel = document.getElementById('wh-wh-filter');
+    if(whSel) whSel.value = filterWhId;
+  }
 
   const tbody = document.getElementById('warehouse-tbody');
   if(!tbody) return;
@@ -22983,8 +22997,9 @@ function renderWarehouse(filterCats){
 
   let count = 0;
   warehouseData.forEach(item=>{
-    // Если передан фильтр физического склада
-    if(filterCats && !filterCats.includes(item.category||'Прочее')) return;
+    if(filterWhId && item.warehouse_id !== filterWhId) return;
+    if(!filterWhId && activeWh && item.warehouse_id !== activeWh) return;
+    if(filterCats && !filterWhId && !filterCats.includes(item.category||'Прочее')) return;
     // Фильтр по типу (материал/продукция/полуфабрикат)
     if(typeF !== 'all' && getWhItemType(item.category||'Прочее') !== typeF) return;
     if(activeCat && item.category !== activeCat) return;
