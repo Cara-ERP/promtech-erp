@@ -10423,12 +10423,14 @@ function openPayrollRowMenu(e, accrualId, empName){
       </div>
       <div style="padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center"
         onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
-        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());openEmployeeCardByName('${empName}')">
+        data-empname="${empName.replace(/"/g,'&quot;')}"
+        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());openEmployeeCardByName(this.dataset.empname)">
         👤 Карточка сотрудника
       </div>
       <div style="padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center"
         onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
-        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());showEmpPayrollHistory('${empName}')">
+        data-empname="${empName.replace(/"/g,'&quot;')}"
+        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());showEmpPayrollHistory(this.dataset.empname)">
         📋 Операции за период
       </div>
     </div>`;
