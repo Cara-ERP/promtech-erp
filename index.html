@@ -798,9 +798,9 @@ async function loadWarehouseFromDB(){
           sku:      item.sku||'',
           category: item.category||'Прочее',
           unit:     item.unit||'шт',
-          qty:      item.qty||0,
+          qty:      Math.round((item.qty||0) * 100) / 100,
           minQty:   item.min_qty||0,
-          price:    item.price||0,
+          price:    Math.round((item.price||0) * 100) / 100,
           supplier: item.supplier||'',
           warehouse_id: item.warehouse_id||'',
         });
@@ -2431,6 +2431,10 @@ window.onerror = function(msg, src, line, col){
             <option value="wh_wood">🌲 Склад леса</option>
             <option value="wh_paint">🎨 Склад краски</option>
             <option value="wh_main">🏭 Основной склад</option>
+            <option value="wh_semi">🔨 Склад полуфабрикатов</option>
+            <option value="wh_finished">🪑 Склад готовой продукции</option>
+            <option value="wh_salon_armada">🏬 Склад салона Армада</option>
+            <option value="wh_salon_naz">🏪 Склад салона Назарбаева</option>
           </select>
           <select id="wh-type-filter" onchange="onWhTypeFilterChange()" style="font-size:13px;width:auto">
             <option value="all">Все типы</option>
