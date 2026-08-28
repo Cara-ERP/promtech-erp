@@ -9621,7 +9621,15 @@ async function exportEsfGoodsToExcel(){
     ['wh_wood',   ['брус','доска','рейка','пиломатер','бревно','балка','сосна','дуб']],
     ['wh_main',   ['шуруп','болт','гайка','винт','заглушка','шайба','корпус','minifix','tandem','blumotion','замок','направляющ','петля','ручка','фурнитур','муфта','втулка','кабел','электр','щетки','makita','инструмент','механизм','подпятник','рамка','пакет','стрейч','пленка']],
   ];
-  const WH_NAMES = {wh_paint:'🎨 Склад краски',wh_fabric:'🧵 Склад тканей',wh_plates:'🪵 Склад плитных материалов',wh_wood:'🌲 Склад леса',wh_main:'🏭 Основной склад','':`❓ Не определён`};
+  const WH_NAMES = {
+    wh_paint:  '🎨 Склад краски',
+    wh_fabric: '🧵 Склад тканей',
+    wh_plates: '🪵 Склад плитных материалов',
+    wh_wood:   '🌲 Склад леса',
+    wh_main:   '🏭 Основной склад',
+    service:   '🔧 Услуга (не на склад)',
+    '':        '❓ Не определён',
+  };
 
   function guessWh(desc){
     const d = (desc||'').toLowerCase();
@@ -9672,14 +9680,15 @@ async function exportEsfGoodsToExcel(){
   // Подсветим незаполненные
   XLSX.utils.book_append_sheet(wb, ws, 'Товары из ЭСФ');
 
-  // Лист справочник складов
   const ws2 = XLSX.utils.aoa_to_sheet([
-    ['ID склада','Название'],
-    ['wh_paint','🎨 Склад краски'],
-    ['wh_fabric','🧵 Склад тканей'],
-    ['wh_plates','🪵 Склад плитных материалов'],
-    ['wh_wood','🌲 Склад леса'],
-    ['wh_main','🏭 Основной склад'],
+    ['ID склада','Название','Примечание'],
+    ['wh_paint',  '🎨 Склад краски',              'Лаки, краски, грунты, растворители'],
+    ['wh_fabric', '🧵 Склад тканей',              'Ткань, велюр, букле, поролон'],
+    ['wh_plates', '🪵 Склад плитных материалов',  'Фанера, МДФ, ЛДСП, ДВП, стекло'],
+    ['wh_wood',   '🌲 Склад леса',                'Брус, доска, рейка, пиломатериалы'],
+    ['wh_main',   '🏭 Основной склад',            'Фурнитура, крепёж, инструменты'],
+    ['service',   '🔧 Услуга (не на склад)',       'Услуги — не заносятся на склад'],
+    ['',          '❓ Не определён',              'Нужно заполнить вручную'],
   ]);
   XLSX.utils.book_append_sheet(wb, ws2, 'Склады');
 
@@ -22462,7 +22471,7 @@ function renderWhStocks(){
     const fmtVal=value>=1000000?(value/1000000).toFixed(1)+'М':value>0?Math.round(value/1000)+'К':'—';
 
     return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer"
-      onclick="filterWhByCat('${cat.replace(/'/g,"\\'")}')">
+            data-cat="${cat.replace(/"/g,'&quot;')}" onclick="filterWhByCat(this.dataset.cat)">
       <div style="padding:12px 16px;border-bottom:1px solid var(--border);
         background:var(--bg3);display:flex;justify-content:space-between;align-items:center">
         <div style="font-size:20px;margin-right:8px">${icon}</div>
