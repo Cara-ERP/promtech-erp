@@ -8365,8 +8365,14 @@ function renderCashTx(){
 
   // Счётчик
   const countEl = document.getElementById('cash-filter-count');
-  if(countEl) countEl.textContent = txs.length !== filtered.filter(t=>t.accountId===cashId).length
-    ? `Найдено: ${txs.length}` : `${txs.length} операций`;
+  if(countEl){
+    const sumIn  = txs.filter(t=>t.flow==='income').reduce((s,t)=>s+(t.amount||0),0);
+    const sumOut = txs.filter(t=>t.flow==='expense').reduce((s,t)=>s+(t.amount||0),0);
+    const fmtS   = n => n>=1000000?'₸'+(n/1000000).toFixed(1)+'М':n>=1000?'₸'+Math.round(n/1000)+'К':'₸'+Math.round(n);
+    countEl.innerHTML = `${txs.length} операций
+      <span style="color:var(--green);margin-left:8px">▲${fmtS(sumIn)}</span>
+      <span style="color:var(--red);margin-left:6px">▼${fmtS(sumOut)}</span>`;
+  }
 
   // Остаток считаем только при сортировке по дате
   const showRunning = _cashSortCol==='date';
@@ -11985,7 +11991,14 @@ async function renderSalonMoney(){
   set('salon-expense',      fmt(periodExpense));
   set('salon-sent-to-office', fmt(sentToOffice));
   const countEl=document.getElementById('sm-count');
-  if(countEl) countEl.textContent=`${filtered.length} операций`;
+  if(countEl){
+    const sumIn  = filtered.filter(t=>t.flow==='income').reduce((s,t)=>s+(t.amount||0),0);
+    const sumOut = filtered.filter(t=>t.flow==='expense').reduce((s,t)=>s+(t.amount||0),0);
+    const fmtS   = n => n>=1000000?'₸'+(n/1000000).toFixed(1)+'М':n>=1000?'₸'+Math.round(n/1000)+'К':'₸'+Math.round(n);
+    countEl.innerHTML = `${filtered.length} операций
+      <span style="color:var(--green);margin-left:8px">▲${fmtS(sumIn)}</span>
+      <span style="color:var(--red);margin-left:6px">▼${fmtS(sumOut)}</span>`;
+  }
 
   // Таблица
   if(tbody){
