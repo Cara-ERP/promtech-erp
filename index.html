@@ -19808,20 +19808,30 @@ function renderPurchasesDash(){
       <span style="color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${name}</span>
       <span style="font-family:monospace;color:var(--text3)">${Math.round(d.sum/totalSum*100)}% · ${d.count} ЭСФ</span>
     </div>`).join('') || '<div style="color:var(--text3);font-size:13px">Нет данных</div>';
+  // Нормализация названия поставщика для группировки
+  function normSupplier(name){
+    return (name||'—')
+      .replace(/\s+/g,' ')          // множественные пробелы → один
+      .replace(/"\s+/g,'"')         // пробел после кавычки
+      .replace(/\s+"/g,'"')         // пробел перед кавычкой
+      .replace(/«/g,'"').replace(/»/g,'"') // угловые кавычки
+      .trim();
+  }
+
   // Долги/авансы поставщикам — все периоды (не только выбранный)
   const allInvoices = _esfData?.invoices||[];
   const allPaidTx   = moneyTx.filter(t=>t.flow==='expense' && t.category==='supplier');
 
-  // Группируем по поставщику — все ЭСФ
+  // Группируем по поставщику — все ЭСФ (с нормализацией названий)
   const debtBySupplier = {};
   allInvoices.forEach(inv=>{
-    const name = inv.supplier_name||inv.supplier_bin||'—';
+    const name = normSupplier(inv.supplier_name||inv.supplier_bin||'—');
     if(!debtBySupplier[name]) debtBySupplier[name] = {esf:0, paid:0};
     debtBySupplier[name].esf += inv.total_with_nds;
   });
   // Оплаты по контрагенту
   allPaidTx.forEach(t=>{
-    const name = t.counterparty||'—';
+    const name = normSupplier(t.counterparty||'—');
     if(!debtBySupplier[name]) debtBySupplier[name] = {esf:0, paid:0};
     debtBySupplier[name].paid += t.amount||0;
   });
