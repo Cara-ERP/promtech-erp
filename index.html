@@ -5196,6 +5196,7 @@ window.onerror = function(msg, src, line, col){
                 <th style="text-align:right">Долг</th>
                 <th style="text-align:right">Аванс</th>
                 <th>Статус</th>
+                <th></th>
               </tr></thead>
               <tbody id="pur-debts-tbody"></tbody>
               <tfoot id="pur-debts-tfoot"></tfoot>
@@ -19863,6 +19864,108 @@ function renderPurchasesDash(){
   renderPurDebtsTable(debtRows);
 }
 
+function openSupplierCard(supplierName, fromDate, toDate){
+  const fmt2 = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+  const norm = s => (s||'').replace(/\s+/g,' ').replace(/["«»\'\u2018\u2019]/g,'').toLowerCase().trim();
+  const sNorm = norm(supplierName);
+
+  const allInvoices = (_esfData?.invoices||[]).filter(i=>norm(i.supplier_name)===sNorm||norm(i.supplier_bin)===sNorm);
+  const allPayments = moneyTx.filter(t=>t.flow==='expense' && norm(t.counterparty)===sNorm);
+
+  const from = fromDate || '';
+  const to   = toDate   || '';
+
+  // Сальдо на начало (всё до from)
+  const invBefore  = from ? allInvoices.filter(i=>i.date<from) : [];
+  const payBefore  = from ? allPayments.filter(t=>t.date<from) : [];
+  const esfBefore  = invBefore.reduce((s,i)=>s+i.total_with_nds,0);
+  const paidBefore = payBefore.reduce((s,t)=>s+(t.amount||0),0);
+  const saldoStart = esfBefore - paidBefore; // + долг, - аванс
+
+  const invoices = allInvoices.filter(i=>(!from||i.date>=from)&&(!to||i.date<=to));
+  const payments = allPayments.filter(t=>(!from||t.date>=from)&&(!to||t.date<=to));
+
+  const totalEsf  = invoices.reduce((s,i)=>s+i.total_with_nds,0);
+  const totalPaid = payments.reduce((s,t)=>s+(t.amount||0),0);
+  const balance   = totalEsf - totalPaid;
+  const saldoEnd  = saldoStart + balance;
+
+  let modal = document.getElementById('supplier-card-modal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'supplier-card-modal';
+    modal.className = 'modal-overlay';
+    modal.onclick = e=>{ if(e.target===modal) modal.classList.remove('open'); };
+    document.body.appendChild(modal);
+  }
+
+  const esfRows = invoices.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,30).map(i=>`
+    <tr>
+      <td>${(i.date||'').slice(0,10)}</td>
+      <td style="font-family:monospace;font-size:11px">${i.num||'—'}</td>
+      <td style="text-align:right;font-family:monospace">${fmt2(i.total_with_nds)}</td>
+      <td><span style="font-size:10px;color:var(--text3)">${i.status||'—'}</span></td>
+    </tr>`).join('');
+
+  const payRows = payments.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,30).map(t=>`
+    <tr>
+      <td>${(t.date||'').slice(0,10)}</td>
+      <td style="font-size:11px;color:var(--text3)">${t.accountName||'—'}</td>
+      <td style="font-size:11px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(t.description||'—').slice(0,60)}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--red)">${fmt2(t.amount)}</td>
+    </tr>`).join('');
+
+  modal.innerHTML = `<div class="modal" style="max-width:720px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <div style="font-weight:700;font-size:15px">${supplierName}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${invoices.length} ЭСФ · ${payments.length} оплат</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('supplier-card-modal').classList.remove('open')">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text3)">Период:</span>
+      <input type="date" id="sc-from" value="${from}" style="font-size:12px" onchange="openSupplierCard(${JSON.stringify(supplierName)},this.value,document.getElementById('sc-to').value)">
+      <span style="font-size:12px;color:var(--text3)">—</span>
+      <input type="date" id="sc-to" value="${to}" style="font-size:12px" onchange="openSupplierCard(${JSON.stringify(supplierName)},document.getElementById('sc-from').value,this.value)">
+      <button class="btn btn-ghost btn-sm" onclick="openSupplierCard(${JSON.stringify(supplierName)},'','')">Все время</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px">
+      <div class="card" style="padding:10px 14px">
+        <div style="font-size:10px;color:var(--text3)">Сальдо на начало</div>
+        <div style="font-size:14px;font-weight:700;color:${saldoStart>0?'var(--red)':saldoStart<0?'var(--green)':'var(--text3)'}">${from?fmt2(Math.abs(saldoStart))+'\n'+(saldoStart>0?' долг':saldoStart<0?' аванс':' ✓'):'—'}</div>
+      </div>
+      <div class="card" style="padding:10px 14px">
+        <div style="font-size:10px;color:var(--text3)">Поставлено (ЭСФ)</div>
+        <div style="font-size:14px;font-weight:700;color:var(--accent)">${fmt2(totalEsf)}</div>
+      </div>
+      <div class="card" style="padding:10px 14px">
+        <div style="font-size:10px;color:var(--text3)">Оплачено</div>
+        <div style="font-size:14px;font-weight:700;color:var(--green)">${fmt2(totalPaid)}</div>
+      </div>
+      <div class="card" style="padding:10px 14px">
+        <div style="font-size:10px;color:var(--text3)">${balance>0?'За период долг':'За период аванс'}</div>
+        <div style="font-size:14px;font-weight:700;color:${balance>0?'var(--red)':'var(--amber)'}">${fmt2(Math.abs(balance))}</div>
+      </div>
+      <div class="card" style="padding:10px 14px;border:2px solid ${saldoEnd>0?'var(--red)':'var(--green)'}">
+        <div style="font-size:10px;color:var(--text3)">Сальдо на конец</div>
+        <div style="font-size:14px;font-weight:700;color:${saldoEnd>0?'var(--red)':saldoEnd<0?'var(--green)':'var(--text3)'}">${fmt2(Math.abs(saldoEnd))} ${saldoEnd>0?'долг':saldoEnd<0?'аванс':'✓'}</div>
+      </div>
+    </div>
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">📄 Входящие ЭСФ (${invoices.length})</div>
+    <table class="data-table" style="font-size:12px;margin-bottom:16px">
+      <thead><tr><th>Дата</th><th>№</th><th style="text-align:right">Сумма с НДС</th><th>Статус</th></tr></thead>
+      <tbody>${esfRows}${invoices.length>30?`<tr><td colspan="4" style="text-align:center;color:var(--text3)">+ ещё ${invoices.length-30}</td></tr>`:''}</tbody>
+    </table>
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">💳 Оплаты (${payments.length})</div>
+    <table class="data-table" style="font-size:12px">
+      <thead><tr><th>Дата</th><th>Счёт</th><th>Описание</th><th style="text-align:right">Сумма</th></tr></thead>
+      <tbody>${payRows}${payments.length>30?`<tr><td colspan="4" style="text-align:center;color:var(--text3)">+ ещё ${payments.length-30}</td></tr>`:''}</tbody>
+    </table>
+  </div>`;
+  modal.classList.add('open');
+}
+
 function filterPurDebts(){
   const search = (document.getElementById('pur-debt-search')?.value||'').toLowerCase();
   const rows = (window._purDebtRows||[]).filter(r=>
@@ -19888,6 +19991,8 @@ function renderPurDebtsTable(debtRows){
       <td style="text-align:right;font-family:monospace;color:${debt>0?'var(--red)':'var(--text3)'};font-weight:${debt>0?700:400}">${debt>0?fmt2(debt):'—'}</td>
       <td style="text-align:right;font-family:monospace;color:${avans>0?'var(--accent)':'var(--text3)'}">${avans>0?fmt2(avans):'—'}</td>
       <td>${status}</td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" 
+        onclick="openSupplierCard(${JSON.stringify(r.name)})">👁</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--text3)">Нет данных</td></tr>';
 
