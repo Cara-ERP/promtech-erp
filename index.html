@@ -19826,9 +19826,10 @@ function renderPurchasesDash(){
   const allInvoices = _esfData?.invoices||[];
   function isLegalEntity(name){
     if(!name) return false;
-    const n = name.trim().toLowerCase();
-    return /^(тоо|ип|ао|оао|зао|гкп|рго|рго|тго|ооо|нао)\b/.test(n)
-        || /\b(тоо|ип|ао|оао|зао)\b/.test(n);
+    const n = name.trim();
+    return /^(тоо|ип|ао|оао|зао|нао|гкп)\s/i.test(n)
+        || /^(тоо|ип|ао|оао|зао|нао|гкп)["«»'"]/i.test(n)
+        || /\s(тоо|ао|оао|зао|нао)\s/i.test(n);
   }
 
   const allPaidTx = moneyTx.filter(t=>t.flow==='expense' && isLegalEntity(t.counterparty));
