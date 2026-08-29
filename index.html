@@ -19828,9 +19828,11 @@ function renderPurchasesDash(){
   function isLegalEntity(name){
     if(!name) return false;
     const n = name.trim();
-    // Исключаем банки и собственную компанию
+    // Исключаем банки, собственную компанию и госкорпорации
     if(/банк|bank/i.test(n)) return false;
     if(/меркурий/i.test(n)) return false;
+    if(/правительство для граждан/i.test(n)) return false;
+    if(/государственная корпорация/i.test(n)) return false;
     return /^(тоо|ип|ао|оао|зао|нао|гкп)\s/i.test(n)
         || /^(тоо|ип|ао|оао|зао|нао|гкп)["«»'"]/i.test(n)
         || /\s(тоо|ао|оао|зао|нао)\s/i.test(n);
