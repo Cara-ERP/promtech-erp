@@ -19809,10 +19809,16 @@ function renderPurchasesDash(){
   // Нормализация названия поставщика для группировки
   function normSupplier(name){
     return (name||'—')
-      .replace(/\s+/g,' ')          // множественные пробелы → один
-      .replace(/"\s+/g,'"')         // пробел после кавычки
-      .replace(/\s+"/g,'"')         // пробел перед кавычкой
-      .replace(/«/g,'"').replace(/»/g,'"') // угловые кавычки
+      .replace(/\s+/g,' ')
+      .replace(/"\s+/g,'"')
+      .replace(/\s+"/g,'"')
+      .replace(/«/g,'"').replace(/»/g,'"')
+      // Убираем хвосты — филиалы, представительства, адреса
+      .replace(/\s*(представительство|филиал|отдел|офис|бутик|салон|магазин)\s+.*/i, '')
+      .trim()
+      .toLowerCase()
+      // Убираем кавычки для нормализации
+      .replace(/["']/g, '')
       .trim();
   }
 
@@ -19823,19 +19829,21 @@ function renderPurchasesDash(){
   // Группируем по поставщику — все ЭСФ (с нормализацией названий)
   const debtBySupplier = {};
   allInvoices.forEach(inv=>{
-    const name = normSupplier(inv.supplier_name||inv.supplier_bin||'—');
-    if(!debtBySupplier[name]) debtBySupplier[name] = {esf:0, paid:0};
-    debtBySupplier[name].esf += inv.total_with_nds;
+    const raw  = inv.supplier_name||inv.supplier_bin||'—';
+    const key  = normSupplier(raw);
+    if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
+    debtBySupplier[key].esf += inv.total_with_nds;
   });
   // Оплаты по контрагенту
   allPaidTx.forEach(t=>{
-    const name = normSupplier(t.counterparty||'—');
-    if(!debtBySupplier[name]) debtBySupplier[name] = {esf:0, paid:0};
-    debtBySupplier[name].paid += t.amount||0;
+    const raw  = t.counterparty||'—';
+    const key  = normSupplier(raw);
+    if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
+    debtBySupplier[key].paid += t.amount||0;
   });
 
   const debtRows = Object.entries(debtBySupplier)
-    .map(([name, d])=>({name, esf:d.esf, paid:d.paid, debt:d.esf-d.paid}))
+    .map(([key, d])=>({name: d.display||key, esf:d.esf, paid:d.paid, debt:d.esf-d.paid}))
     .filter(r=>Math.abs(r.debt) >= 100) // пропускаем нулевые
     .sort((a,b)=>b.debt-a.debt);
 
