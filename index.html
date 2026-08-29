@@ -22423,7 +22423,7 @@ function renderWhWarehouses(){
 function filterWhByPhysical(whId){
   const wh = PHYSICAL_WAREHOUSES.find(w=>w.id===whId);
   if(!wh) return;
-  showWhTab('remains', document.querySelectorAll('#page-warehouse .tab')[4]);
+  showWhTab('remains', Array.from(document.querySelectorAll('#page-warehouse .tab')).find(t=>t.textContent.includes('Все остатки')));
   // Фильтруем по warehouse_id или по категориям
   renderWarehouse(null, whId);
 }
@@ -22525,14 +22525,14 @@ function renderWhStocks(){
 }
 
 function filterWhByCat(cat){
-  showWhTab('remains', document.querySelectorAll('#page-warehouse .tab')[3]);
+  showWhTab('remains', Array.from(document.querySelectorAll('#page-warehouse .tab')).find(t=>t.textContent.includes('Все остатки')));
   const sel=document.getElementById('wh-cat-filter');
   if(sel){ sel.value=cat; }
   renderWarehouse();
 }
 
 function filterWhByWh(whId){
-  showWhTab('remains', document.querySelectorAll('#page-warehouse .tab')[3]);
+  showWhTab('remains', Array.from(document.querySelectorAll('#page-warehouse .tab')).find(t=>t.textContent.includes('Все остатки')));
   renderWarehouse();
 }
 
