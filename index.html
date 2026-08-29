@@ -19793,6 +19793,21 @@ function renderPurchases(){ renderPurchasesDash(); }
 let purSeq = 1;
 let purchasesData = [];
 
+// Заглушки удалённого модуля закупок
+function renderPurchKanban(){ }
+function renderPurchKPIs(){ }
+function loadPurchasesFromDB(){ return Promise.resolve([]); }
+function purTotal(p){ return (p?.items||[]).reduce((s,it)=>s+(it.qty||0)*(it.price||0),0); }
+function purDebt(p){ return Math.max(0, purTotal(p)-(p?.paid||0)); }
+function purStatus(p){
+  const t=purTotal(p); const paid=p?.paid||0;
+  if(paid<=0) return 'unpaid';
+  if(paid>=t) return 'paid';
+  return 'partial';
+}
+function openPurchaseModal(){ }
+function exportPurchasesToExcel(){ alert('Экспорт закупок недоступен'); }
+
 // ===== ACCOUNTS RECEIVABLE (Дебиторская задолженность) =====
 
 const TODAY = new Date(2026,5,25); // app's current date
