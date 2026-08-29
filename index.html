@@ -19721,7 +19721,7 @@ function renderPurchasesDash(){
   // Оплачено поставщикам из money_tx
   const paidTx = moneyTx.filter(t=>{
     if(t.flow !== 'expense') return false;
-    if(!t.counterparty) return false;
+    if(!isLegalEntity(t.counterparty)) return false;
     if(from && t.date < from) return false;
     if(to   && t.date > to)   return false;
     return true;
@@ -19824,7 +19824,14 @@ function renderPurchasesDash(){
 
   // Долги/авансы поставщикам — все периоды (не только выбранный)
   const allInvoices = _esfData?.invoices||[];
-  const allPaidTx = moneyTx.filter(t=>t.flow==='expense' && t.counterparty);
+  function isLegalEntity(name){
+    if(!name) return false;
+    const n = name.trim().toLowerCase();
+    return /^(тоо|ип|ао|оао|зао|гкп|рго|рго|тго|ооо|нао)\b/.test(n)
+        || /\b(тоо|ип|ао|оао|зао)\b/.test(n);
+  }
+
+  const allPaidTx = moneyTx.filter(t=>t.flow==='expense' && isLegalEntity(t.counterparty));
 
   // Группируем по поставщику — все ЭСФ (с нормализацией названий)
   const debtBySupplier = {};
