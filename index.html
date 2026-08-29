@@ -5182,6 +5182,11 @@ window.onerror = function(msg, src, line, col){
         <div class="card" style="padding:16px;margin-top:16px">
           <div style="font-weight:600;font-size:14px;margin-bottom:12px">⚖️ Долги и авансы поставщикам</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Сравнение суммы ЭСФ (поставлено) и оплат из журнала расходов. Долг = поставлено − оплачено. Аванс = оплачено − поставлено.</div>
+          <div style="margin-bottom:10px">
+            <input id="pur-debt-search" type="search" placeholder="🔍 Поиск поставщика..." 
+              style="font-size:13px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:280px"
+              oninput="filterPurDebts()">
+          </div>
           <div style="overflow:auto">
             <table class="data-table" style="font-size:12px">
               <thead><tr>
@@ -19826,6 +19831,21 @@ function renderPurchasesDash(){
     .filter(r=>Math.abs(r.debt) >= 100) // пропускаем нулевые
     .sort((a,b)=>b.debt-a.debt);
 
+  window._purDebtRows = debtRows;
+
+  renderPurDebtsTable(debtRows);
+}
+
+function filterPurDebts(){
+  const search = (document.getElementById('pur-debt-search')?.value||'').toLowerCase();
+  const rows = (window._purDebtRows||[]).filter(r=>
+    !search || r.name.toLowerCase().includes(search)
+  );
+  renderPurDebtsTable(rows);
+}
+
+function renderPurDebtsTable(debtRows){
+  const fmt2 = n => '₸'+Math.round(n).toLocaleString('ru-RU');
   const dtbody = document.getElementById('pur-debts-tbody');
   const dtfoot = document.getElementById('pur-debts-tfoot');
   if(dtbody) dtbody.innerHTML = debtRows.map(r=>{
@@ -19842,7 +19862,7 @@ function renderPurchasesDash(){
       <td style="text-align:right;font-family:monospace;color:${avans>0?'var(--accent)':'var(--text3)'}">${avans>0?fmt2(avans):'—'}</td>
       <td>${status}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--text3)">Нет данных о долгах</td></tr>';
+  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--text3)">Нет данных</td></tr>';
 
   if(dtfoot){
     const totalDebt  = debtRows.filter(r=>r.debt>0).reduce((s,r)=>s+r.debt,0);
