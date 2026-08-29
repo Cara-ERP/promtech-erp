@@ -5112,8 +5112,73 @@ window.onerror = function(msg, src, line, col){
 
       <!-- TAB: Payroll (Зарплатная ведомость) -->
 
-      <!-- TAB: Purchases (Журнал закупок) -->
+      <!-- TAB: Purchases (Дашборд закупок) -->
       <div id="finance-purchases" style="display:none">
+
+        <!-- Фильтры периода -->
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+          <select id="pur-period" style="font-size:13px" onchange="onPurPeriodChange()">
+            <option value="month">Текущий месяц</option>
+            <option value="quarter">Квартал</option>
+            <option value="year">Год</option>
+            <option value="custom">Произвольный</option>
+          </select>
+          <input id="pur-from" type="date" style="font-size:13px;display:none" onchange="renderPurchasesDash()">
+          <span id="pur-from-to" style="font-size:13px;display:none">—</span>
+          <input id="pur-to" type="date" style="font-size:13px;display:none" onchange="renderPurchasesDash()">
+          <button class="btn btn-ghost btn-sm" onclick="renderPurchasesDash()">🔄</button>
+        </div>
+
+        <!-- KPI карточки -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px" id="pur-kpi-grid">
+          <div class="card" style="padding:14px">
+            <div style="font-size:11px;color:var(--text3)">Всего закупок (ЭСФ)</div>
+            <div id="pur-k1" style="font-size:22px;font-weight:700;color:var(--accent)">—</div>
+          </div>
+          <div class="card" style="padding:14px">
+            <div style="font-size:11px;color:var(--text3)">Сумма закупок с НДС</div>
+            <div id="pur-k2" style="font-size:22px;font-weight:700;color:var(--green)">—</div>
+          </div>
+          <div class="card" style="padding:14px">
+            <div style="font-size:11px;color:var(--text3)">Оплачено поставщикам</div>
+            <div id="pur-k3" style="font-size:22px;font-weight:700;color:var(--amber)">—</div>
+          </div>
+          <div class="card" style="padding:14px">
+            <div style="font-size:11px;color:var(--text3)">Уникальных поставщиков</div>
+            <div id="pur-k4" style="font-size:22px;font-weight:700">—</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+          <!-- Топ поставщиков -->
+          <div class="card" style="padding:16px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:12px">🏆 Топ поставщиков по сумме ЭСФ</div>
+            <div id="pur-top-suppliers"></div>
+          </div>
+
+          <!-- Динамика по месяцам -->
+          <div class="card" style="padding:16px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:12px">📈 Динамика закупок по месяцам</div>
+            <div id="pur-monthly-chart" style="display:flex;align-items:flex-end;gap:4px;height:140px"></div>
+            <div id="pur-monthly-labels" style="display:flex;gap:4px;margin-top:4px;font-size:10px;color:var(--text3)"></div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <!-- Оплата поставщикам из банка -->
+          <div class="card" style="padding:16px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:12px">💳 Оплата поставщикам (из журнала)</div>
+            <div id="pur-payments-list"></div>
+          </div>
+
+          <!-- Структура закупок по типу -->
+          <div class="card" style="padding:16px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:12px">📊 Структура по поставщикам</div>
+            <div id="pur-structure"></div>
+          </div>
+        </div>
+
+      </div>
 
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
           <!-- KPI -->
@@ -19645,7 +19710,157 @@ function exportPayrollToExcel(){
   XLSX.writeFile(wb,'PromTech_Payroll_2026-06.xlsx');
 }
 
-// ===== PURCHASES MODULE (Журнал закупок материалов) =====
+// ── Дашборд закупок ───────────────────────────────────────────────────────────
+function onPurPeriodChange(){
+  const period = document.getElementById('pur-period')?.value;
+  const fromEl = document.getElementById('pur-from');
+  const toEl   = document.getElementById('pur-to');
+  const span   = document.getElementById('pur-from-to');
+  const isCustom = period === 'custom';
+  if(fromEl){ fromEl.style.display = isCustom ? '' : 'none'; }
+  if(toEl){   toEl.style.display   = isCustom ? '' : 'none'; }
+  if(span){   span.style.display   = isCustom ? '' : 'none'; }
+  renderPurchasesDash();
+}
+
+function getPurDateRange(){
+  const period = document.getElementById('pur-period')?.value || 'month';
+  const now = new Date();
+  let from, to;
+  if(period === 'month'){
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to   = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  } else if(period === 'quarter'){
+    const q = Math.floor(now.getMonth()/3);
+    from = new Date(now.getFullYear(), q*3, 1);
+    to   = new Date(now.getFullYear(), q*3+3, 0);
+  } else if(period === 'year'){
+    from = new Date(now.getFullYear(), 0, 1);
+    to   = new Date(now.getFullYear(), 11, 31);
+  } else {
+    return {
+      from: document.getElementById('pur-from')?.value || '',
+      to:   document.getElementById('pur-to')?.value   || '',
+    };
+  }
+  return {
+    from: from.toISOString().slice(0,10),
+    to:   to.toISOString().slice(0,10),
+  };
+}
+
+function renderPurchasesDash(){
+  if(!_esfData) { initEsfPage().then(renderPurchasesDash); return; }
+
+  const {from, to} = getPurDateRange();
+  const fmt = n => n>=1000000 ? '₸'+(n/1000000).toFixed(1)+'М' : n>=1000 ? '₸'+Math.round(n/1000)+'К' : '₸'+Math.round(n);
+  const fmt2 = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+
+  // Фильтруем ЭСФ за период
+  const invoices = (_esfData?.invoices||[]).filter(inv=>{
+    if(from && inv.date < from) return false;
+    if(to   && inv.date > to)   return false;
+    return true;
+  });
+
+  // KPI
+  const totalSum = invoices.reduce((s,i)=>s+i.total_with_nds,0);
+  const suppliers = new Set(invoices.map(i=>i.supplier_name||i.supplier_bin)).size;
+
+  // Оплачено поставщикам из money_tx
+  const paidTx = moneyTx.filter(t=>{
+    if(t.flow !== 'expense') return false;
+    if(t.category !== 'supplier') return false;
+    if(from && t.date < from) return false;
+    if(to   && t.date > to)   return false;
+    return true;
+  });
+  const totalPaid = paidTx.reduce((s,t)=>s+(t.amount||0),0);
+
+  document.getElementById('pur-k1').textContent = invoices.length.toLocaleString('ru-RU');
+  document.getElementById('pur-k2').textContent = fmt(totalSum);
+  document.getElementById('pur-k3').textContent = fmt(totalPaid);
+  document.getElementById('pur-k4').textContent = suppliers;
+
+  // Топ поставщиков по ЭСФ
+  const bySupplier = {};
+  invoices.forEach(inv=>{
+    const name = inv.supplier_name||inv.supplier_bin||'—';
+    if(!bySupplier[name]) bySupplier[name] = {count:0, sum:0};
+    bySupplier[name].count++;
+    bySupplier[name].sum += inv.total_with_nds;
+  });
+  const topSuppliers = Object.entries(bySupplier)
+    .sort((a,b)=>b[1].sum-a[1].sum).slice(0,8);
+  const maxSum = topSuppliers[0]?.[1].sum || 1;
+
+  const suppEl = document.getElementById('pur-top-suppliers');
+  if(suppEl) suppEl.innerHTML = topSuppliers.map(([name, d])=>`
+    <div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px" title="${name}">${name}</span>
+        <span style="font-weight:600;font-family:monospace">${fmt(d.sum)}</span>
+      </div>
+      <div style="background:var(--bg3);border-radius:3px;height:6px">
+        <div style="background:var(--accent);border-radius:3px;height:6px;width:${Math.round(d.sum/maxSum*100)}%"></div>
+      </div>
+    </div>`).join('') || '<div style="color:var(--text3);font-size:13px">Нет данных</div>';
+
+  // Динамика по месяцам (последние 6 месяцев)
+  const monthData = {};
+  invoices.forEach(inv=>{
+    const m = (inv.date||'').slice(0,7);
+    if(!monthData[m]) monthData[m] = 0;
+    monthData[m] += inv.total_with_nds;
+  });
+  const months = Object.keys(monthData).sort().slice(-6);
+  const maxM = Math.max(...months.map(m=>monthData[m]), 1);
+  const monthNames = {
+    '01':'Янв','02':'Фев','03':'Мар','04':'Апр','05':'Май','06':'Июн',
+    '07':'Июл','08':'Авг','09':'Сен','10':'Окт','11':'Ноя','12':'Дек'
+  };
+
+  const chartEl = document.getElementById('pur-monthly-chart');
+  const labelsEl = document.getElementById('pur-monthly-labels');
+  if(chartEl) chartEl.innerHTML = months.map(m=>{
+    const h = Math.max(4, Math.round(monthData[m]/maxM*120));
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="${fmt2(monthData[m])}">
+      <div style="font-size:9px;color:var(--text3)">${fmt(monthData[m])}</div>
+      <div style="background:var(--accent);border-radius:3px 3px 0 0;width:100%;height:${h}px"></div>
+    </div>`;
+  }).join('');
+  if(labelsEl) labelsEl.innerHTML = months.map(m=>`
+    <div style="flex:1;text-align:center">${monthNames[m.slice(5)]||m.slice(5)} ${m.slice(2,4)}</div>`).join('');
+
+  // Оплаты поставщикам из журнала
+  const byPaySupplier = {};
+  paidTx.forEach(t=>{
+    const name = t.counterparty||'—';
+    if(!byPaySupplier[name]) byPaySupplier[name] = 0;
+    byPaySupplier[name] += t.amount||0;
+  });
+  const topPaid = Object.entries(byPaySupplier).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const pmEl = document.getElementById('pur-payments-list');
+  if(pmEl) pmEl.innerHTML = topPaid.length ? topPaid.map(([name,sum])=>`
+    <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span style="color:var(--text2)">${name}</span>
+      <span style="font-weight:600;font-family:monospace;color:var(--green)">${fmt2(sum)}</span>
+    </div>`).join('') + `<div style="padding-top:8px;font-size:12px;color:var(--text3)">Итого: ${fmt2(totalPaid)}</div>`
+    : '<div style="color:var(--text3);font-size:13px">Нет оплат за период</div>';
+
+  // Структура — топ по доле
+  const strEl = document.getElementById('pur-structure');
+  if(strEl) strEl.innerHTML = topSuppliers.slice(0,6).map(([name,d])=>`
+    <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span style="color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${name}</span>
+      <span style="font-family:monospace;color:var(--text3)">${Math.round(d.sum/totalSum*100)}% · ${d.count} ЭСФ</span>
+    </div>`).join('') || '<div style="color:var(--text3);font-size:13px">Нет данных</div>';
+}
+
+function renderPurchases(){ renderPurchasesDash(); }
+
+// ── Конец дашборда закупок ────────────────────────────────────────────────────
+
 
 let purSeq=1;
 let purItemSeq=100;
