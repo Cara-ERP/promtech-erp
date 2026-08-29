@@ -19927,10 +19927,13 @@ function openSupplierCard(supplierName, fromDate, toDate){
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text3)">Период:</span>
-      <input type="date" id="sc-from" value="${from}" style="font-size:12px" onchange="openSupplierCard(${JSON.stringify(supplierName)},this.value,document.getElementById('sc-to').value)">
+      <input type="date" id="sc-from" value="${from}" style="font-size:12px" 
+        onchange="openSupplierCard(document.getElementById('sc-from').dataset.s,this.value,document.getElementById('sc-to').value)"
+        data-s="${supplierName.replace(/"/g,'&quot;')}">
       <span style="font-size:12px;color:var(--text3)">—</span>
-      <input type="date" id="sc-to" value="${to}" style="font-size:12px" onchange="openSupplierCard(${JSON.stringify(supplierName)},document.getElementById('sc-from').value,this.value)">
-      <button class="btn btn-ghost btn-sm" onclick="openSupplierCard(${JSON.stringify(supplierName)},'','')">Все время</button>
+      <input type="date" id="sc-to" value="${to}" style="font-size:12px"
+        onchange="openSupplierCard(document.getElementById('sc-from').dataset.s,document.getElementById('sc-from').value,this.value)">
+      <button class="btn btn-ghost btn-sm" onclick="openSupplierCard(document.getElementById('sc-from').dataset.s,'','')">Все время</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px">
       <div class="card" style="padding:10px 14px">
@@ -19994,7 +19997,8 @@ function renderPurDebtsTable(debtRows){
       <td style="text-align:right;font-family:monospace;color:${avans>0?'var(--accent)':'var(--text3)'}">${avans>0?fmt2(avans):'—'}</td>
       <td>${status}</td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px" 
-        onclick="openSupplierCard(${JSON.stringify(r.name)})">👁</button></td>
+        data-supplier="${r.name.replace(/"/g,'&quot;')}"
+        onclick="openSupplierCard(this.dataset.supplier)">👁</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--text3)">Нет данных</td></tr>';
 
