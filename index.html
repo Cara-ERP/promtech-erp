@@ -24594,6 +24594,7 @@ function resolveCustomerName(order){
 }
 
 function orderTotal(order){
+  if(!order || !order.items) return 0;
   return order.items.reduce((sum,it)=>sum + (it.qty * it.price), 0);
 }
 
