@@ -2132,10 +2132,31 @@ window.onerror = function(msg, src, line, col){
 
     <!-- ===== DASHBOARD ===== -->
     <div class="page active" id="page-dashboard">
-      <!-- KPI карточки -->
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="font-size:13px;color:var(--text3)" id="dash-period-label"></div>
-        <button class="btn btn-ghost btn-sm" onclick="renderDashboard()">🔄 Обновить</button>
+      <!-- Фильтр периода -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" onclick="setDashPeriod('month')" id="dash-btn-month" style="font-size:11px">📅 Месяц</button>
+          <button class="btn btn-ghost btn-sm" onclick="setDashPeriod('quarter')" id="dash-btn-quarter" style="font-size:11px">📅 Квартал</button>
+          <button class="btn btn-ghost btn-sm" onclick="setDashPeriod('year')" id="dash-btn-year" style="font-size:11px">📅 Год</button>
+          <select id="dash-month-sel" style="font-size:12px" onchange="setDashPeriod('custom-month')">
+            <option value="">— выбрать месяц —</option>
+            <option value="2026-08">Август 2026</option>
+            <option value="2026-07">Июль 2026</option>
+            <option value="2026-06">Июнь 2026</option>
+            <option value="2026-05">Май 2026</option>
+            <option value="2026-04">Апрель 2026</option>
+            <option value="2026-03">Март 2026</option>
+            <option value="2026-02">Февраль 2026</option>
+            <option value="2026-01">Январь 2026</option>
+            <option value="2025-12">Декабрь 2025</option>
+            <option value="2025-11">Ноябрь 2025</option>
+            <option value="2025-10">Октябрь 2025</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;color:var(--text3);font-weight:600" id="dash-period-label"></span>
+          <button class="btn btn-ghost btn-sm" onclick="renderDashboard()" style="font-size:11px">🔄</button>
+        </div>
       </div>
       <div class="kpi-grid" id="dash-kpi-grid">
         <div class="kpi"><div class="kpi-label">Выручка (месяц)</div><div class="kpi-value" id="dash-revenue">—</div><div class="kpi-change" id="dash-revenue-sub"></div></div>
@@ -12922,16 +12943,12 @@ function showPage(id, el){
     renderPurchKPIs();
   }
   if(id==='dashboard'){
-    // Ждём загрузки данных
     const deps = [];
     if(!moneyTx.length) deps.push(loadMoneyFromDB ? loadMoneyFromDB() : Promise.resolve());
     if(!warehouseData.length) deps.push(loadWarehouseFromDB ? loadWarehouseFromDB() : Promise.resolve());
     if(!_esfData) deps.push(initEsfPage ? initEsfPage() : Promise.resolve());
-    if(deps.length){
-      Promise.all(deps).then(renderDashboard);
-    } else {
-      renderDashboard();
-    }
+    if(!realizationsData.length) deps.push(loadRealizationsFromDB ? loadRealizationsFromDB() : Promise.resolve());
+    Promise.all(deps).then(renderDashboard);
   }
   if(id==='warehouse'){
     loadWarehouseFromDB().then(()=>{
@@ -19632,24 +19649,57 @@ function exportPayrollToExcel(){
   XLSX.writeFile(wb,'PromTech_Payroll_2026-06.xlsx');
 }
 
+let _dashPeriodFrom = '';
+let _dashPeriodTo   = '';
+
+function setDashPeriod(period){
+  const now = new Date();
+  if(period==='month'){
+    _dashPeriodFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    _dashPeriodTo   = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+  } else if(period==='quarter'){
+    const q = Math.floor(now.getMonth()/3);
+    _dashPeriodFrom = new Date(now.getFullYear(), q*3, 1).toISOString().slice(0,10);
+    _dashPeriodTo   = new Date(now.getFullYear(), q*3+3, 0).toISOString().slice(0,10);
+  } else if(period==='year'){
+    _dashPeriodFrom = `${now.getFullYear()}-01-01`;
+    _dashPeriodTo   = `${now.getFullYear()}-12-31`;
+  } else if(period==='custom-month'){
+    const m = document.getElementById('dash-month-sel')?.value;
+    if(!m) return;
+    const [y,mo] = m.split('-').map(Number);
+    _dashPeriodFrom = `${m}-01`;
+    _dashPeriodTo   = new Date(y, mo, 0).toISOString().slice(0,10);
+  }
+  renderDashboard();
+}
+
 // ── Дашборд (реальные данные) ─────────────────────────────────────────────────
 function renderDashboard(){
   const now   = new Date();
-  const curM  = now.toISOString().slice(0,7); // 2026-08
-  const prevM = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().slice(0,7);
+  // Период — из глобальных переменных или текущий месяц по умолчанию
+  const from  = _dashPeriodFrom || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  const to    = _dashPeriodTo   || new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+  const curM  = from.slice(0,7);
+  const prevDate = new Date(from);
+  prevDate.setMonth(prevDate.getMonth()-1);
+  const prevM = prevDate.toISOString().slice(0,7);
 
   const set  = (id, val) => { const el=document.getElementById(id); if(el) el.innerHTML=val; };
   const fmtK = n => n>=1000000?'₸'+(n/1000000).toFixed(1)+'М':n>=1000?'₸'+Math.round(n/1000)+'К':'₸'+Math.round(n);
   const pct  = (a,b) => b>0 ? Math.round((a-b)/b*100) : 0;
   const arrow= p => p>0?`<span style="color:var(--green)">↑ ${p}%</span>`:`<span style="color:var(--red)">↓ ${Math.abs(p)}%</span>`;
   const mNames = {'01':'Январь','02':'Февраль','03':'Март','04':'Апрель','05':'Май','06':'Июнь','07':'Июль','08':'Август','09':'Сентябрь','10':'Октябрь','11':'Ноябрь','12':'Декабрь'};
-  set('dash-period-label', `${mNames[curM.slice(5)]} ${curM.slice(0,4)}`);
+  const periodLabel = from===to.slice(0,7)+'-01' || from.slice(0,7)===to.slice(0,7)
+    ? `${mNames[curM.slice(5)]} ${curM.slice(0,4)}`
+    : `${from} — ${to}`;
+  set('dash-period-label', periodLabel);
 
-  // Выручка — из realizations
+  // Выручка — из realizations за выбранный период
   const realizationsAll = realizationsData||[];
   const revByMonthAll = {};
   realizationsAll.forEach(r=>{ const m=(r.doc_date||r.date||'').slice(0,7); if(m){ revByMonthAll[m]=(revByMonthAll[m]||0)+(r.revenue||0); }});
-  const revCur  = revByMonthAll[curM]||0;
+  const revCur  = realizationsAll.filter(r=>{const d=r.doc_date||r.date||'';return d>=from&&d<=to;}).reduce((s,r)=>s+(r.revenue||0),0);
   const revPrev = revByMonthAll[prevM]||0;
   set('dash-revenue', fmtK(revCur));
   set('dash-revenue-sub', revPrev>0 ? arrow(pct(revCur,revPrev))+' к прошлому' : '');
@@ -19675,9 +19725,9 @@ function renderDashboard(){
   set('dash-payroll-sub', fotPrev>0?arrow(pct(fotCur,fotPrev))+' к прошлому':'');
 
   // Оплачено поставщикам (месяц)
-  const suppPaid = moneyTx.filter(t=>t.flow==='expense'&&t.category==='supplier'&&t.date?.startsWith(curM)).reduce((s,t)=>s+(t.amount||0),0);
+  const suppPaid = moneyTx.filter(t=>t.flow==='expense'&&t.category==='supplier'&&t.date>=from&&t.date<=to).reduce((s,t)=>s+(t.amount||0),0);
   set('dash-suppliers', fmtK(suppPaid));
-  set('dash-suppliers-sub', 'в '+curM);
+  set('dash-suppliers-sub', periodLabel);
 
   // Долг поставщикам
   const totalEsf  = (_esfData?.invoices||[]).reduce((s,i)=>s+(i.total_with_nds||0),0);
