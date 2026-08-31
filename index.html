@@ -24281,6 +24281,19 @@ async function loadRealizationsFromDB(){
   }
 }
 
+// Заглушка — маппинг категории изделия для BOL
+function mapCategory(name){
+  if(!name) return null;
+  const n = name.toLowerCase();
+  if(/диван|кресло|пуф|банкетка/i.test(n)) return 'Мягкая мебель';
+  if(/кровать|матрас/i.test(n)) return 'Кровати';
+  if(/шкаф|купе/i.test(n)) return 'Шкафы';
+  if(/стол|стул|табурет/i.test(n)) return 'Столы и стулья';
+  if(/тумба|комод/i.test(n)) return 'Тумбы';
+  if(/прихожая/i.test(n)) return 'Прихожие';
+  return null;
+}
+
 function setSjPeriod(period){
   const now = new Date();
   let from, to;
