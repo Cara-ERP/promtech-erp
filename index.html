@@ -2132,131 +2132,46 @@ window.onerror = function(msg, src, line, col){
 
     <!-- ===== DASHBOARD ===== -->
     <div class="page active" id="page-dashboard">
-      <div class="kpi-grid">
-        <div class="kpi">
-          <div class="kpi-label">Выручка (месяц)</div>
-          <div class="kpi-value">₸4.2М</div>
-          <div class="kpi-change up">↑ 12.4% к прошлому</div>
+      <!-- KPI карточки -->
+      <div class="kpi-grid" id="dash-kpi-grid">
+        <div class="kpi"><div class="kpi-label">Выручка (месяц)</div><div class="kpi-value" id="dash-revenue">—</div><div class="kpi-change" id="dash-revenue-sub"></div></div>
+        <div class="kpi"><div class="kpi-label">Заказов в работе</div><div class="kpi-value" id="dash-orders">—</div><div class="kpi-change" id="dash-orders-sub"></div></div>
+        <div class="kpi"><div class="kpi-label">Склад (позиций)</div><div class="kpi-value" id="dash-stock">—</div><div class="kpi-change" id="dash-stock-sub"></div></div>
+        <div class="kpi"><div class="kpi-label">ФОТ (месяц)</div><div class="kpi-value" id="dash-payroll">—</div><div class="kpi-change" id="dash-payroll-sub"></div></div>
+        <div class="kpi"><div class="kpi-label">Оплачено поставщикам</div><div class="kpi-value" id="dash-suppliers">—</div><div class="kpi-change" id="dash-suppliers-sub"></div></div>
+        <div class="kpi"><div class="kpi-label">Долг поставщикам</div><div class="kpi-value" id="dash-debt">—</div><div class="kpi-change" id="dash-debt-sub"></div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px">
+        <!-- Выручка по месяцам -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">📈 Выручка по месяцам</span></div>
+          <div id="dash-monthly-chart" style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 0"></div>
+          <div id="dash-monthly-labels" style="display:flex;gap:4px;font-size:10px;color:var(--text3)"></div>
         </div>
-        <div class="kpi">
-          <div class="kpi-label">Заказов в работе</div>
-          <div class="kpi-value">18</div>
-          <div class="kpi-change up">↑ 3 новых сегодня</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">Склад (ед.)</div>
-          <div class="kpi-value">2,847</div>
-          <div class="kpi-change down">↓ 3 позиции критично</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">ФОТ (сдельный)</div>
-          <div class="kpi-value">₸680К</div>
-          <div class="kpi-change up">↑ 8.1% за месяц</div>
+
+        <!-- ФОТ по месяцам -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">👷 ФОТ по месяцам</span></div>
+          <div id="dash-payroll-chart" style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 0"></div>
+          <div id="dash-payroll-labels" style="display:flex;gap:4px;font-size:10px;color:var(--text3)"></div>
         </div>
       </div>
 
-      <div class="grid-65">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+        <!-- Топ категорий расходов -->
         <div class="card">
-          <div class="card-header">
-            <span class="card-title">Выручка по месяцам</span>
-            <select style="width:auto;font-size:12px;padding:4px 8px"><option>2025</option><option selected>2026</option></select>
-          </div>
-          <div class="chart-container" id="revenue-chart"></div>
+          <div class="card-header"><span class="card-title">💸 Расходы по категориям (месяц)</span></div>
+          <div id="dash-expenses"></div>
         </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Последние события</span></div>
-          <div class="activity-item">
-            <div class="activity-dot" style="background:var(--green)"></div>
-            <div><div class="activity-text">Заказ МО-2241 выполнен</div><div class="activity-time">10 мин назад</div></div>
-          </div>
-          <div class="activity-item">
-            <div class="activity-dot" style="background:var(--amber)"></div>
-            <div><div class="activity-text">ЛДСП лист — критический остаток</div><div class="activity-time">42 мин назад</div></div>
-          </div>
-          <div class="activity-item">
-            <div class="activity-dot" style="background:var(--accent)"></div>
-            <div><div class="activity-text">Новый клиент: ТОО «МетПром»</div><div class="activity-time">1ч 15мин назад</div></div>
-          </div>
-          <div class="activity-item">
-            <div class="activity-dot" style="background:var(--purple)"></div>
-            <div><div class="activity-text">Иванов И.И. — выработка 340 шт</div><div class="activity-time">2ч 03мин назад</div></div>
-          </div>
-          <div class="activity-item">
-            <div class="activity-dot" style="background:var(--red)"></div>
-            <div><div class="activity-text">Поставка от ТОО «МебельСнаб» задержана</div><div class="activity-time">3ч назад</div></div>
-          </div>
-        </div>
-      </div>
 
-      <div class="grid-3">
+        <!-- Критичные остатки склада -->
         <div class="card">
-          <div class="card-header"><span class="card-title">Производство сегодня</span></div>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><span>Стул кухонный</span><span style="font-family:'IBM Plex Mono',monospace;color:var(--green)">74%</span></div>
-              <div class="progress"><div class="progress-fill green" style="width:74%"></div></div>
-            </div>
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><span>Стол обеденный</span><span style="font-family:'IBM Plex Mono',monospace;color:var(--amber)">41%</span></div>
-              <div class="progress"><div class="progress-fill amber" style="width:41%"></div></div>
-            </div>
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><span>Кровать двуспальная</span><span style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">88%</span></div>
-              <div class="progress"><div class="progress-fill blue" style="width:88%"></div></div>
-            </div>
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><span>Шкаф для одежды</span><span style="font-family:'IBM Plex Mono',monospace;color:var(--red)">12%</span></div>
-              <div class="progress"><div class="progress-fill red" style="width:12%"></div></div>
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Воронка продаж</span></div>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <div style="display:flex;align-items:center;gap:10px">
-              <div style="font-size:12px;color:var(--text3);width:90px">Лиды</div>
-              <div style="flex:1;height:22px;background:rgba(79,142,247,.2);border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--accent)">24</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px">
-              <div style="font-size:12px;color:var(--text3);width:90px">КП отправлено</div>
-              <div style="flex:.75;height:22px;background:rgba(79,142,247,.25);border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--accent)">18</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px">
-              <div style="font-size:12px;color:var(--text3);width:90px">Переговоры</div>
-              <div style="flex:.45;height:22px;background:rgba(79,142,247,.3);border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--accent)">11</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px">
-              <div style="font-size:12px;color:var(--text3);width:90px">Выиграно</div>
-              <div style="flex:.25;height:22px;background:rgba(61,214,140,.25);border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--green)">6</div>
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Топ работников (месяц)</span></div>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <div class="piece-row" style="padding:6px 0">
-              <div class="piece-rank">1</div>
-              <div class="piece-avatar" style="background:rgba(61,214,140,.15);color:var(--green)">ИИ</div>
-              <div class="piece-name" style="font-size:12px">Иванов И.И.</div>
-              <div class="piece-amount" style="font-size:12px">₸82К</div>
-            </div>
-            <div class="piece-row" style="padding:6px 0">
-              <div class="piece-rank">2</div>
-              <div class="piece-avatar" style="background:rgba(79,142,247,.15);color:var(--accent)">ПС</div>
-              <div class="piece-name" style="font-size:12px">Петров С.А.</div>
-              <div class="piece-amount" style="font-size:12px">₸76К</div>
-            </div>
-            <div class="piece-row" style="padding:6px 0">
-              <div class="piece-rank">3</div>
-              <div class="piece-avatar" style="background:rgba(167,139,250,.15);color:var(--purple)">СМ</div>
-              <div class="piece-name" style="font-size:12px">Сидоров М.В.</div>
-              <div class="piece-amount" style="font-size:12px">₸71К</div>
-            </div>
-          </div>
+          <div class="card-header"><span class="card-title">⚠️ Критичные остатки</span></div>
+          <div id="dash-critical"></div>
         </div>
       </div>
     </div>
-
     <!-- ===== MRP ===== -->
     <div class="page" id="page-mrp">
       <div class="section-header">
@@ -12983,6 +12898,7 @@ function showPage(id, el){
     renderPurchKanban();
     renderPurchKPIs();
   }
+  if(id==='dashboard') renderDashboard();
   if(id==='warehouse'){
     loadWarehouseFromDB().then(()=>{
       renderWhWarehouses();
@@ -19682,7 +19598,122 @@ function exportPayrollToExcel(){
   XLSX.writeFile(wb,'PromTech_Payroll_2026-06.xlsx');
 }
 
-// ── Дашборд закупок ───────────────────────────────────────────────────────────
+// ── Дашборд (реальные данные) ─────────────────────────────────────────────────
+function renderDashboard(){
+  const now   = new Date();
+  const curM  = now.toISOString().slice(0,7); // 2026-08
+  const prevM = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().slice(0,7);
+
+  const fmtK = n => n>=1000000?'₸'+(n/1000000).toFixed(1)+'М':n>=1000?'₸'+Math.round(n/1000)+'К':'₸'+Math.round(n);
+  const set  = (id, val) => { const el=document.getElementById(id); if(el) el.innerHTML=val; };
+  const pct  = (a,b) => b>0 ? Math.round((a-b)/b*100) : 0;
+  const arrow= p => p>0?`<span style="color:var(--green)">↑ ${p}%</span>`:`<span style="color:var(--red)">↓ ${Math.abs(p)}%</span>`;
+
+  // Выручка — из money_tx income по заказам
+  const revenueAll = moneyTx.filter(t=>t.flow==='income');
+  const revCur  = revenueAll.filter(t=>t.date?.startsWith(curM)).reduce((s,t)=>s+(t.amount||0),0);
+  const revPrev = revenueAll.filter(t=>t.date?.startsWith(prevM)).reduce((s,t)=>s+(t.amount||0),0);
+  set('dash-revenue', fmtK(revCur));
+  set('dash-revenue-sub', arrow(pct(revCur,revPrev))+' к прошлому месяцу');
+
+  // Заказы в работе
+  const inWork = (ordersData||[]).filter(o=>o.status==='production'||o.status==='ready').length;
+  const queue  = (ordersData||[]).filter(o=>o.status==='queue').length;
+  set('dash-orders', inWork);
+  set('dash-orders-sub', `+ ${queue} в очереди`);
+
+  // Склад
+  const stockCount = warehouseData.length;
+  const critical   = warehouseData.filter(m=>whStatus(m)==='critical').length;
+  set('dash-stock', stockCount.toLocaleString('ru-RU'));
+  set('dash-stock-sub', critical>0?`<span style="color:var(--red)">⚠️ ${critical} критично</span>`:'✅ норма');
+
+  // ФОТ — начисления за текущий месяц
+  const payrollData = typeof _payrollData !== 'undefined' && _payrollData;
+  const accruals = payrollData?.accruals || [];
+  const fotCur  = accruals.filter(a=>a.date?.startsWith(curM)&&a.type==='salary').reduce((s,a)=>s+(a.amount||0),0);
+  const fotPrev = accruals.filter(a=>a.date?.startsWith(prevM)&&a.type==='salary').reduce((s,a)=>s+(a.amount||0),0);
+  set('dash-payroll', fmtK(fotCur));
+  set('dash-payroll-sub', fotPrev>0?arrow(pct(fotCur,fotPrev))+' к прошлому':'');
+
+  // Оплачено поставщикам (месяц)
+  const suppPaid = moneyTx.filter(t=>t.flow==='expense'&&t.category==='supplier'&&t.date?.startsWith(curM)).reduce((s,t)=>s+(t.amount||0),0);
+  set('dash-suppliers', fmtK(suppPaid));
+  set('dash-suppliers-sub', 'в '+curM);
+
+  // Долг поставщикам
+  const totalEsf  = (_esfData?.invoices||[]).reduce((s,i)=>s+(i.total_with_nds||0),0);
+  const totalPaid = moneyTx.filter(t=>t.flow==='expense'&&t.category==='supplier').reduce((s,t)=>s+(t.amount||0),0);
+  const debt = totalEsf - totalPaid;
+  set('dash-debt', fmtK(Math.abs(debt)));
+  set('dash-debt-sub', debt>0?'<span style="color:var(--red)">долг</span>':'<span style="color:var(--green)">аванс</span>');
+
+  // График выручки по месяцам (последние 8)
+  const revByMonth = {};
+  revenueAll.forEach(t=>{ const m=t.date?.slice(0,7); if(m){ revByMonth[m]=(revByMonth[m]||0)+(t.amount||0); }});
+  const months = Object.keys(revByMonth).sort().slice(-8);
+  const maxRev = Math.max(...months.map(m=>revByMonth[m]),1);
+  const mNames = {'01':'Янв','02':'Фев','03':'Мар','04':'Апр','05':'Май','06':'Июн','07':'Июл','08':'Авг','09':'Сен','10':'Окт','11':'Ноя','12':'Дек'};
+  const chartEl = document.getElementById('dash-monthly-chart');
+  const labEl   = document.getElementById('dash-monthly-labels');
+  if(chartEl) chartEl.innerHTML = months.map(m=>{
+    const h=Math.max(4,Math.round(revByMonth[m]/maxRev*110));
+    const isCurrentMonth = m===curM;
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="${fmtK(revByMonth[m])}">
+      <div style="font-size:9px;color:var(--text3)">${fmtK(revByMonth[m])}</div>
+      <div style="background:${isCurrentMonth?'var(--accent)':'var(--bg3)'};border:${isCurrentMonth?'none':'1px solid var(--border)'};border-radius:3px 3px 0 0;width:100%;height:${h}px"></div>
+    </div>`;
+  }).join('');
+  if(labEl) labEl.innerHTML = months.map(m=>`<div style="flex:1;text-align:center">${mNames[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
+
+  // График ФОТ по месяцам
+  const fotByMonth = {};
+  accruals.filter(a=>a.type==='salary').forEach(a=>{ const m=a.date?.slice(0,7); if(m){ fotByMonth[m]=(fotByMonth[m]||0)+(a.amount||0); }});
+  const fotMonths = Object.keys(fotByMonth).sort().slice(-8);
+  const maxFot = Math.max(...fotMonths.map(m=>fotByMonth[m]),1);
+  const pcEl = document.getElementById('dash-payroll-chart');
+  const plEl = document.getElementById('dash-payroll-labels');
+  if(pcEl) pcEl.innerHTML = fotMonths.map(m=>{
+    const h=Math.max(4,Math.round(fotByMonth[m]/maxFot*110));
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="${fmtK(fotByMonth[m])}">
+      <div style="font-size:9px;color:var(--text3)">${fmtK(fotByMonth[m])}</div>
+      <div style="background:var(--amber);opacity:0.7;border-radius:3px 3px 0 0;width:100%;height:${h}px"></div>
+    </div>`;
+  }).join('');
+  if(plEl) plEl.innerHTML = fotMonths.map(m=>`<div style="flex:1;text-align:center">${mNames[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
+
+  // Расходы по категориям (текущий месяц)
+  const expCats = {};
+  moneyTx.filter(t=>t.flow==='expense'&&t.date?.startsWith(curM)).forEach(t=>{
+    const cat = t.categoryName||t.category||'Прочее';
+    expCats[cat]=(expCats[cat]||0)+(t.amount||0);
+  });
+  const topExp = Object.entries(expCats).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxExp = topExp[0]?.[1]||1;
+  const expEl = document.getElementById('dash-expenses');
+  if(expEl) expEl.innerHTML = topExp.map(([cat,sum])=>`
+    <div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+        <span>${cat}</span><span style="font-weight:600">${fmtK(sum)}</span>
+      </div>
+      <div style="background:var(--bg3);border-radius:3px;height:5px">
+        <div style="background:var(--red);opacity:0.7;border-radius:3px;height:5px;width:${Math.round(sum/maxExp*100)}%"></div>
+      </div>
+    </div>`).join('') || '<div style="color:var(--text3);font-size:13px">Нет данных</div>';
+
+  // Критичные остатки склада
+  const critEl = document.getElementById('dash-critical');
+  const critItems = warehouseData.filter(m=>whStatus(m)==='critical').slice(0,8);
+  if(critEl) critEl.innerHTML = critItems.length ? critItems.map(m=>`
+    <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span style="color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${m.name}</span>
+      <span style="color:var(--red);font-weight:700;font-family:monospace">${m.qty} ${m.unit||'шт'}</span>
+    </div>`).join('')
+    : '<div style="color:var(--green);font-size:13px;padding:8px 0">✅ Критичных позиций нет</div>';
+}
+
+// ── Конец дашборда ────────────────────────────────────────────────────────────
+
 function onPurPeriodChange(){
   const period = document.getElementById('pur-period')?.value;
   const fromEl = document.getElementById('pur-from');
