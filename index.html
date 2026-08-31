@@ -2162,6 +2162,19 @@ window.onerror = function(msg, src, line, col){
         </div>
       </div>
 
+      <!-- Приход/Расход -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <span class="card-title">💰 Приход и Расход по месяцам</span>
+          <span style="font-size:11px;color:var(--text3)">
+            <span style="color:var(--green)">▮</span> Приход &nbsp;
+            <span style="color:var(--red)">▮</span> Расход
+          </span>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:130px;padding:8px 0" id="dash-cashflow-chart"></div>
+        <div id="dash-cashflow-labels" style="display:flex;gap:6px;font-size:10px;color:var(--text3);margin-top:4px"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
         <!-- Топ категорий расходов -->
         <div class="card">
@@ -19632,12 +19645,14 @@ function renderDashboard(){
   const mNames = {'01':'Январь','02':'Февраль','03':'Март','04':'Апрель','05':'Май','06':'Июнь','07':'Июль','08':'Август','09':'Сентябрь','10':'Октябрь','11':'Ноябрь','12':'Декабрь'};
   set('dash-period-label', `${mNames[curM.slice(5)]} ${curM.slice(0,4)}`);
 
-  // Выручка — из money_tx income по заказам
-  const revenueAll = moneyTx.filter(t=>t.flow==='income');
-  const revCur  = revenueAll.filter(t=>t.date?.startsWith(curM)).reduce((s,t)=>s+(t.amount||0),0);
-  const revPrev = revenueAll.filter(t=>t.date?.startsWith(prevM)).reduce((s,t)=>s+(t.amount||0),0);
+  // Выручка — из realizations
+  const realizationsAll = realizationsData||[];
+  const revByMonthAll = {};
+  realizationsAll.forEach(r=>{ const m=(r.doc_date||r.date||'').slice(0,7); if(m){ revByMonthAll[m]=(revByMonthAll[m]||0)+(r.revenue||0); }});
+  const revCur  = revByMonthAll[curM]||0;
+  const revPrev = revByMonthAll[prevM]||0;
   set('dash-revenue', fmtK(revCur));
-  set('dash-revenue-sub', arrow(pct(revCur,revPrev))+' к прошлому месяцу');
+  set('dash-revenue-sub', revPrev>0 ? arrow(pct(revCur,revPrev))+' к прошлому' : '');
 
   // Заказы в работе
   const inWork = (ordersData||[]).filter(o=>o.status==='production'||o.status==='ready').length;
@@ -19672,8 +19687,7 @@ function renderDashboard(){
   set('dash-debt-sub', debt>0?'<span style="color:var(--red)">долг</span>':'<span style="color:var(--green)">аванс</span>');
 
   // График выручки по месяцам (последние 8)
-  const revByMonth = {};
-  revenueAll.forEach(t=>{ const m=t.date?.slice(0,7); if(m){ revByMonth[m]=(revByMonth[m]||0)+(t.amount||0); }});
+  const revByMonth = revByMonthAll;
   const months = Object.keys(revByMonth).sort().slice(-8);
   const maxRev = Math.max(...months.map(m=>revByMonth[m]),1);
   const mNamesShort = {'01':'Янв','02':'Фев','03':'Мар','04':'Апр','05':'Май','06':'Июн','07':'Июл','08':'Авг','09':'Сен','10':'Окт','11':'Ноя','12':'Дек'};
@@ -19733,6 +19747,30 @@ function renderDashboard(){
       <span style="color:var(--red);font-weight:700;font-family:monospace">${m.qty} ${m.unit||'шт'}</span>
     </div>`).join('')
     : '<div style="color:var(--green);font-size:13px;padding:8px 0">✅ Критичных позиций нет</div>';
+  // График Приход/Расход по месяцам
+  const inByMonth = {}, outByMonth = {};
+  moneyTx.forEach(t=>{
+    const m = (t.date||'').slice(0,7);
+    if(!m) return;
+    if(t.flow==='income')  inByMonth[m]  = (inByMonth[m]||0)  + (t.amount||0);
+    if(t.flow==='expense') outByMonth[m] = (outByMonth[m]||0) + (t.amount||0);
+  });
+  const cfMonths = [...new Set([...Object.keys(inByMonth),...Object.keys(outByMonth)])].sort().slice(-8);
+  const maxCf = Math.max(...cfMonths.map(m=>Math.max(inByMonth[m]||0, outByMonth[m]||0)), 1);
+  const cfEl  = document.getElementById('dash-cashflow-chart');
+  const cflEl = document.getElementById('dash-cashflow-labels');
+  if(cfEl) cfEl.innerHTML = cfMonths.map(m=>{
+    const hIn  = Math.max(4, Math.round((inByMonth[m]||0)/maxCf*120));
+    const hOut = Math.max(4, Math.round((outByMonth[m]||0)/maxCf*120));
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="▲${fmtK(inByMonth[m]||0)} ▼${fmtK(outByMonth[m]||0)}">
+      <div style="font-size:8px;color:var(--text3)">${fmtK(inByMonth[m]||0)}</div>
+      <div style="display:flex;gap:1px;align-items:flex-end;width:100%">
+        <div style="flex:1;background:var(--green);opacity:0.8;border-radius:2px 2px 0 0;height:${hIn}px"></div>
+        <div style="flex:1;background:var(--red);opacity:0.7;border-radius:2px 2px 0 0;height:${hOut}px"></div>
+      </div>
+    </div>`;
+  }).join('');
+  if(cflEl) cflEl.innerHTML = cfMonths.map(m=>`<div style="flex:1;text-align:center">${mNamesShort[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
 }
 
 // ── Конец дашборда ────────────────────────────────────────────────────────────
