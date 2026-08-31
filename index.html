@@ -3590,6 +3590,12 @@ window.onerror = function(msg, src, line, col){
       </div>
       <div class="orders-tab" id="orders-sales-journal" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('month')" style="font-size:11px">Месяц</button>
+            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('quarter')" style="font-size:11px">Квартал</button>
+            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('year')" style="font-size:11px">Год</button>
+            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('all')" style="font-size:11px">Всё</button>
+          </div>
           <input type="date" id="sj-date-from" onchange="renderSalesJournal()" style="font-size:13px">
           <span style="color:var(--text3)">—</span>
           <input type="date" id="sj-date-to" onchange="renderSalesJournal()" style="font-size:13px">
@@ -24275,6 +24281,30 @@ async function loadRealizationsFromDB(){
   }
 }
 
+function setSjPeriod(period){
+  const now = new Date();
+  let from, to;
+  if(period==='month'){
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to   = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  } else if(period==='quarter'){
+    const q = Math.floor(now.getMonth()/3);
+    from = new Date(now.getFullYear(), q*3, 1);
+    to   = new Date(now.getFullYear(), q*3+3, 0);
+  } else if(period==='year'){
+    from = new Date(now.getFullYear(), 0, 1);
+    to   = new Date(now.getFullYear(), 11, 31);
+  } else {
+    document.getElementById('sj-date-from').value = '';
+    document.getElementById('sj-date-to').value = '';
+    renderSalesJournal();
+    return;
+  }
+  document.getElementById('sj-date-from').value = from.toISOString().slice(0,10);
+  document.getElementById('sj-date-to').value   = to.toISOString().slice(0,10);
+  renderSalesJournal();
+}
+
 function renderSalesJournal(){
   // Устанавливаем даты по умолчанию если пустые
   const fromEl = document.getElementById('sj-date-from');
@@ -24395,9 +24425,10 @@ function renderSalesJournal(){
     const showComplete = isDealer && notDone && isFullyRealized;
     const completeBtn = showComplete
       ? `<button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--green);padding:1px 6px;margin-left:4px"
-          onclick="event.stopPropagation();markOrderDone('${r.num.replace(/'/g,"\\'")}')">&#10003; Завершить</button>`
+          data-num="${(r.num||'').replace(/"/g,'&quot;')}"
+          onclick="event.stopPropagation();markOrderDone(this.dataset.num)">&#10003; Завершить</button>`
       : '';
-    return `<tr style="cursor:pointer" onclick="openEditOrderModal('${r.num.replace(/'/g,"\\'")}')">
+    return `<tr style="cursor:pointer" data-num="${(r.num||'').replace(/"/g,'&quot;')}" onclick="openEditOrderModal(this.dataset.num)">
     <td style="color:var(--text3);font-size:11px">${i+1}</td>
     <td style="font-size:12px;white-space:nowrap">${r.date}</td>
     <td style="font-family:monospace;font-size:12px;color:var(--accent)">${r.num}</td>
