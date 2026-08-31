@@ -2133,6 +2133,10 @@ window.onerror = function(msg, src, line, col){
     <!-- ===== DASHBOARD ===== -->
     <div class="page active" id="page-dashboard">
       <!-- KPI карточки -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:13px;color:var(--text3)" id="dash-period-label"></div>
+        <button class="btn btn-ghost btn-sm" onclick="renderDashboard()">🔄 Обновить</button>
+      </div>
       <div class="kpi-grid" id="dash-kpi-grid">
         <div class="kpi"><div class="kpi-label">Выручка (месяц)</div><div class="kpi-value" id="dash-revenue">—</div><div class="kpi-change" id="dash-revenue-sub"></div></div>
         <div class="kpi"><div class="kpi-label">Заказов в работе</div><div class="kpi-value" id="dash-orders">—</div><div class="kpi-change" id="dash-orders-sub"></div></div>
@@ -12898,7 +12902,18 @@ function showPage(id, el){
     renderPurchKanban();
     renderPurchKPIs();
   }
-  if(id==='dashboard') renderDashboard();
+  if(id==='dashboard'){
+    // Ждём загрузки данных
+    const deps = [];
+    if(!moneyTx.length) deps.push(loadMoneyFromDB ? loadMoneyFromDB() : Promise.resolve());
+    if(!warehouseData.length) deps.push(loadWarehouseFromDB ? loadWarehouseFromDB() : Promise.resolve());
+    if(!_esfData) deps.push(initEsfPage ? initEsfPage() : Promise.resolve());
+    if(deps.length){
+      Promise.all(deps).then(renderDashboard);
+    } else {
+      renderDashboard();
+    }
+  }
   if(id==='warehouse'){
     loadWarehouseFromDB().then(()=>{
       renderWhWarehouses();
@@ -19604,7 +19619,8 @@ function renderDashboard(){
   const curM  = now.toISOString().slice(0,7); // 2026-08
   const prevM = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().slice(0,7);
 
-  const fmtK = n => n>=1000000?'₸'+(n/1000000).toFixed(1)+'М':n>=1000?'₸'+Math.round(n/1000)+'К':'₸'+Math.round(n);
+  const mNames = {'01':'Январь','02':'Февраль','03':'Март','04':'Апрель','05':'Май','06':'Июнь','07':'Июль','08':'Август','09':'Сентябрь','10':'Октябрь','11':'Ноябрь','12':'Декабрь'};
+  set('dash-period-label', `${mNames[curM.slice(5)]} ${curM.slice(0,4)}`);
   const set  = (id, val) => { const el=document.getElementById(id); if(el) el.innerHTML=val; };
   const pct  = (a,b) => b>0 ? Math.round((a-b)/b*100) : 0;
   const arrow= p => p>0?`<span style="color:var(--green)">↑ ${p}%</span>`:`<span style="color:var(--red)">↓ ${Math.abs(p)}%</span>`;
@@ -19653,7 +19669,7 @@ function renderDashboard(){
   revenueAll.forEach(t=>{ const m=t.date?.slice(0,7); if(m){ revByMonth[m]=(revByMonth[m]||0)+(t.amount||0); }});
   const months = Object.keys(revByMonth).sort().slice(-8);
   const maxRev = Math.max(...months.map(m=>revByMonth[m]),1);
-  const mNames = {'01':'Янв','02':'Фев','03':'Мар','04':'Апр','05':'Май','06':'Июн','07':'Июл','08':'Авг','09':'Сен','10':'Окт','11':'Ноя','12':'Дек'};
+  const mNamesShort = {'01':'Янв','02':'Фев','03':'Мар','04':'Апр','05':'Май','06':'Июн','07':'Июл','08':'Авг','09':'Сен','10':'Окт','11':'Ноя','12':'Дек'};
   const chartEl = document.getElementById('dash-monthly-chart');
   const labEl   = document.getElementById('dash-monthly-labels');
   if(chartEl) chartEl.innerHTML = months.map(m=>{
@@ -19664,7 +19680,7 @@ function renderDashboard(){
       <div style="background:${isCurrentMonth?'var(--accent)':'var(--bg3)'};border:${isCurrentMonth?'none':'1px solid var(--border)'};border-radius:3px 3px 0 0;width:100%;height:${h}px"></div>
     </div>`;
   }).join('');
-  if(labEl) labEl.innerHTML = months.map(m=>`<div style="flex:1;text-align:center">${mNames[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
+  if(labEl) labEl.innerHTML = months.map(m=>`<div style="flex:1;text-align:center">${mNamesShort[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
 
   // График ФОТ по месяцам
   const fotByMonth = {};
@@ -19680,7 +19696,7 @@ function renderDashboard(){
       <div style="background:var(--amber);opacity:0.7;border-radius:3px 3px 0 0;width:100%;height:${h}px"></div>
     </div>`;
   }).join('');
-  if(plEl) plEl.innerHTML = fotMonths.map(m=>`<div style="flex:1;text-align:center">${mNames[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
+  if(plEl) plEl.innerHTML = fotMonths.map(m=>`<div style="flex:1;text-align:center">${mNamesShort[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
 
   // Расходы по категориям (текущий месяц)
   const expCats = {};
