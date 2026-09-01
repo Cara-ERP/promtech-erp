@@ -11402,6 +11402,8 @@ function openAdvanceModal(id){
   accSel.innerHTML = bankAccounts.map(acc=>
     `<option value="${acc.id}" ${a?.accountId===acc.id?'selected':''}>${acc.icon||''} ${acc.name}</option>`
   ).join('');
+  // Явно устанавливаем значение счёта
+  if(a?.accountId) accSel.value = a.accountId;
 
   // Сначала устанавливаем сотрудника и счёт, потом обновляем список выдач
   if(a?.empName) empSel.value = a.empName;
@@ -11553,29 +11555,36 @@ function updateAdvTxList(){
   const emp     = empSel?.value||'';
   const advDate = dateEl?.value||'';
 
-  // Все выдачи по сотруднику и счёту
-  const txs = moneyTx.filter(t=>
+  // Все выдачи по сотруднику (без фильтра по счёту для ближних)
+  const allEmpTxs = moneyTx.filter(t=>
     t.flow==='expense' && t.category==='advance_out' &&
-    (!accId || t.accountId===accId) &&
     (!emp || t.counterparty===emp || (t.counterparty||'').toLowerCase().includes(emp.toLowerCase().split(' ')[0]))
   );
 
-  // Сначала ±5 дней от даты отчёта, потом остальные
+  // Ближние ±5 дней — без фильтра по счёту
   const near = [], far = [];
-  txs.forEach(t=>{
+  allEmpTxs.forEach(t=>{
     const diff = advDate && t.date ? Math.abs(new Date(t.date)-new Date(advDate))/(1000*60*60*24) : 999;
-    (diff<=5 ? near : far).push({...t, _diff: diff});
+    if(diff<=5) near.push({...t, _diff: diff});
   });
+
+  // Дальние — с фильтром по счёту если выбран
+  allEmpTxs.forEach(t=>{
+    const diff = advDate && t.date ? Math.abs(new Date(t.date)-new Date(advDate))/(1000*60*60*24) : 999;
+    if(diff>5 && (!accId || t.accountId===accId)) far.push(t);
+  });
+
   near.sort((a,b)=>a._diff-b._diff);
   far.sort((a,b)=>b.date.localeCompare(a.date));
-  const sorted = [...near, ...far].slice(0, 150);
+
+  const fmt = t => `${t.date} — ₸${Math.round(t.amount).toLocaleString('ru-RU')} — ${(t.desc||t.counterparty||'').substring(0,40)}`;
 
   txSel.innerHTML = '<option value="">— выбрать из журнала —</option>' +
-    (near.length ? '<optgroup label="📅 Близкие (±5 дней)">' +
-      near.slice(0,20).map(t=>`<option value="${t.sbId||t.id}">${t.date} — ₸${Math.round(t.amount).toLocaleString('ru-RU')} — ${(t.desc||t.counterparty||'').substring(0,40)}</option>`).join('') +
+    (near.length ? `<optgroup label="📅 Близкие к дате отчёта (±5 дней) — ${near.length} шт">` +
+      near.map(t=>`<option value="${t.sbId||t.id}">${fmt(t)}</option>`).join('') +
       '</optgroup>' : '') +
-    (far.length ? '<optgroup label="📋 Все остальные">' +
-      far.slice(0,50).map(t=>`<option value="${t.sbId||t.id}">${t.date} — ₸${Math.round(t.amount).toLocaleString('ru-RU')} — ${(t.desc||t.counterparty||'').substring(0,40)}</option>`).join('') +
+    (far.length ? `<optgroup label="📋 Остальные по счёту">` +
+      far.slice(0,80).map(t=>`<option value="${t.sbId||t.id}">${fmt(t)}</option>`).join('') +
       '</optgroup>' : '');
 }
 
