@@ -11752,55 +11752,6 @@ async function saveAdvance(){
   }
 }
 
-  const obj = {
-    empName:    document.getElementById('adv-employee').value,
-    date:       document.getElementById('adv-date').value,
-    reportDate: document.getElementById('adv-report-date')?.value||'',
-    accountId:  parseInt(document.getElementById('adv-account').value),
-    txId:       document.getElementById('adv-tx-id')?.value||'',
-    purpose:    document.getElementById('adv-purpose').value.trim(),
-    issued,
-    returned,
-    status:     document.getElementById('adv-status').value,
-    lines:      JSON.parse(JSON.stringify(window._advLines||[])),
-    spent:      (window._advLines||[]).reduce((s,l)=>s+l.amount, 0),
-  };
-
-  // При возврате НЕ закрываем автоматически — только если статус вручную = closed
-  // Если есть возврат — обновляем приходную транзакцию
-  if(editId){
-    const idx = advanceReports.findIndex(a=>a.id===editId);
-    if(idx>=0){
-      const prev = advanceReports[idx];
-      const prevReturned = prev.returned||0;
-      advanceReports[idx] = {...prev,...obj};
-
-      // Создаём приходную операцию только на новую сумму возврата
-      const delta = returned - prevReturned;
-      if(delta > 0){
-        moneyTx.push({
-          id: txSeq++,
-          date: new Date().toISOString().slice(0,10),
-          accountId: obj.accountId,
-          flow: 'income',
-          category: 'advance_return',
-          amount: delta,
-          desc: `Возврат аванса АО-${String(editId).padStart(3,'0')} · ${obj.purpose}`,
-          counterparty: obj.empName,
-          orderNum: '',
-        });
-      }
-    }
-  } else {
-    advanceReports.push({id:advSeq++,...obj});
-    // Расход из кассы при выдаче
-    moneyTx.push({id:txSeq++, date:obj.date, accountId:obj.accountId,
-      flow:'expense', category:'advance_out', amount:obj.issued,
-      desc:'Выдача аванса: '+obj.purpose, counterparty:obj.empName, orderNum:''});
-  }
-
-
-
 function deleteAdvance(){
   const id=parseInt(document.getElementById('adv-edit-id').value)||0;
   if(!id||!confirm('Удалить авансовый отчёт?')) return;
