@@ -11547,18 +11547,36 @@ function updateAdvTxList(){
   const accSel = document.getElementById('adv-account');
   const txSel  = document.getElementById('adv-tx-id');
   const empSel = document.getElementById('adv-employee');
+  const dateEl = document.getElementById('adv-date');
   if(!txSel) return;
-  const accId = accSel?.value||'';
-  const emp   = empSel?.value||'';
-  // Показываем транзакции advance_out по выбранному счёту и сотруднику
+  const accId   = accSel?.value||'';
+  const emp     = empSel?.value||'';
+  const advDate = dateEl?.value||'';
+
+  // Все выдачи по сотруднику и счёту
   const txs = moneyTx.filter(t=>
     t.flow==='expense' && t.category==='advance_out' &&
     (!accId || t.accountId===accId) &&
     (!emp || t.counterparty===emp || (t.counterparty||'').toLowerCase().includes(emp.toLowerCase().split(' ')[0]))
-  ).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
+  );
+
+  // Сначала ±5 дней от даты отчёта, потом остальные
+  const near = [], far = [];
+  txs.forEach(t=>{
+    const diff = advDate && t.date ? Math.abs(new Date(t.date)-new Date(advDate))/(1000*60*60*24) : 999;
+    (diff<=5 ? near : far).push({...t, _diff: diff});
+  });
+  near.sort((a,b)=>a._diff-b._diff);
+  far.sort((a,b)=>b.date.localeCompare(a.date));
+  const sorted = [...near, ...far].slice(0, 150);
 
   txSel.innerHTML = '<option value="">— выбрать из журнала —</option>' +
-    txs.map(t=>`<option value="${t.sbId||t.id}">${t.date} — ₸${Math.round(t.amount).toLocaleString('ru-RU')} — ${(t.desc||t.counterparty||'').substring(0,50)}</option>`).join('');
+    (near.length ? '<optgroup label="📅 Близкие (±5 дней)">' +
+      near.slice(0,20).map(t=>`<option value="${t.sbId||t.id}">${t.date} — ₸${Math.round(t.amount).toLocaleString('ru-RU')} — ${(t.desc||t.counterparty||'').substring(0,40)}</option>`).join('') +
+      '</optgroup>' : '') +
+    (far.length ? '<optgroup label="📋 Все остальные">' +
+      far.slice(0,50).map(t=>`<option value="${t.sbId||t.id}">${t.date} — ₸${Math.round(t.amount).toLocaleString('ru-RU')} — ${(t.desc||t.counterparty||'').substring(0,40)}</option>`).join('') +
+      '</optgroup>' : '');
 }
 
 function onAdvTxSelect(){
