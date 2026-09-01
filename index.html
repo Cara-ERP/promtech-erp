@@ -11383,7 +11383,6 @@ function openAdvanceModal(id){
   document.getElementById('adv-issued').value = a?.issued||'';
   document.getElementById('adv-returned').value = a?.returned||'';
   document.getElementById('adv-purpose').value = a?.purpose||'';
-  document.getElementById('adv-status').value  = a?.status||'open';
 
   const empSel = document.getElementById('adv-employee');
   // Объединяем: сотрудники + подотчётные лица из money_tx
@@ -11417,12 +11416,22 @@ function openAdvanceModal(id){
     warehouseData.map(w=>`<option value="${w.id}">${w.name} (${w.unit})</option>`).join('');
 
   // Инициализируем строки из lines или legacy comment
+  // Явно устанавливаем статус (может не применяться через selected)
+  const statusEl = document.getElementById('adv-status');
+  if(statusEl) statusEl.value = a?.status||'open';
+
+  // Очищаем строки расходов перед заполнением
+  window._advLines = [];
   let initLines = [];
   if(a){
-    if(a.lines && a.lines.length>0){
-      initLines = JSON.parse(JSON.stringify(a.lines));
+    // lines может быть строкой JSON (из Supabase) или массивом
+    let rawLines = a.lines;
+    if(typeof rawLines === 'string'){
+      try { rawLines = JSON.parse(rawLines); } catch(e){ rawLines = []; }
+    }
+    if(Array.isArray(rawLines) && rawLines.length>0){
+      initLines = JSON.parse(JSON.stringify(rawLines));
     } else if(a.comment && a.spent>0){
-      // Legacy: превращаем comment в одну строку
       initLines = [{
         id: advLineSeq++, type:'expense', cat:'other_out',
         desc: a.comment||'Расходы', amount: a.spent||0,
