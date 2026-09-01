@@ -11695,19 +11695,17 @@ async function saveAdvance(){
     spent:      (window._advLines||[]).reduce((s,l)=>s+l.amount, 0),
   };
 
-  // Данные для Supabase
+  // Данные для Supabase — только существующие колонки
   const dbObj = {
-    emp_name:    obj.empName,
-    date:        obj.date,
-    report_date: obj.reportDate||null,
-    account_id:  obj.accountId||null,
-    tx_id:       obj.txId||null,
-    purpose:     obj.purpose,
-    issued:      obj.issued,
-    returned:    obj.returned,
-    status:      obj.status,
-    lines:       JSON.stringify(obj.lines),
-    spent:       obj.spent,
+    emp_name:   obj.empName,
+    date:       obj.date,
+    purpose:    obj.purpose,
+    issued:     obj.issued,
+    returned:   obj.returned,
+    status:     obj.status,
+    account_id: obj.accountId||null,
+    tx_id:      obj.txId||null,  // UUID или null
+    spent:      obj.spent,
   };
 
   try{
