@@ -19675,7 +19675,7 @@ function setDashPeriod(period){
 }
 
 // ── Дашборд (реальные данные) ─────────────────────────────────────────────────
-function renderDashboard(){
+async function renderDashboard(){
   const now   = new Date();
   // Период — из глобальных переменных или текущий месяц по умолчанию
   const from  = _dashPeriodFrom || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
@@ -19716,11 +19716,21 @@ function renderDashboard(){
   set('dash-stock', stockCount.toLocaleString('ru-RU'));
   set('dash-stock-sub', critical>0?`<span style="color:var(--red)">⚠️ ${critical} критично</span>`:'✅ норма');
 
-  // ФОТ — начисления за текущий месяц
-  const payrollData = typeof _payrollData !== 'undefined' && _payrollData;
-  const accruals = payrollData?.accruals || [];
-  const fotCur  = accruals.filter(a=>a.date?.startsWith(curM)&&a.type==='salary').reduce((s,a)=>s+(a.amount||0),0);
-  const fotPrev = accruals.filter(a=>a.date?.startsWith(prevM)&&a.type==='salary').reduce((s,a)=>s+(a.amount||0),0);
+  // ФОТ — берём из salary_accruals напрямую
+  const fotByMonth = {};
+  let fotAccruals = (typeof _payrollData!=='undefined'&&_payrollData?.accruals)||[];
+  if(!fotAccruals.length){
+    // Загружаем если нет
+    try{
+      const rows = await sbFetch('salary_accruals','select=date,amount,type&type=eq.salary&limit=2000');
+      fotAccruals = rows||[];
+    }catch(e){}
+  }
+  fotAccruals.filter(a=>a.type==='salary'&&a.amount>0).forEach(a=>{
+    const m=(a.date||'').slice(0,7); if(m) fotByMonth[m]=(fotByMonth[m]||0)+(a.amount||0);
+  });
+  const fotCur  = Object.entries(fotByMonth).filter(([m])=>m>=from.slice(0,7)&&m<=to.slice(0,7)).reduce((s,[,v])=>s+v,0);
+  const fotPrev = fotByMonth[prevM]||0;
   set('dash-payroll', fmtK(fotCur));
   set('dash-payroll-sub', fotPrev>0?arrow(pct(fotCur,fotPrev))+' к прошлому':'');
 
@@ -19754,8 +19764,6 @@ function renderDashboard(){
   if(labEl) labEl.innerHTML = months.map(m=>`<div style="flex:1;text-align:center">${mNamesShort[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
 
   // График ФОТ по месяцам
-  const fotByMonth = {};
-  accruals.filter(a=>a.type==='salary').forEach(a=>{ const m=a.date?.slice(0,7); if(m){ fotByMonth[m]=(fotByMonth[m]||0)+(a.amount||0); }});
   const fotMonths = Object.keys(fotByMonth).sort().slice(-8);
   const maxFot = Math.max(...fotMonths.map(m=>fotByMonth[m]),1);
   const pcEl = document.getElementById('dash-payroll-chart');
