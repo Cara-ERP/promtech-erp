@@ -11398,7 +11398,8 @@ function openAdvanceModal(id){
   empSel.innerHTML = '<option value="">— выберите —</option>' +
     empOptions.map(e=>'<option value="'+e.name+'"'+(a?.empName===e.name?' selected':'')+'>'+e.label+'</option>').join('');
 
-  // Заполняем список транзакций выдачи ПОСЛЕ заполнения сотрудника
+  // Сначала устанавливаем сотрудника, потом обновляем список выдач
+  if(a?.empName) empSel.value = a.empName;
   updateAdvTxList();
   const txSel = document.getElementById('adv-tx-id');
   if(txSel && a?.txId) txSel.value = a.txId;
@@ -11553,7 +11554,7 @@ function updateAdvTxList(){
   const txs = moneyTx.filter(t=>
     t.flow==='expense' && t.category==='advance_out' &&
     (!accId || t.accountId===accId) &&
-    (!emp || t.counterparty===emp)
+    (!emp || t.counterparty===emp || (t.counterparty||'').toLowerCase().includes(emp.toLowerCase().split(' ')[0]))
   ).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
 
   txSel.innerHTML = '<option value="">— выбрать из журнала —</option>' +
