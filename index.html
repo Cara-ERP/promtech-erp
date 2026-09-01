@@ -11769,6 +11769,8 @@ async function saveAdvance(){
         desc:'Выдача аванса: '+obj.purpose, counterparty:obj.empName, orderNum:''});
     }
     closeModal('advanceModal');
+    _advancesLoaded = false;
+    await loadAdvancesFromDB();
     renderAdvances();
     renderMoneyKPIs();
     renderCashTx();
