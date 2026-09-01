@@ -11398,16 +11398,16 @@ function openAdvanceModal(id){
   empSel.innerHTML = '<option value="">— выберите —</option>' +
     empOptions.map(e=>'<option value="'+e.name+'"'+(a?.empName===e.name?' selected':'')+'>'+e.label+'</option>').join('');
 
-  // Сначала устанавливаем сотрудника, потом обновляем список выдач
-  if(a?.empName) empSel.value = a.empName;
-  updateAdvTxList();
-  const txSel = document.getElementById('adv-tx-id');
-  if(txSel && a?.txId) txSel.value = a.txId;
-
   const accSel = document.getElementById('adv-account');
   accSel.innerHTML = bankAccounts.map(acc=>
     `<option value="${acc.id}" ${a?.accountId===acc.id?'selected':''}>${acc.icon||''} ${acc.name}</option>`
   ).join('');
+
+  // Сначала устанавливаем сотрудника и счёт, потом обновляем список выдач
+  if(a?.empName) empSel.value = a.empName;
+  updateAdvTxList();
+  const txSel = document.getElementById('adv-tx-id');
+  if(txSel && a?.txId) txSel.value = a.txId;
 
   // Заполняем селект материалов
   const matSel = document.getElementById('adv-line-material');
