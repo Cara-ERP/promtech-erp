@@ -2140,17 +2140,6 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost btn-sm" onclick="setDashPeriod('year')" id="dash-btn-year" style="font-size:11px">📅 Год</button>
           <select id="dash-month-sel" style="font-size:12px" onchange="setDashPeriod('custom-month')">
             <option value="">— выбрать месяц —</option>
-            <option value="2026-08">Август 2026</option>
-            <option value="2026-07">Июль 2026</option>
-            <option value="2026-06">Июнь 2026</option>
-            <option value="2026-05">Май 2026</option>
-            <option value="2026-04">Апрель 2026</option>
-            <option value="2026-03">Март 2026</option>
-            <option value="2026-02">Февраль 2026</option>
-            <option value="2026-01">Январь 2026</option>
-            <option value="2025-12">Декабрь 2025</option>
-            <option value="2025-11">Ноябрь 2025</option>
-            <option value="2025-10">Октябрь 2025</option>
           </select>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -19690,7 +19679,21 @@ async function renderDashboard(){
   const pct  = (a,b) => b>0 ? Math.round((a-b)/b*100) : 0;
   const arrow= p => p>0?`<span style="color:var(--green)">↑ ${p}%</span>`:`<span style="color:var(--red)">↓ ${Math.abs(p)}%</span>`;
   const mNames = {'01':'Январь','02':'Февраль','03':'Март','04':'Апрель','05':'Май','06':'Июнь','07':'Июль','08':'Август','09':'Сентябрь','10':'Октябрь','11':'Ноябрь','12':'Декабрь'};
-  const periodLabel = from===to.slice(0,7)+'-01' || from.slice(0,7)===to.slice(0,7)
+
+  // Заполняем выпадающий список месяцев (последние 18 месяцев)
+  const monthSel = document.getElementById('dash-month-sel');
+  if(monthSel && monthSel.options.length <= 1){
+    const now2 = new Date();
+    for(let i=0; i<18; i++){
+      const d = new Date(now2.getFullYear(), now2.getMonth()-i, 1);
+      const val = d.toISOString().slice(0,7);
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = `${mNames[val.slice(5)]} ${val.slice(0,4)}`;
+      monthSel.appendChild(opt);
+    }
+  }
+  const periodLabel = from.slice(0,7)===to.slice(0,7)
     ? `${mNames[curM.slice(5)]} ${curM.slice(0,4)}`
     : `${from} — ${to}`;
   set('dash-period-label', periodLabel);
