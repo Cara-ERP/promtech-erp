@@ -11671,11 +11671,86 @@ function updateAdvSummary(){
   renderAdvLines();
 }
 
-function saveAdvance(){
-  const editId  = parseInt(document.getElementById('adv-edit-id').value)||0;
+async function saveAdvance(){
+  const editId  = document.getElementById('adv-edit-id').value||'';
   const issued  = parseFloat(document.getElementById('adv-issued').value)||0;
   const returned= parseFloat(document.getElementById('adv-returned').value)||0;
   if(!issued){alert('Укажите сумму выдачи');return;}
+
+  const empName   = document.getElementById('adv-employee').value;
+  const accountId = document.getElementById('adv-account').value;
+  const txId      = document.getElementById('adv-tx-id')?.value||'';
+
+  const obj = {
+    empName,
+    date:       document.getElementById('adv-date').value,
+    reportDate: document.getElementById('adv-report-date')?.value||'',
+    accountId,
+    txId,
+    purpose:    document.getElementById('adv-purpose').value.trim(),
+    issued,
+    returned,
+    status:     document.getElementById('adv-status').value,
+    lines:      JSON.parse(JSON.stringify(window._advLines||[])),
+    spent:      (window._advLines||[]).reduce((s,l)=>s+l.amount, 0),
+  };
+
+  // Данные для Supabase
+  const dbObj = {
+    emp_name:    obj.empName,
+    date:        obj.date,
+    report_date: obj.reportDate||null,
+    account_id:  obj.accountId||null,
+    tx_id:       obj.txId||null,
+    purpose:     obj.purpose,
+    issued:      obj.issued,
+    returned:    obj.returned,
+    status:      obj.status,
+    lines:       JSON.stringify(obj.lines),
+    spent:       obj.spent,
+  };
+
+  try{
+    if(editId){
+      // Обновляем в Supabase
+      await sbPatch('advance_reports', `id=eq.${editId}`, dbObj);
+      const idx = advanceReports.findIndex(a=>(a.sbId||a.id)===editId);
+      if(idx>=0){
+        const prev = advanceReports[idx];
+        const prevReturned = prev.returned||0;
+        advanceReports[idx] = {...prev,...obj, sbId:editId};
+        const delta = returned - prevReturned;
+        if(delta > 0){
+          moneyTx.push({
+            id: txSeq++,
+            date: new Date().toISOString().slice(0,10),
+            accountId: obj.accountId,
+            flow: 'income',
+            category: 'advance_return',
+            amount: delta,
+            desc: `Возврат аванса · ${obj.purpose}`,
+            counterparty: obj.empName,
+            orderNum: '',
+          });
+        }
+      }
+    } else {
+      // Создаём новый
+      const res = await sbInsert('advance_reports', dbObj);
+      const newId = res?.id||advSeq++;
+      advanceReports.push({id:newId, sbId:newId, ...obj});
+      moneyTx.push({id:txSeq++, date:obj.date, accountId:obj.accountId,
+        flow:'expense', category:'advance_out', amount:obj.issued,
+        desc:'Выдача аванса: '+obj.purpose, counterparty:obj.empName, orderNum:''});
+    }
+    closeModal('advanceModal');
+    renderAdvances();
+    renderMoneyKPIs();
+    renderCashTx();
+  } catch(e){
+    alert('Ошибка сохранения: '+e.message);
+  }
+}
 
   const obj = {
     empName:    document.getElementById('adv-employee').value,
@@ -11724,30 +11799,7 @@ function saveAdvance(){
       desc:'Выдача аванса: '+obj.purpose, counterparty:obj.empName, orderNum:''});
   }
 
-  // ТМЗ строки → обновляем остатки склада
-  obj.lines.filter(l=>l.type==='material'&&l.materialId).forEach(l=>{
-    const wh = warehouseData.find(w=>w.id===l.materialId);
-    if(wh){
-      // Приход на склад по закупочной цене
-      wh.qty += l.amount / (wh.price||1);
-      // Документ прихода
-      whDocuments.push({
-        id:whDocSeq++,
-        num:'АВ-'+String(advSeq).padStart(3,'0'),
-        type:'receipt', status:'done',
-        date:obj.date,
-        note:'Авансовый отчёт: '+obj.purpose,
-        createdBy:obj.empName,
-        items:[{materialId:wh.id,name:wh.name,qty:l.amount/(wh.price||1),unit:wh.unit,price:wh.price}],
-      });
-    }
-  });
 
-  closeModal('advanceModal');
-  renderAdvances();
-  renderMoneyKPIs();
-  renderCashTx();
-}
 
 function deleteAdvance(){
   const id=parseInt(document.getElementById('adv-edit-id').value)||0;
