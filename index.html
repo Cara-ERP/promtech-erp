@@ -11726,10 +11726,14 @@ async function saveAdvance(){
     purpose:    document.getElementById('adv-purpose').value.trim(),
     issued,
     returned,
-    status:     document.getElementById('adv-status').value,
     lines:      JSON.parse(JSON.stringify(window._advLines||[])),
     spent:      (window._advLines||[]).reduce((s,l)=>s+l.amount, 0),
   };
+  // Автозакрытие: если потрачено + возврат = выдано — закрываем
+  const manualStatus = document.getElementById('adv-status').value;
+  const balance = obj.issued - obj.spent - obj.returned;
+  obj.status = manualStatus !== 'open' ? manualStatus
+             : (Math.abs(balance) < 1 ? 'closed' : 'open');
 
   // Данные для Supabase — только существующие колонки
   const dbObj = {
@@ -11740,8 +11744,9 @@ async function saveAdvance(){
     returned:   obj.returned,
     status:     obj.status,
     account_id: obj.accountId||null,
-    tx_id:      obj.txId||null,  // UUID или null
+    tx_id:      obj.txId||null,
     spent:      obj.spent,
+    lines:      obj.lines.length>0 ? obj.lines : null,
   };
 
   try{
