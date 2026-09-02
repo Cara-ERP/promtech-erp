@@ -8561,7 +8561,7 @@ async function loadAdvancesFromDB(){
         txId:     a.tx_id||'',
         docNum:   a.doc_num||'',
         reportDate: a.report_date||'',
-        lines:    [],
+        lines:    Array.isArray(a.lines) ? a.lines : (typeof a.lines==='string' && a.lines ? JSON.parse(a.lines) : []),
       }));
       _advancesLoaded = true;
     }
