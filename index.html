@@ -11314,16 +11314,17 @@ function saveMoneyTx(){
   closeModal('moneyTxModal');
   // Обновляем только текущую активную вкладку — не все сразу
   renderMoneyKPIs();
-  const activeTab = document.querySelector('#page-money .money-tab[style*="block"], #page-money .money-tab:not([style*="none"])');
-  // Откладываем тяжёлые рендеры чтобы модалка закрылась быстро
+  // Перезагружаем данные из базы чтобы избежать рассинхронизации
   setTimeout(()=>{
-    renderCashTx();
-    renderBankTx();
-    renderAllTx();
-    renderAdvances();
-    if(obj.orderNum) recalcOrderPayment(obj.orderNum);
-    if(document.getElementById('page-sales')?.style.display!=='none') renderOrders();
-  }, 50);
+    loadMoneyFromDB().then(()=>{
+      renderCashTx();
+      renderBankTx();
+      renderAllTx();
+      renderAdvances();
+      if(obj.orderNum) recalcOrderPayment(obj.orderNum);
+      if(document.getElementById('page-sales')?.style.display!=='none') renderOrders();
+    });
+  }, 100);
 }
 
 function deleteMoneyTx(){
