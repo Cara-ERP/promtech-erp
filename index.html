@@ -9439,8 +9439,14 @@ function updateTxSubcategory(){
   }
 }
 
+function updateTxCounterpartyField(){
+  // Перечитываем конфиг контрагента с учётом подкатегории и обновляем форму
+  updateTxForm();
+}
+
 function onTxSubcatChange(){
-  // Можно добавить логику при выборе подкатегории
+  // При смене подкатегории обновляем поле контрагента
+  updateTxCounterpartyField();
 }
 
 // ── Настройки пользователя ────────────────────────────────────────────────────
@@ -10854,7 +10860,16 @@ function updateTxForm(){
   // Определяем тип контрагента по категории
   const CAT_COUNTERPARTY = {
     // Расходы
-    'salary':         {type:'employee', label:'👷 Сотрудник'},
+    'salary':              {type:'employee', label:'👷 Сотрудник'},
+    'salary_prod_fixed':   {type:'employee', label:'👷 Сотрудник'},
+    'salary_prod_piece':   {type:'employee', label:'👷 Сотрудник'},
+    'salary_office_fixed': {type:'employee', label:'👷 Сотрудник'},
+    'salary_salon':        {type:'employee', label:'👷 Сотрудник'},
+    'salary_other':        {type:'employee', label:'👷 Сотрудник'},
+    'salary_cook':         {type:'employee', label:'👷 Сотрудник'},
+    'salary_reklamacia':   {type:'employee', label:'👷 Сотрудник'},
+    'cook':                {type:'employee', label:'👷 Сотрудник'},
+    'con_salary':          {type:'employee', label:'👷 Сотрудник'},
     'advance_out':    {type:'employee', label:'👤 Подотчётный сотрудник'},
     'advance_return': {type:'employee', label:'👤 Сотрудник (возврат)'},
     'tax':            {type:'fixed',    label:'🏛 Получатель', values:['КГД МФ РК','Пенсионный фонд','ГЦВП','Государственная корпорация']},
@@ -10883,7 +10898,8 @@ function updateTxForm(){
     'Охрана','Обучение','Прочие расходы',
   ];
 
-  const ctpConfig = CAT_COUNTERPARTY[cat] || {type:'free', label:'Контрагент'};
+  const subcat = document.getElementById('tx-subcategory')?.value||'';
+  const ctpConfig = CAT_COUNTERPARTY[subcat] || CAT_COUNTERPARTY[cat] || {type:'free', label:'Контрагент'};
   const ctpRow    = document.getElementById('tx-supplier-row');
   const advRow    = document.getElementById('tx-advance-emp-row');
   const advRetRow = document.getElementById('tx-advance-report-row');
