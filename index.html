@@ -9043,6 +9043,14 @@ function copyMoneyTx(id){
     document.getElementById('tx-desc').value = t.desc||'';
     document.getElementById('tx-counterparty').value = t.counterparty||'';
     document.getElementById('tx-category').value = t.category||'';
+    updateTxSubcategory();
+    // Восстанавливаем подкатегорию после обновления списка
+    if(t.subcategory){
+      setTimeout(()=>{
+        const subSel = document.getElementById('tx-subcategory');
+        if(subSel) subSel.value = t.subcategory;
+      }, 50);
+    }
     // Привязка к заказу
     const ordSel = document.getElementById('tx-order');
     if(ordSel && t.orderNum){
@@ -9427,12 +9435,15 @@ function updateTxSubcategory(){
   const subSel    = document.getElementById('tx-subcategory');
   if(!catSel||!subSel||!subRow) return;
   const parentCode = catSel.value;
+  const prevVal    = subSel.value; // запоминаем текущий выбор
   const subs = (_expenseCats||[]).filter(c=>c.parent_code===parentCode);
   if(subs.length > 0){
     subRow.style.display='';
     subSel.innerHTML='<option value="">— выберите статью —</option>'+
       subs.sort((a,b)=>a.sort_order-b.sort_order)
         .map(c=>`<option value="${c.code}"${c.is_fixed?' data-fixed="1"':''}>${c.name}${c.is_fixed?' 📌':''}</option>`).join('');
+    // Восстанавливаем предыдущий выбор если он есть в новом списке
+    if(prevVal && subs.find(c=>c.code===prevVal)) subSel.value = prevVal;
   } else {
     subRow.style.display='none';
     subSel.innerHTML='<option value="">—</option>';
