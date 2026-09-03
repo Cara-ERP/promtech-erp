@@ -11180,18 +11180,57 @@ function saveMoneyTx(){
   if(flow==='transfer'){
     const acc2 = document.getElementById('tx-account2').value;
     if(editId){
-      // Редактирование перевода — обновляем существующую запись
+      // Редактирование перевода — обновляем исходную запись И парную
       const idx = moneyTx.findIndex(t=>t.sbId===editId||String(t.id)===String(editId));
       if(idx>=0){
-        moneyTx[idx]={...moneyTx[idx],...obj};
+        const oldTx = moneyTx[idx];
+        moneyTx[idx]={...oldTx,...obj};
         const sbId = moneyTx[idx].sbId;
+
+        // Ищем парную транзакцию transfer_in по дате+сумме+desc
+        const pairIdx = moneyTx.findIndex(t=>
+          t!==moneyTx[idx] &&
+          t.category==='transfer_in' &&
+          t.amount===oldTx.amount &&
+          t.date===oldTx.date &&
+          (t.desc||'').includes(bankAccounts.find(a=>a.id===oldTx.accountId)?.name||'\0')
+        );
+
+        const newAccName = bankAccounts.find(a=>a.id===obj.accountId)?.name||'';
+        const acc2Name    = bankAccounts.find(a=>a.id===acc2)?.name||'';
+
         if(sbId){
           sbPatch('money_tx', `id=eq.${sbId}`, {
             date: obj.date, account_id: obj.accountId, flow: 'expense',
             category: 'transfer_out', amount: obj.amount,
-            description: 'Перевод → '+(bankAccounts.find(a=>a.id===acc2)?.name||''),
+            description: 'Перевод → '+acc2Name,
             counterparty: obj.counterparty||'',
-          }).then(()=>console.log('✅ Перевод обновлён'));
+          }).then(()=>console.log('✅ Перевод (исходящий) обновлён'));
+        }
+
+        if(pairIdx>=0){
+          // Обновляем существующую парную запись
+          moneyTx[pairIdx] = {...moneyTx[pairIdx],
+            date: obj.date, accountId: acc2, amount: obj.amount,
+            desc: 'Перевод ← '+newAccName, counterparty: obj.counterparty||''};
+          const pairSbId = moneyTx[pairIdx].sbId;
+          if(pairSbId){
+            sbPatch('money_tx', `id=eq.${pairSbId}`, {
+              date: obj.date, account_id: acc2, flow: 'income',
+              category: 'transfer_in', amount: obj.amount,
+              description: 'Перевод ← '+newAccName,
+              counterparty: obj.counterparty||'',
+            }).then(()=>console.log('✅ Перевод (входящий) обновлён'));
+          }
+        } else {
+          // Парной записи не было — создаём новую
+          const tx2 = {id:txSeq++, date:obj.date, accountId:acc2, flow:'income',
+            category:'transfer_in', amount:obj.amount, desc:'Перевод ← '+newAccName,
+            counterparty:obj.counterparty||'', orderNum:'', subcategory:'', endClient:''};
+          moneyTx.push(tx2);
+          sbInsert('money_tx',{date:tx2.date,account_id:tx2.accountId,flow:tx2.flow,
+            category:tx2.category,amount:tx2.amount,description:tx2.desc,counterparty:tx2.counterparty||''})
+            .then(()=>console.log('✅ Недостающая парная запись перевода создана'));
         }
       }
     } else {
