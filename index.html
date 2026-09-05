@@ -11905,12 +11905,18 @@ async function saveAdvance(){
   }
 }
 
-function deleteAdvance(){
-  const id=parseInt(document.getElementById('adv-edit-id').value)||0;
+async function deleteAdvance(){
+  const id = document.getElementById('adv-edit-id').value||'';
   if(!id||!confirm('Удалить авансовый отчёт?')) return;
-  advanceReports=advanceReports.filter(a=>a.id!==id);
-  closeModal('advanceModal');
-  renderAdvances(); renderMoneyKPIs();
+  try{
+    await sbDelete('advance_reports', `id=eq.${id}`);
+    advanceReports = advanceReports.filter(a=>(a.sbId||a.id)!==id);
+    closeModal('advanceModal');
+    renderAdvances();
+    renderMoneyKPIs();
+  } catch(e){
+    alert('Ошибка удаления: '+e.message);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
