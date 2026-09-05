@@ -5668,6 +5668,7 @@ window.onerror = function(msg, src, line, col){
           <select id="bank-cat-filter" onchange="renderBankTx()" style="font-size:13px">
             <option value="all">Все категории</option>
           </select>
+          <button class="btn btn-ghost btn-sm" id="bank-currency-toggle" onclick="toggleBankCurrency()" style="font-size:12px;display:none">₸ Тенге</button>
           <button class="btn btn-ghost btn-sm" title="Обновить из базы"
             onclick="_cacheLoaded.money=false;moneyTx=[];loadMoneyFromDB().then(()=>renderBankTx())">🔄</button>
           <span id="bank-filter-count" style="font-size:12px;color:var(--text3)"></span>
@@ -8423,6 +8424,20 @@ function txOrderTag(t){
   return ' '+nums.map(n=>`<span style="color:var(--accent);font-size:11px">(${n})</span>`).join(' ');
 }
 
+let _bankShowUsd = false;
+
+function toggleBankCurrency(){
+  _bankShowUsd = !_bankShowUsd;
+  renderBankTx();
+}
+
+function fmtTxAmt(t){
+  if(_bankShowUsd && t.amountFx){
+    return '$'+Math.round(t.amount).toLocaleString('en-US');
+  }
+  return fmt(t.amountFx||t.amount);
+}
+
 function renderBankTx(){
   const tbody = document.getElementById('bank-tbody');
   if(!tbody) return;
@@ -8449,6 +8464,15 @@ function renderBankTx(){
     (t.counterparty||'').toLowerCase().includes(search)||
     (t.desc||'').toLowerCase().includes(search)||
     (t.orderNum||'').toLowerCase().includes(search));
+
+  // Показываем переключатель валюты только если у выбранного счёта есть USD-операции
+  const toggleBtn = document.getElementById('bank-currency-toggle');
+  const hasFx = filterId!=='all' && moneyTx.some(t=>t.accountId===filterId && t.amountFx);
+  if(toggleBtn){
+    toggleBtn.style.display = hasFx ? '' : 'none';
+    toggleBtn.textContent = _bankShowUsd ? '$ Доллары' : '₸ Тенге';
+    if(!hasFx) _bankShowUsd = false;
+  }
 
   // Сортировка
   txs.sort((a,b)=>{
@@ -8479,8 +8503,8 @@ function renderBankTx(){
   // Счётчик
   const countEl = document.getElementById('bank-filter-count');
   if(countEl){
-    const sumIn  = txs.filter(t=>t.flow==='income').reduce((s,t)=>s+(t.amount||0),0);
-    const sumOut = txs.filter(t=>t.flow==='expense').reduce((s,t)=>s+(t.amount||0),0);
+    const sumIn  = txs.filter(t=>t.flow==='income').reduce((s,t)=>s+(t.amountFx||t.amount||0),0);
+    const sumOut = txs.filter(t=>t.flow==='expense').reduce((s,t)=>s+(t.amountFx||t.amount||0),0);
     const fmtS   = n => n>=1000000?'₸'+(n/1000000).toFixed(1)+'М':n>=1000?'₸'+Math.round(n/1000)+'К':'₸'+Math.round(n);
     countEl.innerHTML = `${txs.length} операций
       <span style="color:var(--green);margin-left:8px">▲${fmtS(sumIn)}</span>
@@ -8506,7 +8530,7 @@ function renderBankTx(){
       });
     let run = openingBalance;
     allAccTxs.forEach(t=>{
-      run += t.flow==='income' ? t.amount : -t.amount;
+      run += t.flow==='income' ? (t.amountFx||t.amount) : -(t.amountFx||t.amount);
       balanceMap[t.id] = run;
     });
   });
@@ -8529,10 +8553,10 @@ function renderBankTx(){
       +'<td style="font-size:12px;font-weight:500">'+(acc?.name||'—')+'</td>'
       +'<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(subcat?subcat.name:'—')+'</td>'
-      +'<td style="font-size:12px">'+(t.desc||'—')+(t.amountFx?`<div style="font-size:10px;color:var(--accent)">💱 $${Math.round(t.amountFx).toLocaleString('en-US')}</div>`:'')+txOrderTag(t)+'</td>'
+      +'<td style="font-size:12px">'+(t.desc||'—')+(t.amountFx?`<div style="font-size:10px;color:var(--text3)">💵 $${Math.round(t.amount).toLocaleString('en-US')}</div>`:'')+txOrderTag(t)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(t.counterparty||'—')+'</td>'
-      +'<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmt(t.amount):'—')+'</td>'
-      +'<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmt(t.amount):'—')+'</td>'
+      +'<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmtTxAmt(t):'—')+'</td>'
+      +'<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmtTxAmt(t):'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;font-weight:600">'+balStr+'</td>'
       +'<td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,\''+( t.sbId||t.id)+'\')" >✏️</button>'
       +'<button class="btn btn-ghost btn-sm" style="font-size:11px" title="Копировать" onclick="copyMoneyTx(\''+( t.sbId||t.id)+'\')" >📋</button></td>'
@@ -19927,8 +19951,8 @@ async function renderDashboard(){
   moneyTx.forEach(t=>{
     const m = (t.date||'').slice(0,7);
     if(!m) return;
-    if(t.flow==='income')  inByMonth[m]  = (inByMonth[m]||0)  + (t.amount||0);
-    if(t.flow==='expense') outByMonth[m] = (outByMonth[m]||0) + (t.amount||0);
+    if(t.flow==='income')  inByMonth[m]  = (inByMonth[m]||0)  + (t.amountFx||t.amount||0);
+    if(t.flow==='expense') outByMonth[m] = (outByMonth[m]||0) + (t.amountFx||t.amount||0);
   });
   const cfMonths = [...new Set([...Object.keys(inByMonth),...Object.keys(outByMonth)])].sort().slice(-8);
   const maxCf = Math.max(...cfMonths.map(m=>Math.max(inByMonth[m]||0, outByMonth[m]||0)), 1);
