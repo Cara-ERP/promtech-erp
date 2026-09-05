@@ -8435,7 +8435,8 @@ function fmtTxAmt(t){
   if(_bankShowUsd && t.amountFx){
     return '$'+Math.round(t.amount).toLocaleString('en-US');
   }
-  return fmt(t.amountFx||t.amount);
+  const val = t.amountFx||t.amount;
+  return '₸'+Math.round(val).toLocaleString('ru-RU');
 }
 
 function renderBankTx(){
