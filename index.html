@@ -9361,9 +9361,9 @@ async function saveExpCat(){
 
   try{
     if(editCode){
-      await sbPatch('expense_categories',`code=eq.${editCode}`,{name,is_fixed,sort_order});
+      await sbPatch('expense_categories',`code=eq.${editCode}`,{name,is_fixed,sort_order,parent_code});
       const idx = _expenseCats.findIndex(c=>c.code===editCode);
-      if(idx>=0) Object.assign(_expenseCats[idx],{name,is_fixed,sort_order});
+      if(idx>=0) Object.assign(_expenseCats[idx],{name,is_fixed,sort_order,parent_code});
     } else {
       const exists = _expenseCats.find(c=>c.code===code);
       if(exists){ errEl.textContent='Такой код уже существует'; return; }
