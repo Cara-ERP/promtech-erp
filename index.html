@@ -8361,7 +8361,7 @@ function renderBankAccounts(){
   grid.innerHTML = bankOnly.map(acc=>{
     const stats    = calcAccountStats(acc.id, filtered);
     const allStats = calcAccountStats(acc.id);
-    const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
+    const fmt = n => acc.currency==='USD' ? '$'+Math.round(n).toLocaleString('en-US') : '₸'+Math.round(n).toLocaleString('ru-RU');
     // Сальдо на начало периода
     const fromStr = moneyPeriod.from ? moneyPeriod.from.toISOString().slice(0,10) : '';
     const openingBal = fromStr
@@ -8548,7 +8548,8 @@ function renderBankTx(){
   tbody.innerHTML = txs.map(t=>{
     const acc = bankAccounts.find(a=>a.id===t.accountId);
     const bal = balanceMap[t.id];
-    const balStr = bal!==undefined ? '<span style="color:'+(bal>=0?'var(--text1)':'var(--red)')+'">'+fmt(bal)+'</span>' : '—';
+    const balDisplay = _bankShowUsd ? '$'+Math.round(bal).toLocaleString('en-US') : fmt(bal);
+    const balStr = bal!==undefined ? '<span style="color:'+(bal>=0?'var(--text1)':'var(--red)')+'">'+balDisplay+'</span>' : '—';
     const subcat = t.subcategory ? (_expenseCats||[]).find(c=>c.code===t.subcategory) : null;
     return '<tr>'
       +'<td style="font-size:12px;white-space:nowrap">'+t.date+'</td>'
