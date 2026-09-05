@@ -8432,7 +8432,8 @@ function toggleBankCurrency(){
 }
 
 function fmtTxAmt(t){
-  if(_bankShowUsd && t.amountFx){
+  const isUsdAcc = bankAccounts.find(a=>a.id===t.accountId)?.currency==='USD';
+  if(_bankShowUsd && isUsdAcc && t.amountFx){
     return '$'+Math.round(t.amount).toLocaleString('en-US');
   }
   const val = t.amountFx||t.amount;
@@ -8468,11 +8469,12 @@ function renderBankTx(){
 
   // Показываем переключатель валюты только если у выбранного счёта есть USD-операции
   const toggleBtn = document.getElementById('bank-currency-toggle');
-  const hasFx = filterId!=='all' && moneyTx.some(t=>t.accountId===filterId && t.amountFx);
+  const hasFx = filterId!=='all' && moneyTx.some(t=>t.accountId===filterId && t.amountFx && t.accountId!=='0265fb65-7812-4bee-b794-71306246edb7');
+  const isUsdAccount = bankAccounts.find(a=>a.id===filterId)?.currency==='USD';
   if(toggleBtn){
-    toggleBtn.style.display = hasFx ? '' : 'none';
+    toggleBtn.style.display = isUsdAccount ? '' : 'none';
     toggleBtn.textContent = _bankShowUsd ? '$ Доллары' : '₸ Тенге';
-    if(!hasFx) _bankShowUsd = false;
+    if(!isUsdAccount) _bankShowUsd = false;
   }
 
   // Сортировка
@@ -8530,8 +8532,9 @@ function renderBankTx(){
         return b.amount - a.amount;
       });
     let run = openingBalance;
+    const accCurrency = accDef?.currency;
     allAccTxs.forEach(t=>{
-      const val = (_bankShowUsd && t.amountFx) ? t.amount : (t.amountFx||t.amount);
+      const val = (_bankShowUsd && accCurrency==='USD' && t.amountFx) ? t.amount : (t.amountFx||t.amount);
       run += t.flow==='income' ? val : -val;
       balanceMap[t.id] = run;
     });
