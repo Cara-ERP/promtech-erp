@@ -8519,7 +8519,7 @@ function renderBankTx(){
   const accIds = [...new Set(txs.map(t=>t.accountId))];
   accIds.forEach(accId=>{
     const accDef = bankAccounts.find(a=>a.id===accId);
-    const openingBalance = accDef?.openingBalance||0;
+    const openingBalance = (_bankShowUsd && bankIds.includes(accDef?.id) && accDef?.currency==='USD') ? 0 : (accDef?.openingBalance||0);
     const allAccTxs = moneyTx
       .filter(t=>t.accountId===accId)
       .sort((a,b)=>{
@@ -8531,7 +8531,8 @@ function renderBankTx(){
       });
     let run = openingBalance;
     allAccTxs.forEach(t=>{
-      run += t.flow==='income' ? (t.amountFx||t.amount) : -(t.amountFx||t.amount);
+      const val = (_bankShowUsd && t.amountFx) ? t.amount : (t.amountFx||t.amount);
+      run += t.flow==='income' ? val : -val;
       balanceMap[t.id] = run;
     });
   });
