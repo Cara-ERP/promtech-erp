@@ -882,6 +882,8 @@ async function loadMoneyFromDB(){
             desc:        t.description||'',
             counterparty:t.counterparty||'',
             orderNum:    t.order_num||'',
+            amountFx:    t.amount_fx||null,
+            fxCurrency:  t.fx_currency||'',
           });
         }
       });
@@ -8527,7 +8529,7 @@ function renderBankTx(){
       +'<td style="font-size:12px;font-weight:500">'+(acc?.name||'—')+'</td>'
       +'<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(subcat?subcat.name:'—')+'</td>'
-      +'<td style="font-size:12px">'+(t.desc||'—')+txOrderTag(t)+'</td>'
+      +'<td style="font-size:12px">'+(t.desc||'—')+(t.amountFx?`<div style="font-size:10px;color:var(--accent)">💱 $${Math.round(t.amountFx).toLocaleString('en-US')}</div>`:'')+txOrderTag(t)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(t.counterparty||'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmt(t.amount):'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmt(t.amount):'—')+'</td>'
@@ -12081,7 +12083,7 @@ async function renderSalonMoney(){
         <td style="font-size:12px;font-family:monospace">${t.date}</td>
         <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
         <td style="font-size:11px">${txCatLabel(t.category)}</td>
-        <td style="font-size:12px">${t.desc||'—'}${txOrderTag(t)}</td>
+        <td style="font-size:12px">${t.desc||'—'}${t.amountFx?`<div style="font-size:10px;color:var(--accent)">💱 $${Math.round(t.amountFx).toLocaleString('en-US')}</div>`:''}${txOrderTag(t)}</td>
         <td style="text-align:right;font-family:monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
         <td style="text-align:right;font-family:monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
         <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(bal)}</td>
