@@ -6108,9 +6108,15 @@ window.onerror = function(msg, src, line, col){
           <div id="adv-line-extra" style="margin-top:8px;display:none">
             <div id="adv-line-supplier-row" style="display:none">
               <label class="label">Поставщик</label>
-              <select id="adv-line-supplier" style="font-size:12px;width:100%" onchange="updateAdvSupplierDocs()">
+              <select id="adv-line-supplier" style="font-size:12px;width:100%" onchange="updateAdvSupplierDocs();updateAdvSupplierEsf()">
                 <option value="">— выберите поставщика —</option>
               </select>
+              <div id="adv-line-supplier-esf-row" style="display:none;margin-top:6px">
+                <label class="label">📄 ЭСФ поставщика <span style="color:var(--text3)">(без оплаты и не привязан к др. отчёту)</span></label>
+                <select id="adv-line-supplier-esf" style="font-size:12px;width:100%" onchange="onAdvEsfSelect()">
+                  <option value="">— без ЭСФ —</option>
+                </select>
+              </div>
               <div id="adv-line-supplier-doc-row" style="display:none;margin-top:6px">
                 <label class="label">Документ поставщика <span style="color:var(--text3)">(необязательно)</span></label>
                 <select id="adv-line-supplier-doc" style="font-size:12px;width:100%">
@@ -8641,12 +8647,16 @@ function renderAdvances(){
       ? `${linkedTx.date} ₸${Math.round(linkedTx.amount).toLocaleString('ru-RU')}`
       : '—';
 
+    // Количество привязанных ЭСФ в строках расходов
+    const esfCount = (a.lines||[]).filter(l=>l.esfInvoiceId).length;
+    const esfBadge = esfCount>0 ? `<span style="font-size:10px;color:var(--accent);margin-left:4px" title="${esfCount} привязанных ЭСФ">📄${esfCount}</span>` : '';
+
     return `<tr onclick="openAdvanceModal('${a.sbId||a.id}')" style="cursor:pointer">
       <td style="font-family:monospace;color:var(--accent);font-size:12px">${a.docNum||'АО-'+String(a.id).substring(0,6)}</td>
       <td style="font-weight:500">${a.empName}</td>
       <td style="font-size:12px;white-space:nowrap">${a.date}</td>
       <td style="font-size:11px;color:var(--text3)">${txDocs||'—'}</td>
-      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.purpose||'—'}</td>
+      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.purpose||'—'}${esfBadge}</td>
       <td style="text-align:right;font-family:monospace">${fmt(a.issued)}</td>
       <td style="text-align:right;font-family:monospace;color:var(--red)">${spent>0?fmt(spent):'—'}</td>
       <td style="text-align:right;font-family:monospace;color:var(--green)">${returned>0?fmt(returned):'—'}</td>
@@ -11574,6 +11584,7 @@ function renderAdvLines(){
       <div style="font-size:13px">${l.desc||'—'}</div>
       ${l.supplier?`<div style="font-size:11px;color:var(--text3)">🤝 ${l.supplier}</div>`:''}
       ${l.materialId?`<div style="font-size:11px;color:var(--accent)">📦 ${warehouseData.find(w=>w.id===l.materialId)?.name||''}</div>`:''}
+      ${l.esfInvoiceId?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;margin-top:2px;color:var(--accent)" onclick="event.stopPropagation();openEsfDetail('${l.esfInvoiceId}')">📄 Открыть ЭСФ</button>`:''}
     </td>
     <td style="text-align:right;font-family:monospace;font-weight:600;color:var(--red)">
       −${fmt(l.amount)}
@@ -11723,6 +11734,67 @@ function onAdvTxSelect(){
   updateAdvSummary();
 }
 
+function normSupName(s){
+  return (s||'').replace(/\s+/g,' ').replace(/["«»'']/g,'').toLowerCase().trim();
+}
+
+function updateAdvSupplierEsf(){
+  const supSel = document.getElementById('adv-line-supplier');
+  const esfRow = document.getElementById('adv-line-supplier-esf-row');
+  const esfSel = document.getElementById('adv-line-supplier-esf');
+  if(!supSel||!esfRow||!esfSel) return;
+  const supplier = supSel.value;
+  if(!supplier){ esfRow.style.display='none'; return; }
+
+  const supNorm = normSupName(supplier);
+  const allInvoices = (_esfData?.invoices||[]);
+
+  // Все ЭСФ этого поставщика
+  const supplierEsf = allInvoices.filter(inv => normSupName(inv.supplier_name)===supNorm);
+
+  // ID ЭСФ уже привязанных к другим авансовым отчётам
+  const linkedEsfIds = new Set();
+  advanceReports.forEach(a=>{
+    (a.lines||[]).forEach(l=>{ if(l.esfInvoiceId) linkedEsfIds.add(l.esfInvoiceId); });
+  });
+
+  // Оплаты по РС этому поставщику
+  const paidTx = moneyTx.filter(t=>t.flow==='expense'&&t.category==='supplier'&&normSupName(t.counterparty)===supNorm);
+
+  // Для каждой ЭСФ проверяем — есть ли оплата с близкой суммой (±3 дня, сумма совпадает в пределах 5%)
+  function esfIsPaid(inv){
+    return paidTx.some(t=>{
+      const diffDays = Math.abs((new Date(t.date) - new Date(inv.date))/(1000*60*60*24));
+      const sumClose = Math.abs(t.amount - inv.total_with_nds) / Math.max(inv.total_with_nds,1) < 0.05;
+      return diffDays <= 5 && sumClose;
+    });
+  }
+
+  // Фильтруем: без привязки к другому отчёту, и нет явной оплаты по РС
+  const availableEsf = supplierEsf.filter(inv => !linkedEsfIds.has(inv.id) && !esfIsPaid(inv));
+
+  if(availableEsf.length > 0){
+    esfRow.style.display='';
+    esfSel.innerHTML = '<option value="">— без ЭСФ —</option>' +
+      availableEsf.sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+        .map(inv=>`<option value="${inv.id}" data-amount="${inv.total_with_nds}" data-num="${(inv.num||'').replace(/"/g,'&quot;')}">${inv.date} — №${inv.num} — ₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</option>`).join('');
+  } else {
+    esfRow.style.display='none';
+  }
+}
+
+function onAdvEsfSelect(){
+  const esfSel = document.getElementById('adv-line-supplier-esf');
+  const amountEl = document.getElementById('adv-line-amount');
+  const descEl = document.getElementById('adv-line-desc');
+  const opt = esfSel.options[esfSel.selectedIndex];
+  if(!opt || !opt.value) return;
+  const amount = parseFloat(opt.dataset.amount)||0;
+  const num = opt.dataset.num||'';
+  if(amountEl && !amountEl.value) amountEl.value = amount;
+  if(descEl && !descEl.value) descEl.value = `ЭСФ №${num}`;
+}
+
 function updateAdvSupplierDocs(){
   const supSel = document.getElementById('adv-line-supplier');
   const docRow = document.getElementById('adv-line-supplier-doc-row');
@@ -11768,19 +11840,21 @@ function addAdvLine(){
   const amount = parseFloat(document.getElementById('adv-line-amount').value)||0;
   const supplier = document.getElementById('adv-line-supplier')?.value.trim()||'';
   const supplierDocId = document.getElementById('adv-line-supplier-doc')?.value||'';
+  const esfInvoiceId = document.getElementById('adv-line-supplier-esf')?.value||'';
   const matId  = parseInt(document.getElementById('adv-line-material')?.value||0)||null;
   if(!amount){alert('Укажите сумму');return;}
   if(type==='material'&&!matId){alert('Выберите материал из справочника');return;}
   const cat = document.getElementById('adv-line-cat')?.value||'';
   const subcat = document.getElementById('adv-line-subcat')?.value||'';
   window._advLines.push({
-    id: advLineSeq++, type, desc, amount, supplier, supplierDocId,
+    id: advLineSeq++, type, desc, amount, supplier, supplierDocId, esfInvoiceId,
     materialId: matId, category: cat, subcategory: subcat,
   });
   // Сброс формы
   document.getElementById('adv-line-desc').value='';
   document.getElementById('adv-line-amount').value='';
   if(document.getElementById('adv-line-supplier')) document.getElementById('adv-line-supplier').value='';
+  if(document.getElementById('adv-line-supplier-esf')) document.getElementById('adv-line-supplier-esf').value='';
   if(document.getElementById('adv-line-material')) document.getElementById('adv-line-material').value='';
   renderAdvLines();
   updateAdvSummary();
