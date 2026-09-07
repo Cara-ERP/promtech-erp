@@ -10930,7 +10930,9 @@ function updateTxForm(){
     'salary_prod_fixed':   {type:'employee', label:'👷 Сотрудник'},
     'salary_prod_piece':   {type:'employee', label:'👷 Сотрудник'},
     'salary_office_fixed': {type:'employee', label:'👷 Сотрудник'},
-    'salary_salon':        {type:'employee', label:'👷 Сотрудник'},
+    'salary_salon':        {type:'employee_salon', label:'👷 Сотрудник салона'},
+    'com_salary_fixed':    {type:'employee_salon', label:'👷 Сотрудник салона'},
+    'com_salary_pct':      {type:'employee_salon', label:'👷 Сотрудник салона'},
     'salary_other':        {type:'employee', label:'👷 Сотрудник'},
     'salary_cook':         {type:'employee', label:'👷 Сотрудник'},
     'salary_reklamacia':   {type:'employee', label:'👷 Сотрудник'},
@@ -10985,15 +10987,18 @@ function updateTxForm(){
   if(selEl)     selEl.style.display     = 'none';
   if(ctpLabel)  ctpLabel.textContent    = ctpConfig.label;
 
-  if(ctpConfig.type==='employee'){
+  if(ctpConfig.type==='employee' || ctpConfig.type==='employee_salon'){
     // Показываем селект сотрудников
     if(advRow){
       advRow.style.display = '';
       const empSel = document.getElementById('tx-advance-emp');
       const fillEmpSel = () => {
         if(empSel){
+          const list = ctpConfig.type==='employee_salon'
+            ? employeesData.filter(e=>e.type==='office')
+            : employeesData;
           empSel.innerHTML = '<option value="">— выберите сотрудника —</option>'+
-            employeesData.map(e=>`<option value="${e.name}">${e.name}${e.pos?' — '+e.pos:''}</option>`).join('');
+            list.map(e=>`<option value="${e.name}">${e.name}${e.pos?' — '+e.pos:''}</option>`).join('');
         }
       };
       if(employeesData.length === 0){
