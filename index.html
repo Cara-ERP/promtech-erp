@@ -20258,12 +20258,23 @@ function renderPurchasesDash(){
     if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
     debtBySupplier[key].esf += inv.total_with_nds;
   });
-  // Оплаты по контрагенту
+  // Оплаты по контрагенту (через РС)
   allPaidTx.forEach(t=>{
     const raw  = t.counterparty||'—';
     const key  = normSupplier(raw);
     if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
     debtBySupplier[key].paid += t.amount||0;
+  });
+
+  // Оплаты через авансовые отчёты (строки типа supplier в lines)
+  advanceReports.forEach(a=>{
+    (a.lines||[]).forEach(l=>{
+      if(l.type==='supplier' && l.supplier && l.amount>0){
+        const key = normSupplier(l.supplier);
+        if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: l.supplier};
+        debtBySupplier[key].paid += l.amount;
+      }
+    });
   });
 
   const debtRows = Object.entries(debtBySupplier)
