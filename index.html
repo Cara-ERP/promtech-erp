@@ -688,6 +688,18 @@ const sbPost = async (table, body)=>{
   return res.json();
 };
 
+// Массовая вставка (возвращает ВЕСЬ массив созданных строк, в отличие от sbInsert)
+const sbInsertMany = async (table, bodyArray)=>{
+  if(!bodyArray || !bodyArray.length) return [];
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: {...sbHeaders, 'Prefer': 'return=representation'},
+    body: JSON.stringify(bodyArray)
+  });
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+};
+
 console.log('✅ Supabase настроен (прямые запросы)');
 
 // Загрузить сотрудников из Supabase
@@ -751,17 +763,16 @@ async function loadSuppliersFromDB(){
   try {
     const data = await sbFetch('suppliers','select=*&order=name');
     if(data && data.length>0){
-      data.forEach(s=>{
-        const exists=suppliersData.find(x=>x.name===s.name);
-        if(!exists){
-          suppliersData.push({
-            id:supSeq++, name:s.name,
-            category:s.category||'', contact:s.contact||'',
-            phone:s.phone||'', inn:s.inn||'',
-            comment:s.comment||'', status:'Активен',
-          });
-        }
-      });
+      suppliersData = data.map(s=>({
+        id:s.id, name:s.name||'',
+        category:s.category||'', contact:s.contact||'',
+        phone:s.phone||'', email:s.email||'',
+        inn:s.inn||'', bin:s.bin||'',
+        comment:s.comment||'', status:s.status||'active',
+        leadtime:s.leadtime||0, turnover:s.turnover||0,
+        defect:s.defect||0, addr:s.addr||'',
+      }));
+      _cacheLoaded.suppliers = true;
       console.log('✅ Поставщики загружены из Supabase: '+data.length);
     }
     return true;
@@ -3019,6 +3030,8 @@ window.onerror = function(msg, src, line, col){
         <div style="display:flex;gap:8px">
           <input type="file" id="supplier-file" accept=".csv" style="display:none" onchange="importSuppliersCSV(event)">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('supplier-file').click()">📥 Импорт CSV</button>
+          <button class="btn btn-ghost btn-sm" onclick="importSuppliersFromEsf(this)">📄 Импорт из ЭСФ</button>
+          <button class="btn btn-ghost btn-sm" onclick="openMergeSuppliersModal()">🔗 Объединить</button>
           <button class="btn btn-primary btn-sm" onclick="openSupplierCard(null)">+ Добавить</button>
         </div>
       </div>
@@ -3190,6 +3203,21 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost" onclick="closeModal('supplierCardModal')">Отмена</button>
           <button class="btn btn-primary" onclick="saveSupplierCard()">Сохранить</button>
         </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Объединение дублей поставщиков -->
+    <div class="modal-overlay" id="mergeSuppliersModal">
+      <div class="modal" style="max-width:640px;max-height:85vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title">🔗 Объединение поставщиков</span>
+          <button class="modal-close" onclick="closeModal('mergeSuppliersModal')">✕</button>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+          Автоматически найдены поставщики с одинаковым БИН или похожим названием.
+          Выберите основную запись в каждой группе — остальные будут удалены, а их данные (БИН, контакты, оборот) перенесены в основную.
+        </div>
+        <div id="merge-groups-body"></div>
       </div>
     </div>
 
@@ -14299,17 +14327,17 @@ function fmtCurrency(num){
 }
 
 // Import suppliers from CSV
-function importSuppliersCSV(event){
+async function importSuppliersCSV(event){
   const file=event.target.files[0];
   if(!file)return;
   const reader=new FileReader();
-  reader.onload=function(e){
+  reader.onload=async function(e){
     let text=e.target.result;
     // strip BOM
     if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
     const lines=text.split(/\r?\n/).filter(l=>l.trim()!=='');
     if(lines.length<2){
-      showImportResult('Файл пуст или содержит только заголовок.', 'red');
+      alert('Файл пуст или содержит только заголовок.');
       event.target.value='';
       return;
     }
@@ -14319,9 +14347,11 @@ function importSuppliersCSV(event){
     // Map possible column names (RU, including 1С УНФ variants)
     const colMap={
       name: ['название','наименование','контрагент','поставщик','организация'],
+      bin: ['бин/иин','бин','иин','bin'],
       category: ['категория','группа','вид','тип'],
       contact: ['контактное лицо','контакт','ответственный','фио'],
       phone: ['телефон','тел','phone','контактный телефон'],
+      email: ['email','e-mail','почта'],
       turnover: ['оборот за год','оборот','сумма','оборот, год','годовой оборот'],
       leadtime: ['срок поставки (дни)','срок поставки','срок','дни'],
       status: ['статус','состояние']
@@ -14333,71 +14363,386 @@ function importSuppliersCSV(event){
       return -1;
     }
     const idx={
-      name:findCol('name'),
-      category:findCol('category'),
-      contact:findCol('contact'),
-      phone:findCol('phone'),
-      turnover:findCol('turnover'),
-      leadtime:findCol('leadtime'),
+      name:findCol('name'), bin:findCol('bin'),
+      category:findCol('category'), contact:findCol('contact'),
+      phone:findCol('phone'), email:findCol('email'),
+      turnover:findCol('turnover'), leadtime:findCol('leadtime'),
       status:findCol('status')
     };
 
     if(idx.name===-1){
-      showImportResult('Не найдена колонка с названием поставщика. Проверьте, что в файле есть колонка «Название» или «Контрагент». Скачайте шаблон CSV для примера.', 'red');
+      alert('Не найдена колонка с названием поставщика. Проверьте, что в файле есть колонка «Название» или «Контрагент».');
       event.target.value='';
       return;
     }
 
-    let added=0, skipped=0;
-    const tbody=document.getElementById('suppliers-tbody');
-    let turnoverTotal=0;
-
-    for(let i=1;i<lines.length;i++){
-      const row=parseCSVLine(lines[i],delim);
-      const name=idx.name>-1 ? row[idx.name] : '';
-      if(!name){skipped++;continue;}
-      const category=idx.category>-1 ? (row[idx.category]||'—') : '—';
-      const contact=idx.contact>-1 ? (row[idx.contact]||'—') : '—';
-      const phone=idx.phone>-1 ? (row[idx.phone]||'—') : '—';
-      let turnover=idx.turnover>-1 ? parseFloat((row[idx.turnover]||'0').replace(/[^\d.,-]/g,'').replace(',','.')) : 0;
-      if(isNaN(turnover)) turnover=0;
-      const leadtime=idx.leadtime>-1 ? (row[idx.leadtime]||'—') : '—';
-      let status=idx.status>-1 ? (row[idx.status]||'Активен') : 'Активен';
-      const statusLower=status.toLowerCase();
-      const badgeClass=statusLower.includes('пауз')||statusLower.includes('неакт')||statusLower.includes('заверш') ? 'badge-amber' : 'badge-green';
-
-      const tr=document.createElement('tr');
-      tr.innerHTML=`
-        <td style="font-weight:500">${name}</td>
-        <td style="font-size:12px;color:var(--text3)">${category}</td>
-        <td style="font-size:12px">${contact}</td>
-        <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${phone}</td>
-        <td style="font-family:'IBM Plex Mono',monospace">${fmtCurrency(turnover)}</td>
-        <td style="font-size:12px">${leadtime}${leadtime!=='—' && !String(leadtime).includes('дн') ? ' дн' : ''}</td>
-        <td><span class="badge ${badgeClass}">${status}</span></td>`;
-      tbody.appendChild(tr);
-      turnoverTotal+=turnover;
-      added++;
+    function mapStatus(raw){
+      const s=(raw||'').toLowerCase();
+      if(s.includes('пауз')) return 'pause';
+      if(s.includes('неакт')||s.includes('заблок')||s.includes('заверш')) return 'blocked';
+      return 'active';
     }
 
-    // Update KPI counters
-    const countEl=document.getElementById('sup-count');
-    countEl.textContent=parseInt(countEl.textContent)+added;
-    const turnEl=document.getElementById('sup-turnover');
-    const curTurnover=parseFloat(turnEl.textContent.replace('₸','').replace('М','')) || 0;
-    turnEl.textContent='₸'+(curTurnover + turnoverTotal/1000000).toFixed(1)+'М';
+    // 1) Разбираем файл в промежуточный список
+    const rows=[];
+    let skippedNoName=0;
+    for(let i=1;i<lines.length;i++){
+      const row=parseCSVLine(lines[i],delim);
+      const name=(idx.name>-1 ? row[idx.name] : '').trim();
+      if(!name){ skippedNoName++; continue; }
+      rows.push({
+        name,
+        bin: idx.bin>-1 ? (row[idx.bin]||'').trim() : '',
+        category: idx.category>-1 ? (row[idx.category]||'').trim() : '',
+        contact: idx.contact>-1 ? (row[idx.contact]||'').trim() : '',
+        phone: idx.phone>-1 ? (row[idx.phone]||'').trim() : '',
+        email: idx.email>-1 ? (row[idx.email]||'').trim() : '',
+        turnover: idx.turnover>-1 ? (parseFloat((row[idx.turnover]||'0').replace(/[^\d.,-]/g,'').replace(',','.'))||0) : 0,
+        leadtime: idx.leadtime>-1 ? (parseFloat((row[idx.leadtime]||'0').replace(/[^\d.,-]/g,''))||0) : 0,
+        status: mapStatus(idx.status>-1 ? row[idx.status] : ''),
+      });
+    }
 
-    let msg=`✓ Импортировано ${added} поставщик${added===1?'':(added>=2&&added<=4?'а':'ов')}`;
-    if(skipped>0) msg+=`, пропущено строк без названия: ${skipped}`;
-    showImportResult(msg, 'green');
+    if(!rows.length){
+      alert(`Не найдено ни одной строки с названием поставщика. Пропущено строк: ${skippedNoName}`);
+      event.target.value='';
+      return;
+    }
+
+    // 2) Сверяем с уже существующими поставщиками (по БИН, иначе по нормализованному названию)
+    const existingByBin={}, existingByName={};
+    suppliersData.forEach(s=>{
+      if(s.bin) existingByBin[s.bin.trim()]=s;
+      existingByName[normSupName(s.name)]=s;
+    });
+
+    const toCreate=[], toEnrich=[];
+    const seenInFile=new Set(); // защита от дублей внутри самого CSV
+    rows.forEach(r=>{
+      const key=r.bin || normSupName(r.name);
+      if(seenInFile.has(key)) return;
+      seenInFile.add(key);
+
+      if(r.bin && existingByBin[r.bin]) return; // уже есть точно такой
+      const byName=existingByName[normSupName(r.name)];
+      if(byName){
+        const patch={};
+        if(r.bin && !byName.bin){ byName.bin=r.bin; patch.bin=r.bin; }
+        if(r.category && !byName.category){ byName.category=r.category; patch.category=r.category; }
+        if(r.contact && !byName.contact){ byName.contact=r.contact; patch.contact=r.contact; }
+        if(r.phone && !byName.phone){ byName.phone=r.phone; patch.phone=r.phone; }
+        if(r.email && !byName.email){ byName.email=r.email; patch.email=r.email; }
+        if(Object.keys(patch).length) toEnrich.push({supplier:byName, patch});
+        return;
+      }
+      toCreate.push({
+        name:r.name, category:r.category, status:r.status,
+        contact:r.contact, phone:r.phone, email:r.email, bin:r.bin,
+        comment:'Импортирован из CSV',
+        _local:{turnover:r.turnover, leadtime:r.leadtime}
+      });
+    });
+
+    if(!toCreate.length && !toEnrich.length){
+      alert(`Новых поставщиков не найдено — все ${rows.length} записей из файла уже есть в справочнике.`);
+      event.target.value='';
+      return;
+    }
+
+    let confirmMsg=`В файле строк: ${rows.length}\n`;
+    if(toCreate.length) confirmMsg+=`Будет добавлено новых поставщиков: ${toCreate.length}\n`;
+    if(toEnrich.length) confirmMsg+=`Будут дополнены данные у существующих: ${toEnrich.length}\n`;
+    if(skippedNoName) confirmMsg+=`Пропущено строк без названия: ${skippedNoName}\n`;
+    if(!confirm(confirmMsg+'\nПродолжить?')){ event.target.value=''; return; }
+
+    try{
+      if(toCreate.length){
+        const dbRows=toCreate.map(({_local,...dbRow})=>dbRow);
+        const created=await sbInsertMany('suppliers', dbRows);
+        (created||[]).forEach((s,i)=>{
+          suppliersData.push({
+            id:s.id, name:s.name||'', category:s.category||'', contact:s.contact||'',
+            phone:s.phone||'', email:s.email||'', inn:s.inn||'', bin:s.bin||'',
+            comment:s.comment||'', status:s.status||'active',
+            leadtime:toCreate[i]?._local?.leadtime||0, turnover:toCreate[i]?._local?.turnover||0,
+            defect:0, addr:'',
+          });
+        });
+      }
+      for(const {supplier,patch} of toEnrich){
+        try{ await sbPatch('suppliers','id=eq.'+encodeURIComponent(supplier.id), patch); }
+        catch(e){ console.warn('⚠️ Не удалось дополнить', supplier.name, e.message); }
+      }
+
+      renderSupplierList();
+      renderSupplierKPIs();
+      alert(`Готово!\nДобавлено новых: ${toCreate.length}\nДополнено существующих: ${toEnrich.length}\nПропущено (без названия): ${skippedNoName}`);
+    } catch(err){
+      alert('Ошибка сохранения в базу: '+err.message);
+    }
     event.target.value='';
   };
   reader.readAsText(file, 'UTF-8');
 }
 
-// Manual add supplier
-// ===== SUPPLIERS MODULE =====
-let supSeq = 1;
+// ===== ПОИСК И ОБЪЕДИНЕНИЕ ДУБЛЕЙ ПОСТАВЩИКОВ =====
+function normSupName(name){
+  return (name||'')
+    .toLowerCase()
+    .replace(/["'«»“”]/g,'')
+    .replace(/\b(тоо|ип|ао|пк|чп|ооо|zhk|llp|ltd|kz)\b/gi,'')
+    .replace(/[^a-zа-яё0-9]+/gi,' ')
+    .trim()
+    .replace(/\s+/g,' ');
+}
+
+function levenshteinDist(a,b){
+  const m=a.length, n=b.length;
+  if(!m) return n; if(!n) return m;
+  const dp=[];
+  for(let i=0;i<=m;i++) dp.push(new Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function supNameSimilarity(a,b){
+  const na=normSupName(a), nb=normSupName(b);
+  if(!na||!nb) return 0;
+  if(na===nb) return 1;
+  const dist=levenshteinDist(na,nb);
+  return 1-dist/Math.max(na.length,nb.length);
+}
+
+let _dismissedMergeGroups = new Set(); // ключи групп, которые пользователь пометил "это разные поставщики"
+
+function findSupplierDuplicateGroups(){
+  const n=suppliersData.length;
+  const parent=Array.from({length:n},(_,i)=>i);
+  const find=x=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
+  const union=(a,b)=>{ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; };
+  const pairReason=new Map();
+
+  for(let i=0;i<n;i++){
+    for(let j=i+1;j<n;j++){
+      const a=suppliersData[i], b=suppliersData[j];
+      let reason=null;
+      if(a.bin && b.bin && a.bin.trim()===b.bin.trim()){
+        reason={text:'Совпадает БИН', score:1};
+      } else {
+        const sim=supNameSimilarity(a.name,b.name);
+        if(sim>=0.99) reason={text:'Название совпадает', score:sim};
+        else if(sim>=0.8) reason={text:'Похожее название', score:sim};
+      }
+      if(reason){ union(i,j); pairReason.set(i+'_'+j,reason); }
+    }
+  }
+
+  const groups={};
+  for(let i=0;i<n;i++){
+    const r=find(i);
+    (groups[r]=groups[r]||[]).push(i);
+  }
+
+  return Object.values(groups)
+    .filter(idxs=>idxs.length>1)
+    .map(idxs=>{
+      const reasons=new Set();
+      for(let a=0;a<idxs.length;a++) for(let b=a+1;b<idxs.length;b++){
+        const r=pairReason.get(idxs[a]+'_'+idxs[b])||pairReason.get(idxs[b]+'_'+idxs[a]);
+        if(r) reasons.add(r.text);
+      }
+      const key=idxs.map(i=>suppliersData[i].id).sort().join('|');
+      return { key, suppliers: idxs.map(i=>suppliersData[i]), reasons:[...reasons] };
+    })
+    .filter(g=>!_dismissedMergeGroups.has(g.key))
+    .sort((a,b)=>b.suppliers.length-a.suppliers.length);
+}
+
+function openMergeSuppliersModal(){
+  renderMergeGroups();
+  showModal('mergeSuppliersModal');
+}
+
+function pickBestCanonicalId(group){
+  // Кандидат с наибольшим числом заполненных полей, приоритет — у кого есть БИН
+  let best=group[0], bestScore=-1;
+  group.forEach(s=>{
+    let score=0;
+    if(s.bin) score+=10;
+    ['category','contact','phone','email','comment'].forEach(f=>{ if(s[f]) score+=1; });
+    if(score>bestScore){ bestScore=score; best=s; }
+  });
+  return best.id;
+}
+
+function renderMergeGroups(){
+  const body=document.getElementById('merge-groups-body');
+  if(!body) return;
+  const groups=findSupplierDuplicateGroups();
+  if(!groups.length){
+    body.innerHTML='<div style="padding:24px;text-align:center;color:var(--text3)">✅ Явных дублей не найдено</div>';
+    return;
+  }
+  body.innerHTML=groups.map((g,gi)=>{
+    const canonicalDefault=pickBestCanonicalId(g);
+    return `<div class="card" style="margin-bottom:14px;padding:14px" data-merge-group="${g.key}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:12px;color:var(--accent);font-weight:600">${g.reasons.join(' · ')||'Похожие записи'}</div>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="dismissMergeGroup(${gi})">Это разные поставщики</button>
+      </div>
+      ${g.suppliers.map(s=>`
+        <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border);cursor:pointer">
+          <input type="radio" name="merge-canon-${gi}" value="${s.id}" ${s.id===canonicalDefault?'checked':''} style="margin-top:3px">
+          <span style="flex:1">
+            <div style="font-weight:600;font-size:13px">${s.name} ${s.bin?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">БИН ${s.bin}</span>`:'<span style="color:var(--red);font-size:11px">без БИН</span>'}</div>
+            <div style="font-size:11px;color:var(--text3)">${[s.category,s.contact,s.phone,s.email].filter(Boolean).join(' · ')||'нет доп. данных'}</div>
+          </span>
+        </label>`).join('')}
+      <div style="display:flex;justify-content:flex-end;margin-top:10px">
+        <button class="btn btn-primary btn-sm" onclick="mergeSupplierGroup(${gi})">🔗 Объединить в выбранного</button>
+      </div>
+    </div>`;
+  }).join('');
+  window._currentMergeGroups=groups;
+}
+
+function dismissMergeGroup(gi){
+  const g=window._currentMergeGroups?.[gi];
+  if(!g) return;
+  _dismissedMergeGroups.add(g.key);
+  renderMergeGroups();
+}
+
+async function mergeSupplierGroup(gi){
+  const g=window._currentMergeGroups?.[gi];
+  if(!g) return;
+  const modal=document.querySelector(`[data-merge-group="${g.key}"]`);
+  const canonId=modal?.querySelector(`input[name="merge-canon-${gi}"]:checked`)?.value;
+  if(!canonId){ alert('Выберите основного поставщика'); return; }
+  const canonical=g.suppliers.find(s=>String(s.id)===String(canonId));
+  const dupes=g.suppliers.filter(s=>String(s.id)!==String(canonId));
+  if(!canonical || !dupes.length) return;
+  if(!confirm(`Объединить ${dupes.length} запис${dupes.length===1?'ь':'и'} в «${canonical.name}»?\nОстальные записи будут удалены.`)) return;
+
+  // Дополняем пустые поля канонического значениями из дублей
+  const merged={...canonical};
+  dupes.forEach(d=>{
+    ['bin','category','contact','phone','email'].forEach(f=>{ if(!merged[f] && d[f]) merged[f]=d[f]; });
+  });
+  const mergedNames=dupes.map(d=>d.name).filter(n=>n && n!==canonical.name);
+  if(mergedNames.length){
+    merged.comment = (merged.comment?merged.comment+' | ':'') + 'Объединено с: '+mergedNames.join(', ');
+  }
+  merged.turnover = (canonical.turnover||0) + dupes.reduce((s,d)=>s+(d.turnover||0),0);
+
+  try{
+    await sbPatch('suppliers','id=eq.'+encodeURIComponent(canonical.id), {
+      bin:merged.bin, category:merged.category, contact:merged.contact,
+      phone:merged.phone, email:merged.email, comment:merged.comment,
+    });
+    for(const d of dupes){
+      await sbDelete('suppliers','id=eq.'+encodeURIComponent(d.id));
+    }
+    // Обновляем локальное состояние
+    const idx=suppliersData.findIndex(s=>s.id===canonical.id);
+    if(idx>=0) suppliersData[idx]={...suppliersData[idx],...merged};
+    const dupeIds=new Set(dupes.map(d=>d.id));
+    suppliersData=suppliersData.filter(s=>!dupeIds.has(s.id));
+
+    renderSupplierList();
+    renderSupplierKPIs();
+    renderMergeGroups();
+  } catch(e){
+    alert('Ошибка при объединении: '+e.message);
+  }
+}
+
+
+async function importSuppliersFromEsf(btn){
+  const originalLabel = btn ? btn.textContent : '';
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Загрузка ЭСФ...'; }
+  try{
+    if(!_esfData) await initEsfPage();
+    const invoices = _esfData?.invoices || [];
+    if(!invoices.length){
+      alert('Не найдено ни одной входящей ЭСФ. Откройте раздел «Входящие ЭСФ» и убедитесь, что документы загружены.');
+      return;
+    }
+
+    // 1) Собираем уникальных поставщиков из ЭСФ (по БИН, если есть, иначе по нормализованному названию)
+    const fromEsf = new Map();
+    invoices.forEach(inv=>{
+      const name=(inv.supplier_name||'').trim();
+      const bin =(inv.supplier_bin||'').trim();
+      if(!name && !bin) return;
+      const key = bin || normSupName(name);
+      if(!key) return;
+      const cur = fromEsf.get(key);
+      if(!cur) fromEsf.set(key, {name: name||bin, bin});
+      else { if(!cur.bin && bin) cur.bin=bin; if(!cur.name && name) cur.name=name; }
+    });
+
+    // 2) Сопоставляем с уже существующими поставщиками
+    const existingByBin={}, existingByName={};
+    suppliersData.forEach(s=>{
+      if(s.bin) existingByBin[s.bin.trim()]=s;
+      existingByName[normSupName(s.name)]=s;
+    });
+
+    const toCreate=[];
+    const toEnrich=[]; // существующие без БИН, которым нашли БИН в ЭСФ
+    fromEsf.forEach(({name,bin})=>{
+      if(bin && existingByBin[bin]) return; // уже есть точно такой поставщик
+      const byName = existingByName[normSupName(name)];
+      if(byName){
+        if(bin && !byName.bin){ byName.bin=bin; toEnrich.push(byName); }
+        return; // поставщик с таким именем уже есть, дублировать не будем
+      }
+      toCreate.push({name, category:'', status:'active', contact:'', phone:'', email:'', bin, comment:'Добавлен автоматически из Входящих ЭСФ'});
+    });
+
+    if(!toCreate.length && !toEnrich.length){
+      alert('Все поставщики из ЭСФ уже есть в справочнике «Поставщики». Новых записей не найдено.');
+      return;
+    }
+
+    let msg = '';
+    if(toCreate.length) msg += `Будет добавлено новых поставщиков: ${toCreate.length}\n`;
+    if(toEnrich.length) msg += `Будет дополнен БИН у существующих поставщиков: ${toEnrich.length}\n`;
+    if(!confirm(msg+'\nПродолжить?')) return;
+
+    if(toCreate.length){
+      const created = await sbInsertMany('suppliers', toCreate);
+      (created||[]).forEach(s=>{
+        suppliersData.push({
+          id:s.id, name:s.name||'', category:s.category||'', contact:s.contact||'',
+          phone:s.phone||'', email:s.email||'', inn:s.inn||'', bin:s.bin||'',
+          comment:s.comment||'', status:s.status||'active',
+          leadtime:0, turnover:0, defect:0, addr:'',
+        });
+      });
+    }
+    for(const s of toEnrich){
+      try{ await sbPatch('suppliers','id=eq.'+encodeURIComponent(s.id), {bin:s.bin}); }
+      catch(e){ console.warn('⚠️ Не удалось обновить БИН у', s.name, e.message); }
+    }
+
+    renderSupplierList();
+    renderSupplierKPIs();
+    alert(`Готово!\nДобавлено: ${toCreate.length}\nОбновлён БИН: ${toEnrich.length}`);
+  } catch(e){
+    alert('Ошибка импорта: '+e.message);
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent=originalLabel; }
+  }
+}
+
 let suppliersData = [];
 
 function supStatusLabel(s){ 
@@ -14636,42 +14981,59 @@ function openSupplierCard(id){
   showModal('supplierCardModal');
 }
 
-function saveSupplierCard(){
+async function saveSupplierCard(){
   const editId=document.getElementById('sup-card-name')._editId;
   const name=document.getElementById('sup-card-name').value.trim();
   const err=document.getElementById('sup-card-error');
   if(!name){err.textContent='Укажите название поставщика';return;}
-  const obj={
+  const localExtra={
+    leadtime:parseFloat(document.getElementById('sup-card-leadtime').value)||0,
+    turnover:parseFloat(document.getElementById('sup-card-turnover').value)||0,
+    defect:parseFloat(document.getElementById('sup-card-defect').value)||0,
+    addr:document.getElementById('sup-card-addr').value.trim(),
+  };
+  // Поля, реально существующие в таблице suppliers в Supabase
+  const dbObj={
     name, category:document.getElementById('sup-card-cat').value.trim(),
     status:document.getElementById('sup-card-status').value,
     contact:document.getElementById('sup-card-contact').value.trim(),
     phone:document.getElementById('sup-card-phone').value.trim(),
     email:document.getElementById('sup-card-email').value.trim(),
     bin:document.getElementById('sup-card-bin').value.trim(),
-    leadtime:parseFloat(document.getElementById('sup-card-leadtime').value)||0,
-    turnover:parseFloat(document.getElementById('sup-card-turnover').value)||0,
-    defect:parseFloat(document.getElementById('sup-card-defect').value)||0,
-    addr:document.getElementById('sup-card-addr').value.trim(),
     comment:document.getElementById('sup-card-comment').value.trim(),
   };
-  if(editId){
-    const idx=suppliersData.findIndex(s=>s.id===editId);
-    if(idx>=0) suppliersData[idx]={...suppliersData[idx],...obj};
-  } else {
-    suppliersData.push({id:supSeq++,...obj});
+  err.style.color='var(--text3)';
+  err.textContent='Сохранение...';
+  try{
+    if(editId){
+      await sbPatch('suppliers','id=eq.'+encodeURIComponent(editId), dbObj);
+      const idx=suppliersData.findIndex(s=>s.id===editId);
+      if(idx>=0) suppliersData[idx]={...suppliersData[idx],...dbObj,...localExtra};
+    } else {
+      const created=await sbInsert('suppliers', dbObj);
+      suppliersData.push({...dbObj,...localExtra, id:created?.id});
+    }
+    err.style.color='var(--green)';
+    err.textContent='✓ Сохранено!';
+    setTimeout(()=>{closeModal('supplierCardModal');renderSupplierList();renderSupplierKPIs();},700);
+  } catch(e){
+    err.style.color='var(--red)';
+    err.textContent='Ошибка сохранения: '+e.message;
   }
-  err.style.color='var(--green)';
-  err.textContent='✓ Сохранено!';
-  setTimeout(()=>{closeModal('supplierCardModal');renderSupplierList();renderSupplierKPIs();},700);
 }
 
-function deleteSupplier(){
+async function deleteSupplier(){
   const id=document.getElementById('sup-card-name')._editId;
   if(!id||!confirm('Удалить поставщика?')) return;
-  suppliersData=suppliersData.filter(s=>s.id!==id);
-  closeModal('supplierCardModal');
-  renderSupplierList();
-  renderSupplierKPIs();
+  try{
+    await sbDelete('suppliers','id=eq.'+encodeURIComponent(id));
+    suppliersData=suppliersData.filter(s=>s.id!==id);
+    closeModal('supplierCardModal');
+    renderSupplierList();
+    renderSupplierKPIs();
+  } catch(e){
+    alert('Не удалось удалить поставщика: '+e.message);
+  }
 }
 
 function saveSupplier(){
