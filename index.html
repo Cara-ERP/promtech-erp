@@ -6823,45 +6823,6 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- MODAL: Выплата зарплаты -->
-    <div class="modal-overlay" id="wagePaymentModal">
-      <div class="modal" style="max-width:440px">
-        <div class="modal-header">
-          <span class="modal-title">💳 Выплата зарплаты</span>
-          <button class="modal-close" onclick="closeModal('wagePaymentModal')">✕</button>
-        </div>
-        <div style="display:grid;gap:12px;padding:0 4px">
-          <div class="form-row">
-            <label class="label">Сотрудник</label>
-            <select id="wp-emp-select" style="font-size:13px"></select>
-          </div>
-          <div class="form-row">
-            <label class="label">Дата выплаты</label>
-            <input id="wp-date" type="date">
-          </div>
-          <div class="form-row">
-            <label class="label">Сумма (₸)</label>
-            <input id="wp-amount" type="number" min="0" placeholder="0">
-          </div>
-          <div class="form-row">
-            <label class="label">Способ выплаты</label>
-            <select id="wp-method" style="font-size:13px">
-              <option value="cash">💵 Наличные</option>
-              <option value="transfer">🏦 Перевод на карту</option>
-              <option value="bank">🏛 Банковский перевод</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label class="label">Комментарий</label>
-            <input id="wp-comment" type="text" placeholder="Аванс, окончательный расчёт...">
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-          <button class="btn btn-ghost" onclick="closeModal('wagePaymentModal')">Отмена</button>
-          <button class="btn btn-primary" onclick="saveWagePayment()">Сохранить выплату</button>
-        </div>
-      </div>
-    </div>
-
     <!-- MODAL: Карточка сотрудника -->
     <div class="modal-overlay" id="employeeCardModal">
       <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
@@ -14413,18 +14374,18 @@ async function importSuppliersCSV(event){
     const existingByBin={}, existingByName={};
     suppliersData.forEach(s=>{
       if(s.bin) existingByBin[s.bin.trim()]=s;
-      existingByName[normSupName(s.name)]=s;
+      existingByName[normSupNameMerge(s.name)]=s;
     });
 
     const toCreate=[], toEnrich=[];
     const seenInFile=new Set(); // защита от дублей внутри самого CSV
     rows.forEach(r=>{
-      const key=r.bin || normSupName(r.name);
+      const key=r.bin || normSupNameMerge(r.name);
       if(seenInFile.has(key)) return;
       seenInFile.add(key);
 
       if(r.bin && existingByBin[r.bin]) return; // уже есть точно такой
-      const byName=existingByName[normSupName(r.name)];
+      const byName=existingByName[normSupNameMerge(r.name)];
       if(byName){
         const patch={};
         if(r.bin && !byName.bin){ byName.bin=r.bin; patch.bin=r.bin; }
@@ -14486,7 +14447,7 @@ async function importSuppliersCSV(event){
 }
 
 // ===== ПОИСК И ОБЪЕДИНЕНИЕ ДУБЛЕЙ ПОСТАВЩИКОВ =====
-function normSupName(name){
+function normSupNameMerge(name){
   return (name||'')
     .toLowerCase()
     .replace(/["'«»“”]/g,'')
@@ -14512,7 +14473,7 @@ function levenshteinDist(a,b){
 }
 
 function supNameSimilarity(a,b){
-  const na=normSupName(a), nb=normSupName(b);
+  const na=normSupNameMerge(a), nb=normSupNameMerge(b);
   if(!na||!nb) return 0;
   if(na===nb) return 1;
   const dist=levenshteinDist(na,nb);
@@ -14681,7 +14642,7 @@ async function importSuppliersFromEsf(btn){
       const name=(inv.supplier_name||'').trim();
       const bin =(inv.supplier_bin||'').trim();
       if(!name && !bin) return;
-      const key = bin || normSupName(name);
+      const key = bin || normSupNameMerge(name);
       if(!key) return;
       const cur = fromEsf.get(key);
       if(!cur) fromEsf.set(key, {name: name||bin, bin});
@@ -14692,14 +14653,14 @@ async function importSuppliersFromEsf(btn){
     const existingByBin={}, existingByName={};
     suppliersData.forEach(s=>{
       if(s.bin) existingByBin[s.bin.trim()]=s;
-      existingByName[normSupName(s.name)]=s;
+      existingByName[normSupNameMerge(s.name)]=s;
     });
 
     const toCreate=[];
     const toEnrich=[]; // существующие без БИН, которым нашли БИН в ЭСФ
     fromEsf.forEach(({name,bin})=>{
       if(bin && existingByBin[bin]) return; // уже есть точно такой поставщик
-      const byName = existingByName[normSupName(name)];
+      const byName = existingByName[normSupNameMerge(name)];
       if(byName){
         if(bin && !byName.bin){ byName.bin=bin; toEnrich.push(byName); }
         return; // поставщик с таким именем уже есть, дублировать не будем
@@ -19872,37 +19833,6 @@ function exportPayrollCardPdf(){
 }
 
 // ── Выплата зарплаты ──────────────────────────────────────────────────────────
-function openWagePaymentModal(empId){
-  const sel = document.getElementById('wp-emp-select');
-  if(sel){
-    sel.innerHTML = payrollStaff.map(s=>
-      `<option value="${s.id}" ${s.id===empId?'selected':''}>${s.name}</option>`
-    ).join('');
-  }
-  const period = document.getElementById('hr-pr-month')?.value || '2026-07';
-  document.getElementById('wp-date').value = new Date().toISOString().slice(0,10);
-  document.getElementById('wp-amount').value = '';
-  document.getElementById('wp-comment').value = '';
-  showModal('wagePaymentModal');
-}
-
-function saveWagePayment(){
-  const empId  = parseInt(document.getElementById('wp-emp-select').value);
-  const amount = parseFloat(document.getElementById('wp-amount').value)||0;
-  const date   = document.getElementById('wp-date').value;
-  const method = document.getElementById('wp-method').value;
-  const comment= document.getElementById('wp-comment').value.trim();
-  if(!empId||!amount){alert('Укажите сотрудника и сумму');return;}
-  wagePayments.push({empId, date, amount, method, comment});
-  closeModal('wagePaymentModal');
-  // Обновить открытую карточку если есть
-  const cardModal = document.getElementById('payrollCardModal');
-  if(cardModal && cardModal.classList.contains('active')){
-    const period = document.getElementById('hr-pr-month')?.value||'2026-07';
-    openPayrollCard(empId, period);
-  }
-  renderPayroll();
-}
 
 function openPayrollEntryModal(empId, period){
   const staff = payrollStaff.find(s=>s.id===empId);
@@ -20132,8 +20062,27 @@ function renderPayrollStructure(T){
 
 // ---- WAGE PAYMENT MODAL ----
 function openWagePaymentModal(empId){
-  wpCurrentEmpId = empId;
-  const staff = payrollStaff.find(s=>s.id===empId);
+  wpCurrentEmpId = empId ? String(empId) : null;
+
+  if(!wpCurrentEmpId){
+    // Вызвано без конкретного сотрудника (общая кнопка) — даём выбрать из списка
+    document.getElementById('wp-form-error').textContent='';
+    document.getElementById('wp-employee-info').innerHTML=`
+      <label class="label">Сотрудник</label>
+      <select id="wp-emp-picker" style="width:100%;font-size:13px" onchange="openWagePaymentModal(this.value)">
+        <option value="">Выберите сотрудника...</option>
+        ${payrollStaff.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+      </select>`;
+    document.getElementById('wp-history').innerHTML='';
+    document.getElementById('wp-amount').value='';
+    document.getElementById('wp-date').value = new Date().toISOString().slice(0,10);
+    document.getElementById('wp-comment').value='';
+    document.getElementById('wp-method').value='cash';
+    showModal('wagePaymentModal');
+    return;
+  }
+
+  const staff = payrollStaff.find(s=>String(s.id)===wpCurrentEmpId);
   if(!staff) return;
   const row = buildPayrollRow(staff);
 
@@ -20154,7 +20103,7 @@ function openWagePaymentModal(empId){
   document.getElementById('wp-method').value = 'cash';
 
   // Payment history
-  const hist = wagePayments.filter(p=>p.empId===empId);
+  const hist = wagePayments.filter(p=>String(p.empId)===wpCurrentEmpId);
   const methodLabel={cash:'Наличные',transfer:'На карту',bank:'Банк'};
   document.getElementById('wp-history').innerHTML = hist.length
     ? `<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">История выплат</div>`
@@ -20175,9 +20124,10 @@ function saveWagePayment(){
   const method = document.getElementById('wp-method').value;
   const comment= document.getElementById('wp-comment').value.trim();
 
+  if(!wpCurrentEmpId){ err.textContent='Выберите сотрудника'; return; }
   if(!amount||amount<=0){ err.textContent='Введите сумму выплаты'; return; }
 
-  const staff = payrollStaff.find(s=>s.id===wpCurrentEmpId);
+  const staff = payrollStaff.find(s=>String(s.id)===wpCurrentEmpId);
   const row   = buildPayrollRow(staff);
   if(amount > row.net + 0.01){ err.textContent=`Сумма превышает «к выплате» (${fmtCurrency(row.net)})`; return; }
 
@@ -20660,7 +20610,7 @@ function renderPurchasesDash(){
   renderPurDebtsTable(debtRows);
 }
 
-function openSupplierCard(supplierName, fromDate, toDate){
+function openSupplierReconciliation(supplierName, fromDate, toDate){
   const fmt2 = n => '₸'+Math.round(n).toLocaleString('ru-RU');
   const norm = s => (s||'').replace(/\s+/g,' ').replace(/["«»\'\u2018\u2019]/g,'').toLowerCase().trim();
   const sNorm = norm(supplierName);
@@ -20722,12 +20672,12 @@ function openSupplierCard(supplierName, fromDate, toDate){
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text3)">Период:</span>
       <input type="date" id="sc-from" value="${from}" style="font-size:12px" 
-        onchange="openSupplierCard(document.getElementById('sc-from').dataset.s,this.value,document.getElementById('sc-to').value)"
+        onchange="openSupplierReconciliation(document.getElementById('sc-from').dataset.s,this.value,document.getElementById('sc-to').value)"
         data-s="${supplierName.replace(/"/g,'&quot;')}">
       <span style="font-size:12px;color:var(--text3)">—</span>
       <input type="date" id="sc-to" value="${to}" style="font-size:12px"
-        onchange="openSupplierCard(document.getElementById('sc-from').dataset.s,document.getElementById('sc-from').value,this.value)">
-      <button class="btn btn-ghost btn-sm" onclick="openSupplierCard(document.getElementById('sc-from').dataset.s,'','')">Все время</button>
+        onchange="openSupplierReconciliation(document.getElementById('sc-from').dataset.s,document.getElementById('sc-from').value,this.value)">
+      <button class="btn btn-ghost btn-sm" onclick="openSupplierReconciliation(document.getElementById('sc-from').dataset.s,'','')">Все время</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px">
       <div class="card" style="padding:10px 14px">
@@ -20792,7 +20742,7 @@ function renderPurDebtsTable(debtRows){
       <td>${status}</td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px" 
         data-supplier="${r.name.replace(/"/g,'&quot;')}"
-        onclick="openSupplierCard(this.dataset.supplier)">👁</button></td>
+        onclick="openSupplierReconciliation(this.dataset.supplier)">👁</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--text3)">Нет данных</td></tr>';
 
