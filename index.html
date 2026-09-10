@@ -14590,7 +14590,7 @@ function renderMergeGroups(){
     return;
   }
   body.innerHTML=groups.map((g,gi)=>{
-    const canonicalDefault=pickBestCanonicalId(g);
+    const canonicalDefault=pickBestCanonicalId(g.suppliers);
     return `<div class="card" style="margin-bottom:14px;padding:14px" data-merge-group="${g.key}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="font-size:12px;color:var(--accent);font-weight:600">${g.reasons.join(' · ')||'Похожие записи'}</div>
