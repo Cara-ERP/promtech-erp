@@ -3031,6 +3031,7 @@ window.onerror = function(msg, src, line, col){
           <input type="file" id="supplier-file" accept=".csv" style="display:none" onchange="importSuppliersCSV(event)">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('supplier-file').click()">📥 Импорт CSV</button>
           <button class="btn btn-ghost btn-sm" onclick="importSuppliersFromEsf(this)">📄 Импорт из ЭСФ</button>
+          <button class="btn btn-ghost btn-sm" onclick="openOrphanSuppliersModal()">🕵️ Осиротевшие в операциях</button>
           <button class="btn btn-ghost btn-sm" onclick="openMergeSuppliersModal()">🔗 Объединить</button>
           <button class="btn btn-primary btn-sm" onclick="openSupplierCard(null)">+ Добавить</button>
         </div>
@@ -3203,6 +3204,21 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost" onclick="closeModal('supplierCardModal')">Отмена</button>
           <button class="btn btn-primary" onclick="saveSupplierCard()">Сохранить</button>
         </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Осиротевшие названия поставщиков в операциях -->
+    <div class="modal-overlay" id="orphanSuppliersModal">
+      <div class="modal" style="max-width:720px;max-height:85vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title">🕵️ Осиротевшие контрагенты-поставщики</span>
+          <button class="modal-close" onclick="closeModal('orphanSuppliersModal')">✕</button>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+          Эти названия встречаются как контрагент в денежных операциях (Расчётные счета), но отсутствуют в справочнике «Все поставщики».
+          Нажмите «+ Создать карточку», чтобы завести нормальную запись (после этого не забудьте заполнить БИН).
+        </div>
+        <div id="orphan-suppliers-body"></div>
       </div>
     </div>
 
@@ -14625,6 +14641,72 @@ async function mergeSupplierGroup(gi){
 }
 
 
+// ===== "ОСИРОТЕВШИЕ" НАЗВАНИЯ ПОСТАВЩИКОВ В ДЕНЕЖНЫХ ОПЕРАЦИЯХ =====
+function findOrphanSupplierCounterparties(){
+  const knownNames=new Set(suppliersData.map(s=>normSupNameMerge(s.name)));
+  const stats=new Map(); // normName -> {name, count, sum, lastDate}
+  moneyTx.forEach(t=>{
+    if(t.category!=='supplier' || !t.counterparty) return;
+    const norm=normSupNameMerge(t.counterparty);
+    if(!norm || knownNames.has(norm)) return;
+    const cur=stats.get(norm) || {name:t.counterparty, count:0, sum:0, lastDate:''};
+    cur.count++;
+    cur.sum+=(t.amount||0);
+    if((t.date||'')>cur.lastDate) cur.lastDate=t.date||'';
+    stats.set(norm, cur);
+  });
+  return [...stats.values()].sort((a,b)=>b.sum-a.sum);
+}
+
+function openOrphanSuppliersModal(){
+  renderOrphanSuppliers();
+  showModal('orphanSuppliersModal');
+}
+
+function renderOrphanSuppliers(){
+  const body=document.getElementById('orphan-suppliers-body');
+  if(!body) return;
+  const orphans=findOrphanSupplierCounterparties();
+  window._currentOrphanSuppliers=orphans;
+  if(!orphans.length){
+    body.innerHTML='<div style="padding:24px;text-align:center;color:var(--text3)">✅ Все контрагенты-поставщики из операций уже есть в справочнике</div>';
+    return;
+  }
+  body.innerHTML=`<table class="data-table" style="font-size:12px">
+    <thead><tr><th>Название (из операций)</th><th style="text-align:right">Операций</th><th style="text-align:right">Сумма</th><th>Последняя</th><th></th></tr></thead>
+    <tbody>
+      ${orphans.map((o,i)=>`<tr>
+        <td style="font-weight:600">${o.name}</td>
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace">${o.count}</td>
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmtCurrency(o.sum)}</td>
+        <td style="color:var(--text3)">${o.lastDate||'—'}</td>
+        <td><button class="btn btn-primary btn-sm" style="font-size:11px" onclick="createSupplierFromOrphan(${i})">+ Создать карточку</button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+async function createSupplierFromOrphan(i){
+  const o=window._currentOrphanSuppliers?.[i];
+  if(!o) return;
+  try{
+    const created=await sbInsert('suppliers', {
+      name:o.name, category:'', status:'active', contact:'', phone:'', email:'', bin:'',
+      comment:'Добавлен из операций в Расчётных счетах'
+    });
+    suppliersData.push({
+      id:created?.id, name:created?.name||o.name, category:'', contact:'',
+      phone:'', email:'', inn:'', bin:'', comment:created?.comment||'',
+      status:'active', leadtime:0, turnover:0, defect:0, addr:'',
+    });
+    renderSupplierList();
+    renderSupplierKPIs();
+    renderOrphanSuppliers();
+  } catch(e){
+    alert('Ошибка создания поставщика: '+e.message);
+  }
+}
+
 async function importSuppliersFromEsf(btn){
   const originalLabel = btn ? btn.textContent : '';
   if(btn){ btn.disabled=true; btn.textContent='⏳ Загрузка ЭСФ...'; }
@@ -14947,6 +15029,7 @@ async function saveSupplierCard(){
   const name=document.getElementById('sup-card-name').value.trim();
   const err=document.getElementById('sup-card-error');
   if(!name){err.textContent='Укажите название поставщика';return;}
+  const oldName = editId ? (suppliersData.find(s=>s.id===editId)?.name || '') : '';
   const localExtra={
     leadtime:parseFloat(document.getElementById('sup-card-leadtime').value)||0,
     turnover:parseFloat(document.getElementById('sup-card-turnover').value)||0,
@@ -14977,11 +15060,39 @@ async function saveSupplierCard(){
     err.style.color='var(--green)';
     err.textContent='✓ Сохранено!';
     setTimeout(()=>{closeModal('supplierCardModal');renderSupplierList();renderSupplierKPIs();},700);
+    if(oldName && oldName!==name){
+      setTimeout(()=>renameSupplierInMoneyTx(oldName, name), 750);
+    }
   } catch(e){
     err.style.color='var(--red)';
     err.textContent='Ошибка сохранения: '+e.message;
   }
 }
+
+// Перенос названия поставщика во всех уже существующих денежных операциях
+async function renameSupplierInMoneyTx(oldName, newName){
+  if(!oldName || !newName || oldName===newName) return;
+  const affected = moneyTx.filter(t=>t.category==='supplier' && t.counterparty===oldName);
+  if(!affected.length) return;
+  const totalSum = affected.reduce((s,t)=>s+(t.amount||0),0);
+  const msg = `В журнале «Расчётные счета» найдено операций с контрагентом «${oldName}»: ${affected.length} на сумму ${fmtCurrency(totalSum)}.\n\nПерелить их на новое название «${newName}»?`;
+  if(!confirm(msg)) return;
+  try{
+    await sbPatch('money_tx',
+      'counterparty=eq.'+encodeURIComponent(oldName)+'&category=eq.supplier',
+      {counterparty:newName});
+    affected.forEach(t=>t.counterparty=newName);
+    if(typeof renderMoneyKPIs==='function') renderMoneyKPIs();
+    if(typeof renderCashTx==='function') renderCashTx();
+    if(typeof renderBankTx==='function') renderBankTx();
+    if(typeof renderAllTx==='function') renderAllTx();
+    alert(`Готово! Обновлено операций: ${affected.length}`);
+  } catch(e){
+    alert('Ошибка обновления операций: '+e.message);
+  }
+}
+
+
 
 async function deleteSupplier(){
   const id=document.getElementById('sup-card-name')._editId;
