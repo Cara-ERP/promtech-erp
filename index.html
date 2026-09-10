@@ -3068,7 +3068,7 @@ window.onerror = function(msg, src, line, col){
         </div>
         <table class="data-table">
           <thead><tr>
-            <th>Название</th><th>Категория</th><th>Контакт</th><th>Телефон</th>
+            <th>Название</th><th>БИН</th><th>Категория</th><th>Контакт</th><th>Телефон</th>
             <th style="text-align:right">Оборот (год)</th><th>Срок поставки</th>
             <th>Рейтинг</th><th>Статус</th><th></th>
           </tr></thead>
@@ -13121,8 +13121,11 @@ function showPage(id, el){
   document.getElementById('topbar-title').textContent=titles[id]||id;
   if(id==='finance'){
     initFinancePeriod();
-    if(!_cacheLoaded.money){
-      loadMoneyFromDB().then(()=>{ renderPL(); renderMoneyKPIs(); });
+    const financeDeps = [];
+    if(!_cacheLoaded.money) financeDeps.push(loadMoneyFromDB());
+    if(!realizationsData.length && typeof loadRealizationsFromDB==='function') financeDeps.push(loadRealizationsFromDB());
+    if(financeDeps.length){
+      Promise.all(financeDeps).then(()=>{ renderPL(); renderMoneyKPIs(); });
     } else {
       renderPL();
     }
@@ -14466,6 +14469,8 @@ function renderSupplierList(){
     return `<tr onclick="openSupplierCard('${s.id}')" style="cursor:pointer">
       <td><div style="font-weight:600">${s.name}</div>
           <div style="font-size:11px;color:var(--text3)">${s.addr||''}</div></td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">
+        ${s.bin ? s.bin : '<span style="color:var(--red)" title="БИН не заполнен">⚠️ нет</span>'}</td>
       <td style="font-size:12px;color:var(--text2)">${s.category||'—'}</td>
       <td><div style="font-size:13px">${s.contact||'—'}</div>
           <div style="font-size:11px;color:var(--text3)">${s.email||''}</div></td>
@@ -20871,8 +20876,16 @@ function plFilteredTx(flow){
 function buildPL(){
   const orders = plFilteredOrders();
 
-  // ── ВЫРУЧКА (из заказов CRM) ─────────────────────────────────────
-  const revenue     = orders.reduce((s,o)=>s+orderTotal(o), 0);
+  // ── ВЫРУЧКА (из раздела Продажи → Реализация) ─────────────────────
+  const fromStr = financePeriod.from ? financePeriod.from.toISOString().slice(0,10) : '';
+  const toStr   = financePeriod.to   ? financePeriod.to.toISOString().slice(0,10)   : '';
+  const realizFiltered = (realizationsData||[]).filter(r=>{
+    const d = r.doc_date || r.date || '';
+    if(fromStr && d && d < fromStr) return false;
+    if(toStr   && d && d > toStr)   return false;
+    return true;
+  });
+  const revenue     = realizFiltered.reduce((s,r)=>s+(r.revenue||0), 0);
   const paidRevenue = orders.reduce((s,o)=>s+orderTotal(o)*(o.payment/100), 0);
 
   // ── ПРЯМЫЕ МАТЕРИАЛЫ ─────────────────────────────────────────────
@@ -21061,7 +21074,7 @@ function renderPL(){
 
   // ── P&L таблица ──────────────────────────────────────────────────
   const plRows=[
-    {label:'📦 Выручка от продаж',             value:pl.revenue,       bold:true, note:'из заказов CRM'},
+    {label:'📦 Выручка от продаж',             value:pl.revenue,       bold:true, note:'из реализации (Продажи)'},
     {label:'  − Прямые материалы',             value:-pl.materialCost, note:pl.whMaterialCost>0?'✅ факт (склад)':'⚠️ план (номенклатура)'},
     {label:'  − Зарплата сдельная',            value:-pl.wageCost,     note:'✅ факт (выработка)'},
     {label:'  − ОПР',                          value:-pl.oprCost,      note:pl.oprCost>0?'✅ факт (акты ОПР)':'—'},
