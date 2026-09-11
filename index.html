@@ -8355,7 +8355,13 @@ function swbParseDateCell(v){
   if(v instanceof Date) return v.toISOString().slice(0,10);
   const s=String(v).trim();
   const m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
-  if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  if(m){
+    const day=+m[1], mon=+m[2], yr=+m[3];
+    if(mon<1||mon>12||day<1||day>31) return null;
+    const check=new Date(Date.UTC(yr,mon-1,day));
+    if(check.getUTCFullYear()!==yr || check.getUTCMonth()!==mon-1 || check.getUTCDate()!==day) return null; // напр. 31.02 — невозможная дата
+    return `${yr}-${String(mon).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  }
   const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(iso) return iso[0].slice(0,10);
   // Excel-серийная дата (число дней с 1899-12-30)
@@ -8434,19 +8440,44 @@ function handleSalonWbImport(event){
         return;
       }
 
-      // Вставляем пачками, чтобы не упереться в лимиты запроса
+      // Вставляем пачками, чтобы не упереться в лимиты запроса.
+      // Если пакет целиком не проходит (например, из-за одной "плохой" строки —
+      // невозможной даты, неожиданного значения и т.п.) — разбираем его построчно,
+      // чтобы не терять весь пакет из-за одной строки, и запоминаем, что не удалось.
       const CHUNK=200;
       let inserted=0;
+      const failedRows=[];
       for(let i=0;i<allRows.length;i+=CHUNK){
         const chunk=allRows.slice(i,i+CHUNK);
-        const created=await sbInsertMany('salon_worksheet', chunk);
-        inserted += (created||[]).length;
+        try{
+          const created=await sbInsertMany('salon_worksheet', chunk);
+          inserted += (created||[]).length;
+        } catch(chunkErr){
+          for(const row of chunk){
+            try{
+              await sbInsert('salon_worksheet', row);
+              inserted++;
+            } catch(rowErr){
+              failedRows.push({row, error: rowErr.message});
+            }
+          }
+        }
       }
 
       salonWbLoaded[salon]=false;
       await loadSalonWbFromDB(salon);
       renderSalonWorksheet();
-      alert(`Готово! Загружено строк: ${inserted}`);
+
+      if(failedRows.length){
+        const details = failedRows.slice(0,15).map(f=>
+          `Заказ №${f.row.order_num||'—'}, дата ${f.row.order_date||f.row.payment_date||'—'}: ${f.error}`
+        ).join('\n');
+        alert(`Загружено строк: ${inserted}\nНе удалось загрузить: ${failedRows.length}\n\n`+
+          details + (failedRows.length>15?`\n...и ещё ${failedRows.length-15}`:'') +
+          `\n\nИсправьте эти строки в Excel (скорее всего дело в некорректной дате) и загрузите файл заново.\nВНИМАНИЕ: повторная загрузка того же файла создаст дубли уже загруженных строк — либо сначала нажмите «Очистить лист», либо оставьте в файле для повторной загрузки только эти проблемные строки.`);
+      } else {
+        alert(`Готово! Загружено строк: ${inserted}`);
+      }
     } catch(err){
       alert('Ошибка импорта: '+err.message+'\n\nПроверьте, что таблица salon_worksheet создана в Supabase.');
     }
