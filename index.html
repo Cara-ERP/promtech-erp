@@ -5765,6 +5765,9 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div style="flex:1"></div>
           <div style="font-size:12px;color:var(--text3)">Остаток в кассе салона: <strong id="swb-current-balance" style="color:var(--accent)">₸0</strong></div>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('swb-import-file').click()">📥 Импорт из Excel</button>
+          <input type="file" id="swb-import-file" accept=".xlsx,.xls" style="display:none" onchange="handleSalonWbImport(event)">
+          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="clearSalonWbSheet()">🗑 Очистить лист</button>
           <button class="btn btn-primary btn-sm" onclick="addSalonWbRow()">+ Добавить строку</button>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
@@ -8283,6 +8286,146 @@ function renderSalonWorksheet(){
            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="deleteSalonWbRow('${r.id}')">✕</button>`}
     </td>
   </tr>`).join('') || `<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:20px">Строк пока нет</td></tr>`;
+}
+
+// ===== ИМПОРТ ИСТОРИЧЕСКИХ ДАННЫХ РАБОЧЕГО ЛИСТА САЛОНА ИЗ EXCEL =====
+const SWB_HEADER_MAP = [
+  {field:'order_date',            type:'date',   match:['дата приема заказа','дата приёма заказа']},
+  {field:'order_num',             type:'text',   match:['заказ №','заказ n','номер заказа']},
+  {field:'manager',               type:'text',   match:['менеджер']},
+  {field:'balance_before',        type:'number', match:['сумма заказа текущий','сумма заказа']},
+  {field:'payment_date',          type:'date',   match:['дата оплаты по заказу','дата оплаты']},
+  {field:'cash_amount',           type:'number', match:['оплата или предоплата наличными','оплата наличными']},
+  {field:'card_amount',           type:'number', match:['предоплата безналичными и на карту каспи','предоплата безналичными']},
+  {field:'balance_after',         type:'number', match:['остаток по заказу']},
+  {field:'note',                  type:'text',   match:['примечание']},
+  {field:'delivery_date',         type:'date',   match:['дата доставки заказа','дата доставки']},
+  {field:'cod_amount',            type:'number', match:['оплата при получении заказа','оплата при получении']},
+  {field:'expense_amount',        type:'number', match:['расходы салона']},
+  {field:'transferred_to_office', type:'number', match:['передано на производство','пердано на производство']},
+  // "Остаток в салоне" сознательно не импортируем — программа считает его сама
+  {field:'recipient_desc',        type:'text',   match:['получатель и описание действия','получатель']},
+];
+
+function swbParseDateCell(v){
+  if(v==null || v==='') return null;
+  if(v instanceof Date) return v.toISOString().slice(0,10);
+  const s=String(v).trim();
+  const m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(iso) return iso[0].slice(0,10);
+  // Excel-серийная дата (число дней с 1899-12-30)
+  const num=Number(s);
+  if(!isNaN(num) && num>20000 && num<80000){
+    const d=new Date(Date.UTC(1899,11,30)+num*86400000);
+    return d.toISOString().slice(0,10);
+  }
+  return null;
+}
+
+function swbFindHeaderRow(rows){
+  for(let i=0;i<Math.min(rows.length,15);i++){
+    const cells=(rows[i]||[]).map(c=>String(c||'').trim().toLowerCase());
+    let hits=0;
+    SWB_HEADER_MAP.forEach(h=>{ if(cells.some(c=>h.match.includes(c))) hits++; });
+    if(hits>=6) return i;
+  }
+  return -1;
+}
+
+function handleSalonWbImport(event){
+  const file=event.target.files[0];
+  if(!file) return;
+  const salon = salonWbActiveSalon;
+  if(typeof XLSX==='undefined'){ alert('Excel-библиотека ещё загружается, попробуйте через пару секунд.'); event.target.value=''; return; }
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array', cellDates:true});
+      let allRows=[];
+
+      wb.SheetNames.forEach(sheetName=>{
+        const sheet=wb.Sheets[sheetName];
+        const rows=XLSX.utils.sheet_to_json(sheet,{header:1, raw:true, defval:''});
+        const headerIdx=swbFindHeaderRow(rows);
+        if(headerIdx===-1) return; // лист без узнаваемой шапки — пропускаем (например, лист с итогами)
+
+        const headers=(rows[headerIdx]||[]).map(h=>String(h||'').trim().toLowerCase());
+        const colIdx={};
+        SWB_HEADER_MAP.forEach(h=>{
+          const idx=headers.findIndex(hd=>h.match.includes(hd));
+          if(idx>-1) colIdx[h.field]=idx;
+        });
+
+        for(let i=headerIdx+1;i<rows.length;i++){
+          const r=rows[i];
+          if(!r || r.every(c=>String(c).trim()==='')) continue;
+          const obj={salon, transferred_to_db:false};
+          let hasAnyValue=false;
+          SWB_HEADER_MAP.forEach(h=>{
+            const idx=colIdx[h.field];
+            if(idx===undefined){ return; }
+            let val=r[idx];
+            if(val==='' || val==null){ obj[h.field]=null; return; }
+            if(h.type==='date'){ obj[h.field]=swbParseDateCell(val); }
+            else if(h.type==='number'){ obj[h.field]=parseRuNumber(val); }
+            else { obj[h.field]=String(val).trim(); }
+            if(obj[h.field]!==null && obj[h.field]!=='' && obj[h.field]!==0) hasAnyValue=true;
+          });
+          if(hasAnyValue) allRows.push(obj);
+        }
+      });
+
+      if(!allRows.length){
+        alert('Не удалось найти строки с данными. Проверьте, что в файле есть узнаваемая шапка таблицы (как в вашем Excel).');
+        event.target.value='';
+        return;
+      }
+
+      const dates = allRows.map(r=>r.order_date||r.payment_date).filter(Boolean).sort();
+      const rangeText = dates.length ? `с ${dates[0]} по ${dates[dates.length-1]}` : 'даты не определены';
+      if(!confirm(`Найдено строк: ${allRows.length} (${rangeText}).\nЗагрузить их в рабочий лист салона «${SALON_LABELS[salon]}»?\n\nЭто не повлияет на базу данных — данные лягут только в рабочий лист.`)){
+        event.target.value='';
+        return;
+      }
+
+      // Вставляем пачками, чтобы не упереться в лимиты запроса
+      const CHUNK=200;
+      let inserted=0;
+      for(let i=0;i<allRows.length;i+=CHUNK){
+        const chunk=allRows.slice(i,i+CHUNK);
+        const created=await sbInsertMany('salon_worksheet', chunk);
+        inserted += (created||[]).length;
+      }
+
+      salonWbLoaded[salon]=false;
+      await loadSalonWbFromDB(salon);
+      renderSalonWorksheet();
+      alert(`Готово! Загружено строк: ${inserted}`);
+    } catch(err){
+      alert('Ошибка импорта: '+err.message+'\n\nПроверьте, что таблица salon_worksheet создана в Supabase.');
+    }
+    event.target.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function clearSalonWbSheet(){
+  const salon = salonWbActiveSalon;
+  const rows = (salonWbData[salon]||[]).filter(r=>!r.transferred_to_db);
+  if(!rows.length){ alert('Нет строк для удаления (все либо уже перенесены в базу, либо лист пуст).'); return; }
+  if(!confirm(`Удалить ${rows.length} строк(и) из рабочего листа салона «${SALON_LABELS[salon]}»?\n\nУже перенесённые в базу строки затронуты не будут.\nЭто действие нельзя отменить.`)) return;
+  try{
+    for(const r of rows){
+      await sbDelete('salon_worksheet', `id=eq.${r.id}`);
+    }
+    salonWbData[salon] = salonWbData[salon].filter(r=>r.transferred_to_db);
+    renderSalonWorksheet();
+  } catch(e){
+    alert('Ошибка при очистке: '+e.message);
+  }
 }
 
 async function addSalonWbRow(){
