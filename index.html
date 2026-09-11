@@ -629,6 +629,20 @@ const sbFetch = async (table, params='', rangeFrom=null, rangeTo=null)=>{
   return res.json();
 };
 
+// Supabase/PostgREST по умолчанию отдаёт не больше 1000 строк за один запрос.
+// Эта обёртка сама подгружает все страницы, пока данные не закончатся —
+// используйте её вместо sbFetch для таблиц, которые могут вырасти за 1000 строк.
+const sbFetchAllPages = async (table, params='', pageSize=1000)=>{
+  let all=[], from=0;
+  while(true){
+    const page = await sbFetch(table, params, from, from+pageSize-1);
+    all = all.concat(page||[]);
+    if(!page || page.length<pageSize) break;
+    from += pageSize;
+  }
+  return all;
+};
+
 const sbInsert = async (table, body)=>{
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: 'POST',
@@ -1310,7 +1324,7 @@ function renderWhRemains(){ renderWarehouse(); }
 let _ordersLoadedForChannel = null;
 async function loadOrderPaymentsFromDB(){
   try{
-    const data = await sbFetch('order_payments','select=*');
+    const data = await sbFetchAllPages('order_payments','select=*');
     if(data){
       window._orderPaymentsData = data;
       // Пересчитываем % оплаты заказов
@@ -1375,7 +1389,7 @@ async function loadOrdersFromDB(){
     }
 
     updateLoading(85, 'Загрузка истории оплат...');
-    const payments = await sbFetch('payment_history', 'select=*');
+    const payments = await sbFetchAllPages('payment_history', 'select=*');
     const orders = allOrders;
     const items  = allItems;
 
@@ -5764,6 +5778,7 @@ window.onerror = function(msg, src, line, col){
             <div class="tab" id="swb-tab-nazarbayeva" onclick="showSalonWbSalon('nazarbayeva')">🏪 Назарбаева</div>
           </div>
           <div style="flex:1"></div>
+          <select id="swb-year-filter" onchange="setSalonWbYearFilter(this.value)" style="font-size:12px"></select>
           <div style="font-size:12px;color:var(--text3)">Остаток в кассе салона: <strong id="swb-current-balance" style="color:var(--accent)">₸0</strong></div>
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('swb-import-file').click()">📥 Импорт из Excel</button>
           <input type="file" id="swb-import-file" accept=".xlsx,.xls" style="display:none" onchange="handleSalonWbImport(event)">
@@ -8223,7 +8238,7 @@ let salonWbActiveSalon = 'armada';
 async function loadSalonWbFromDB(salon){
   if(salonWbLoaded[salon]) return true;
   try{
-    const data = await sbFetch('salon_worksheet', `salon=eq.${salon}&order=order_date.asc,created_at.asc`);
+    const data = await sbFetchAllPages('salon_worksheet', `salon=eq.${salon}&order=order_date.asc,created_at.asc`);
     salonWbData[salon] = (data||[]).map(r=>({...r}));
     salonWbLoaded[salon]=true;
     return true;
@@ -8241,13 +8256,17 @@ function showSalonWbSalon(salon){
   loadSalonWbFromDB(salon).then(renderSalonWorksheet);
 }
 
+let salonWbYearFilter = 'current';
+
 function renderSalonWorksheet(){
   const salon = salonWbActiveSalon;
   const rows = salonWbData[salon]||[];
   const tbody = document.getElementById('swb-tbody');
   if(!tbody) return;
 
-  // Бегущий остаток кассы салона: приход (нал+при получении) минус расход минус передано в офис
+  // Бегущий остаток кассы салона считаем по ВСЕЙ истории (порядок важен),
+  // а фильтр по году применяем только к тому, что показываем на экране —
+  // иначе итоговый остаток был бы неверным при просмотре одного года.
   let running=0;
   const withBalance = rows.map(r=>{
     running += (Number(r.cash_amount)||0) + (Number(r.cod_amount)||0)
@@ -8256,6 +8275,23 @@ function renderSalonWorksheet(){
   });
   set('swb-current-balance', fmtCurrency(running));
 
+  // Заполняем список годов (по датам приёма/оплаты в данных)
+  const years = [...new Set(withBalance.map(r=>(r.order_date||r.payment_date||'').slice(0,4)).filter(Boolean))].sort();
+  const yearSel = document.getElementById('swb-year-filter');
+  if(yearSel){
+    if(salonWbYearFilter!=='all' && !years.includes(salonWbYearFilter)){
+      const curYear = String(new Date().getFullYear());
+      salonWbYearFilter = years.includes(curYear) ? curYear : (years.length ? years[years.length-1] : 'all');
+    }
+    yearSel.innerHTML = `<option value="all">Все годы</option>`
+      + years.map(y=>`<option value="${y}" ${y===salonWbYearFilter?'selected':''}>${y}</option>`).join('');
+    if(salonWbYearFilter==='all') yearSel.value='all';
+  }
+
+  const visible = salonWbYearFilter==='all'
+    ? withBalance
+    : withBalance.filter(r=>(r.order_date||r.payment_date||'').slice(0,4)===salonWbYearFilter);
+
   const inp=(r,field,type='text',extra='')=>{
     const val = r[field]==null ? '' : r[field];
     const disabled = r.transferred_to_db ? 'disabled' : '';
@@ -8263,7 +8299,7 @@ function renderSalonWorksheet(){
       onchange="updateSalonWbField('${r.id}','${field}',this.value,'${type}')">`;
   };
 
-  tbody.innerHTML = withBalance.map(r=>`<tr style="${r.transferred_to_db?'background:var(--bg3)':''}">
+  tbody.innerHTML = visible.map(r=>`<tr style="${r.transferred_to_db?'background:var(--bg3)':''}">
     <td>${inp(r,'order_date','date')}</td>
     <td>${inp(r,'order_num','text')}</td>
     <td>${inp(r,'manager','text')}</td>
@@ -8285,8 +8321,15 @@ function renderSalonWorksheet(){
         : `<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="openSalonTransferModal('${r.id}')">Перенести</button>
            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="deleteSalonWbRow('${r.id}')">✕</button>`}
     </td>
-  </tr>`).join('') || `<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:20px">Строк пока нет</td></tr>`;
+  </tr>`).join('') || `<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:20px">Строк за выбранный период нет</td></tr>`;
 }
+
+function setSalonWbYearFilter(v){
+  salonWbYearFilter = v;
+  renderSalonWorksheet();
+}
+
+
 
 // ===== ИМПОРТ ИСТОРИЧЕСКИХ ДАННЫХ РАБОЧЕГО ЛИСТА САЛОНА ИЗ EXCEL =====
 const SWB_HEADER_MAP = [
