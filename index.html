@@ -5628,6 +5628,7 @@ window.onerror = function(msg, src, line, col){
       <div class="tabs" style="margin-bottom:16px">
         <div class="tab active" onclick="showMoneyTab('cash',this)">💵 Касса</div>
         <div class="tab" onclick="showMoneyTab('bank',this)">🏦 Расчётные счета</div>
+        <div class="tab" onclick="showMoneyTab('salonwb',this)">🧾 Рабочий лист салонов</div>
         <div class="tab" onclick="showMoneyTab('advances',this)">📋 Авансовые отчёты</div>
         <div class="tab" onclick="showMoneyTab('all',this)">📄 Все операции</div>
         <div class="tab" onclick="showMoneyTab('calendar',this)">📅 Платёжный календарь</div>
@@ -5751,6 +5752,35 @@ window.onerror = function(msg, src, line, col){
               <th></th>
             </tr></thead>
             <tbody id="bank-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- РАБОЧИЙ ЛИСТ САЛОНОВ -->
+      <div id="money-tab-salonwb" style="display:none">
+        <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+          <div class="tabs" style="margin:0">
+            <div class="tab active" id="swb-tab-armada" onclick="showSalonWbSalon('armada')">🏬 Армада</div>
+            <div class="tab" id="swb-tab-nazarbayeva" onclick="showSalonWbSalon('nazarbayeva')">🏪 Назарбаева</div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="font-size:12px;color:var(--text3)">Остаток в кассе салона: <strong id="swb-current-balance" style="color:var(--accent)">₸0</strong></div>
+          <button class="btn btn-primary btn-sm" onclick="addSalonWbRow()">+ Добавить строку</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+          Этот лист не влияет на базу данных программы, пока строка не будет перенесена вручную кнопкой «Перенести».
+        </div>
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table class="data-table" style="font-size:12px;white-space:nowrap">
+            <thead><tr>
+              <th>Дата приёма</th><th>Заказ №</th><th>Менеджер</th>
+              <th>Сумма заказа (долг до)</th><th>Дата оплаты</th>
+              <th>Нал.</th><th>Безнал/Kaspi</th><th>Остаток по заказу</th>
+              <th>Примечание</th><th>Дата доставки</th><th>При получении</th>
+              <th>Расход салона</th><th>Передано в офис</th><th>Остаток в салоне</th>
+              <th>Получатель/описание</th><th></th>
+            </tr></thead>
+            <tbody id="swb-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -6006,6 +6036,24 @@ window.onerror = function(msg, src, line, col){
             <button class="btn btn-ghost" onclick="closeModal('moneyTxModal')">Отмена</button>
             <button class="btn btn-primary" onclick="saveMoneyTx()" id="tx-save-btn">💾 Сохранить</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Перенос строки рабочего листа салона в базу -->
+    <div class="modal-overlay" id="salonTransferModal">
+      <div class="modal" style="max-width:640px;max-height:85vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title">Перенести в базу</span>
+          <button class="modal-close" onclick="closeModal('salonTransferModal')">✕</button>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+          Будут созданы следующие денежные операции. Проверьте счета/категории (там, где можно менять) и подтвердите.
+        </div>
+        <div id="swb-transfer-body"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+          <button class="btn btn-ghost" onclick="closeModal('salonTransferModal')">Отмена</button>
+          <button class="btn btn-primary" id="swb-transfer-confirm-btn" onclick="confirmSalonTransfer()">Подтвердить перенос</button>
         </div>
       </div>
     </div>
@@ -8155,18 +8203,268 @@ function renderMoneyKPIs(){
   set('money-kpi-advances',fmt(advDebt));
 }
 
+// ===== РАБОЧИЙ ЛИСТ САЛОНОВ (Армада / Назарбаева) =====
+// Не влияет на основную базу (orders/money_tx), пока строка не перенесена вручную.
+const SALON_ACCOUNTS = {
+  armada:      'c854b1e4-c0f7-436b-a274-5e8a59c4ef78', // Касса Армада
+  nazarbayeva: '701d7d6d-3dda-4403-ac3c-e4a3987836ea', // Касса Назарбаева
+};
+const SALON_OFFICE_ACCOUNT = '6dfefc6b-586c-4bb7-8134-1dd537573d15'; // Касса офис
+const SALON_CARD_DEFAULT_ACCOUNT = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'; // Kaspi Bank
+const SALON_LABELS = {armada:'Армада', nazarbayeva:'Назарбаева'};
+
+let salonWbData = {armada:[], nazarbayeva:[]};
+let salonWbLoaded = {armada:false, nazarbayeva:false};
+let salonWbActiveSalon = 'armada';
+
+async function loadSalonWbFromDB(salon){
+  if(salonWbLoaded[salon]) return true;
+  try{
+    const data = await sbFetch('salon_worksheet', `salon=eq.${salon}&order=order_date.asc,created_at.asc`);
+    salonWbData[salon] = (data||[]).map(r=>({...r}));
+    salonWbLoaded[salon]=true;
+    return true;
+  } catch(e){
+    console.warn('⚠️ Не удалось загрузить рабочий лист салона (проверьте, создана ли таблица salon_worksheet):', e.message);
+    return false;
+  }
+}
+
+function showSalonWbSalon(salon){
+  salonWbActiveSalon = salon;
+  const a=document.getElementById('swb-tab-armada'), n=document.getElementById('swb-tab-nazarbayeva');
+  if(a) a.classList.toggle('active', salon==='armada');
+  if(n) n.classList.toggle('active', salon==='nazarbayeva');
+  loadSalonWbFromDB(salon).then(renderSalonWorksheet);
+}
+
+function renderSalonWorksheet(){
+  const salon = salonWbActiveSalon;
+  const rows = salonWbData[salon]||[];
+  const tbody = document.getElementById('swb-tbody');
+  if(!tbody) return;
+
+  // Бегущий остаток кассы салона: приход (нал+при получении) минус расход минус передано в офис
+  let running=0;
+  const withBalance = rows.map(r=>{
+    running += (Number(r.cash_amount)||0) + (Number(r.cod_amount)||0)
+             - (Number(r.expense_amount)||0) - (Number(r.transferred_to_office)||0);
+    return {...r, _salonBalance: running};
+  });
+  set('swb-current-balance', fmtCurrency(running));
+
+  const inp=(r,field,type='text',extra='')=>{
+    const val = r[field]==null ? '' : r[field];
+    const disabled = r.transferred_to_db ? 'disabled' : '';
+    return `<input type="${type}" value="${val}" ${extra} ${disabled} style="width:100%;min-width:${type==='date'?'118px':(type==='number'?'90px':'110px')};font-size:12px;border:none;background:transparent;padding:2px 4px"
+      onchange="updateSalonWbField('${r.id}','${field}',this.value,'${type}')">`;
+  };
+
+  tbody.innerHTML = withBalance.map(r=>`<tr style="${r.transferred_to_db?'background:var(--bg3)':''}">
+    <td>${inp(r,'order_date','date')}</td>
+    <td>${inp(r,'order_num','text')}</td>
+    <td>${inp(r,'manager','text')}</td>
+    <td>${inp(r,'balance_before','number')}</td>
+    <td>${inp(r,'payment_date','date')}</td>
+    <td>${inp(r,'cash_amount','number')}</td>
+    <td>${inp(r,'card_amount','number')}</td>
+    <td>${inp(r,'balance_after','number')}</td>
+    <td>${inp(r,'note','text')}</td>
+    <td>${inp(r,'delivery_date','date')}</td>
+    <td>${inp(r,'cod_amount','number')}</td>
+    <td>${inp(r,'expense_amount','number')}</td>
+    <td>${inp(r,'transferred_to_office','number')}</td>
+    <td style="font-family:'IBM Plex Mono',monospace;text-align:right;color:${r._salonBalance<0?'var(--red)':'var(--text2)'}">${fmtCurrency(r._salonBalance)}</td>
+    <td>${inp(r,'recipient_desc','text')}</td>
+    <td style="white-space:nowrap">
+      ${r.transferred_to_db
+        ? `<span style="color:var(--green);font-size:11px" title="Перенесено ${r.transferred_at?new Date(r.transferred_at).toLocaleDateString('ru-RU'):''}">✓ Перенесено</span>`
+        : `<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="openSalonTransferModal('${r.id}')">Перенести</button>
+           <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="deleteSalonWbRow('${r.id}')">✕</button>`}
+    </td>
+  </tr>`).join('') || `<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:20px">Строк пока нет</td></tr>`;
+}
+
+async function addSalonWbRow(){
+  const salon = salonWbActiveSalon;
+  try{
+    const created = await sbInsert('salon_worksheet', {salon, order_date:new Date().toISOString().slice(0,10)});
+    salonWbData[salon].push(created);
+    renderSalonWorksheet();
+  } catch(e){
+    alert('Не удалось создать строку. Проверьте, что таблица salon_worksheet создана в Supabase.\n\n'+e.message);
+  }
+}
+
+async function updateSalonWbField(id, field, value, type){
+  const salon = salonWbActiveSalon;
+  const row = salonWbData[salon].find(r=>String(r.id)===String(id));
+  if(!row) return;
+  const parsed = type==='number' ? (parseFloat(value)||0) : (value||null);
+  row[field]=parsed;
+  try{
+    await sbPatch('salon_worksheet', `id=eq.${id}`, {[field]:parsed});
+  } catch(e){
+    console.warn('⚠️ Не удалось сохранить изменение:', e.message);
+  }
+  renderSalonWorksheet();
+}
+
+async function deleteSalonWbRow(id){
+  if(!confirm('Удалить строку из рабочего листа?')) return;
+  const salon = salonWbActiveSalon;
+  try{
+    await sbDelete('salon_worksheet', `id=eq.${id}`);
+    salonWbData[salon] = salonWbData[salon].filter(r=>String(r.id)!==String(id));
+    renderSalonWorksheet();
+  } catch(e){
+    alert('Ошибка удаления: '+e.message);
+  }
+}
+
+function guessSalonExpenseCategory(text){
+  const t=(text||'').toLowerCase();
+  if(/интернет|beeline|tele2|kcell|activ/.test(t)) return 'internet';
+  if(/зп|зарплат/.test(t)) return 'salary';
+  if(/аренд/.test(t)) return 'rent';
+  if(/коммунал|свет|вода|отопл/.test(t)) return 'utilities';
+  return 'other_out';
+}
+
+function buildSalonTransferPlan(row){
+  const salonAcc = SALON_ACCOUNTS[row.salon];
+  const orderLabel = row.order_num ? `Заказ №${row.order_num}` : 'Оплата (без номера заказа)';
+  const noteSuffix = row.note ? ' — '+row.note : '';
+  const plan=[];
+
+  if(row.cash_amount>0){
+    plan.push({kind:'income', accountId:salonAcc, accountEditable:false, amount:row.cash_amount,
+      category:'order_payment', date: row.payment_date||row.order_date,
+      desc: orderLabel+' (наличные)'+noteSuffix, orderNum: row.order_num||''});
+  }
+  if(row.card_amount>0){
+    plan.push({kind:'income', accountId:SALON_CARD_DEFAULT_ACCOUNT, accountEditable:true, amount:row.card_amount,
+      category:'order_payment', date: row.payment_date||row.order_date,
+      desc: orderLabel+' (безнал/Kaspi)'+noteSuffix, orderNum: row.order_num||''});
+  }
+  if(row.cod_amount>0){
+    plan.push({kind:'income', accountId:salonAcc, accountEditable:true, amount:row.cod_amount,
+      category:'order_payment', date: row.delivery_date||row.payment_date||row.order_date,
+      desc: orderLabel+' (при получении)'+noteSuffix, orderNum: row.order_num||''});
+  }
+  if(row.expense_amount>0){
+    plan.push({kind:'expense', accountId:salonAcc, accountEditable:false, amount:row.expense_amount,
+      category:guessSalonExpenseCategory(row.recipient_desc||row.note), categoryEditable:true,
+      date: row.payment_date||row.order_date, desc: row.recipient_desc||row.note||'Расход салона'});
+  }
+  if(row.transferred_to_office>0){
+    plan.push({kind:'transfer', fromAccountId:salonAcc, toAccountId:SALON_OFFICE_ACCOUNT,
+      amount:row.transferred_to_office, date: row.payment_date||row.order_date,
+      desc:'Передача из салона «'+SALON_LABELS[row.salon]+'»'});
+  }
+  return plan;
+}
+
+let _swbCurrentPlan=null, _swbCurrentRowId=null;
+
+function openSalonTransferModal(rowId){
+  const row = salonWbData[salonWbActiveSalon].find(r=>String(r.id)===String(rowId));
+  if(!row) return;
+  const plan = buildSalonTransferPlan(row);
+  if(!plan.length){ alert('В этой строке нет ни одной суммы для переноса.'); return; }
+  _swbCurrentPlan = plan;
+  _swbCurrentRowId = rowId;
+
+  const bankAccOptions = accId => bankAccounts.map(a=>`<option value="${a.id}" ${a.id===accId?'selected':''}>${a.icon||''} ${a.name}</option>`).join('');
+
+  document.getElementById('swb-transfer-body').innerHTML = plan.map((p,i)=>{
+    if(p.kind==='transfer'){
+      return `<div class="card" style="padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:center">
+        <span style="flex:1">↔️ Внутренний перевод: <strong>${fmtCurrency(p.amount)}</strong> — ${p.desc}</span>
+      </div>`;
+    }
+    return `<div class="card" style="padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span style="color:${p.kind==='income'?'var(--green)':'var(--red)'};font-weight:600">${p.kind==='income'?'+':'-'}${fmtCurrency(p.amount)}</span>
+      <span style="flex:1;min-width:160px;font-size:12px;color:var(--text3)">${p.desc}</span>
+      <select style="font-size:12px" ${p.accountEditable?'':'disabled'} onchange="_swbCurrentPlan[${i}].accountId=this.value">
+        ${bankAccOptions(p.accountId)}
+      </select>
+      ${p.categoryEditable?`<select style="font-size:12px" onchange="_swbCurrentPlan[${i}].category=this.value">
+        ${txCategoryOptionsHtml('expense', p.category)}
+      </select>`:''}
+    </div>`;
+  }).join('');
+
+  showModal('salonTransferModal');
+}
+
+async function confirmSalonTransfer(){
+  if(!_swbCurrentPlan || !_swbCurrentRowId) return;
+  const btn=document.getElementById('swb-transfer-confirm-btn');
+  btn.disabled=true; btn.textContent='Переношу...';
+  const createdTxIds=[];
+  try{
+    for(const p of _swbCurrentPlan){
+      if(p.kind==='transfer'){
+        const out = await sbInsertMoneyTxSafe({
+          date:p.date, account_id:p.fromAccountId, flow:'expense', category:'transfer_out',
+          amount:p.amount, description:p.desc, counterparty:'', order_num:'',
+        });
+        const inn = await sbInsertMoneyTxSafe({
+          date:p.date, account_id:p.toAccountId, flow:'income', category:'transfer_in',
+          amount:p.amount, description:p.desc, counterparty:'', order_num:'',
+        });
+        moneyTx.push({id:txSeq++, sbId:out?.id, date:p.date, accountId:p.fromAccountId, flow:'expense', category:'transfer_out', amount:p.amount, desc:p.desc, counterparty:'', orderNum:''});
+        moneyTx.push({id:txSeq++, sbId:inn?.id, date:p.date, accountId:p.toAccountId, flow:'income', category:'transfer_in', amount:p.amount, desc:p.desc, counterparty:'', orderNum:''});
+        createdTxIds.push(out?.id, inn?.id);
+      } else {
+        const created = await sbInsertMoneyTxSafe({
+          date:p.date, account_id:p.accountId, flow:p.kind, category:p.category,
+          amount:p.amount, description:p.desc, counterparty:'', order_num:p.orderNum||'',
+        });
+        moneyTx.push({id:txSeq++, sbId:created?.id, date:p.date, accountId:p.accountId, flow:p.kind, category:p.category, amount:p.amount, desc:p.desc, counterparty:'', orderNum:p.orderNum||''});
+        createdTxIds.push(created?.id);
+        if(p.orderNum){
+          try{
+            await sbInsert('order_payments', {tx_id:created?.id, order_num:p.orderNum, amount:p.amount});
+          } catch(e){ console.warn('⚠️ Не удалось привязать оплату к заказу №'+p.orderNum+':', e.message); }
+        }
+      }
+    }
+    await sbPatch('salon_worksheet', `id=eq.${_swbCurrentRowId}`, {
+      transferred_to_db:true, transferred_at:new Date().toISOString(), transferred_tx_ids:createdTxIds,
+    });
+    const row = salonWbData[salonWbActiveSalon].find(r=>String(r.id)===String(_swbCurrentRowId));
+    if(row){ row.transferred_to_db=true; row.transferred_at=new Date().toISOString(); }
+
+    renderSalonWorksheet();
+    if(typeof renderMoneyKPIs==='function') renderMoneyKPIs();
+    if(typeof renderCashTx==='function') renderCashTx();
+    if(typeof renderBankTx==='function') renderBankTx();
+    closeModal('salonTransferModal');
+    alert('Перенесено в базу!');
+  } catch(e){
+    alert('Ошибка при переносе: '+e.message);
+  } finally {
+    btn.disabled=false; btn.textContent='Подтвердить перенос';
+  }
+}
+
+function set(id,v){ const e=document.getElementById(id); if(e) e.textContent=v; }
+
 function showMoneyTab(tab, el){
   window._activeCashTab = tab;
   const fab = document.getElementById('money-fab');
   if(fab) fab.style.display = (tab==='cash'||tab==='bank') ? 'flex' : 'none'; fab.style.flexDirection='column';
   document.querySelectorAll('#page-money .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  ['cash','bank','advances','all','calendar'].forEach(id=>{
+  ['cash','bank','salonwb','advances','all','calendar'].forEach(id=>{
     const e=document.getElementById('money-tab-'+id);
     if(e) e.style.display=id===tab?'':'none';
   });
   if(tab==='cash')     renderCashTx();
   if(tab==='bank')     { renderBankAccounts(); renderBankTx(); }
+  if(tab==='salonwb')  showSalonWbSalon(salonWbActiveSalon);
   if(tab==='advances'){ loadAdvancesFromDB().then(()=>renderAdvances()); }
   if(tab==='all')      renderAllTx();
   if(tab==='calendar') renderPayCalendar();
