@@ -3004,6 +3004,12 @@ window.onerror = function(msg, src, line, col){
             <span id="esf-recon-autodist-result" style="font-size:12px;color:var(--text3)"></span>
           </div>
 
+          <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="esfReconAuditAdvanceLinks()">🧹 Проверить связи с авансовыми отчётами</button>
+            <span id="esf-recon-audit-result" style="font-size:12px;color:var(--text3)"></span>
+          </div>
+          <div id="esf-recon-audit-body" style="display:none;margin-bottom:14px"></div>
+
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
             <!-- LEFT: payments -->
             <div class="card">
@@ -10993,6 +10999,59 @@ async function esfReconAutoMatch(){
 }
 
 function esfReconDaysBetween(d1,d2){ return Math.abs(new Date(d1)-new Date(d2))/(24*3600*1000); }
+
+// Проверка связей ЭСФ↔авансовый отчёт на актуальность.
+// ВАЖНО: "нет строки в отчёте" — не 100% доказательство того, что связь устарела
+// (часть связей создана без строк вообще, через "Разнести свободные ЭСФ"),
+// поэтому это инструмент для ручной проверки, а не автоматическая чистка.
+async function esfReconAuditAdvanceLinks(){
+  const resultEl = document.getElementById('esf-recon-audit-result');
+  const bodyEl = document.getElementById('esf-recon-audit-body');
+  resultEl.textContent = 'Проверяю...';
+
+  const advLinks = esfLinksData.filter(l=>l.source_type==='advance_report');
+  const suspicious = [];
+  for(const l of advLinks){
+    const adv = esfReconAdvances.find(a=>a.id===l.source_id);
+    const inv = esfReconInvoices.find(i=>i.id===l.esf_invoice_id);
+    if(!adv || !inv) continue;
+    const hasLine = (adv.lines||[]).some(ln=>ln.esfInvoiceId===l.esf_invoice_id);
+    if(!hasLine) suspicious.push({link:l, adv, inv});
+  }
+
+  if(!suspicious.length){
+    resultEl.textContent = 'Подозрительных связей не найдено (либо во всех отчётах есть соответствующая строка).';
+    bodyEl.style.display='none';
+    return;
+  }
+
+  resultEl.textContent = `Найдено ${suspicious.length} связей, где в текущих строках авансового отчёта эта ЭСФ не числится — проверьте, актуальны ли они:`;
+  bodyEl.style.display='block';
+  bodyEl.innerHTML = suspicious.map((s,i)=>`
+    <div class="card" style="padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span style="flex:1;font-size:12px">
+        <strong>${s.adv.emp_name||'—'}</strong> (${s.adv.date}, ${fmtCurrency(s.adv.issued)})
+        ↔ ЭСФ <strong>№${s.inv.num}</strong>, ${s.inv.supplier_name} (${fmtCurrency(s.link.amount)})
+      </span>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="esfReconDeleteAuditLink(${i})">🗑 Удалить связь</button>
+    </div>`).join('');
+  window._esfReconAuditList = suspicious;
+}
+
+async function esfReconDeleteAuditLink(i){
+  const item = window._esfReconAuditList?.[i];
+  if(!item) return;
+  if(!confirm(`Удалить связь ЭСФ №${item.inv.num} с авансовым отчётом «${item.adv.emp_name}»?`)) return;
+  try{
+    await sbDelete('esf_payment_links', `id=eq.${item.link.id}`);
+    esfLinksData = esfLinksData.filter(l=>l.id!==item.link.id);
+    esfReconLog(`🗑 Удалена устаревшая связь: ЭСФ №${item.inv.num} ↔ ${item.adv.emp_name}`);
+    esfReconAuditAdvanceLinks();
+    esfReconRenderAll();
+  } catch(e){
+    alert('Ошибка удаления: '+e.message);
+  }
+}
 
 async function esfReconAutoDistribute(){
   const btn = document.getElementById('esf-recon-autodist-btn');
