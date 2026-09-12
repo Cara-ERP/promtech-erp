@@ -3015,7 +3015,7 @@ window.onerror = function(msg, src, line, col){
                 style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);margin-bottom:8px"
                 oninput="esfReconRenderPayments()">
               <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px;margin-bottom:8px">
-                <input type="checkbox" id="esf-recon-show-all" onchange="esfReconRenderPayments()"> показывать все расходные платежи, не только ТОО/АО/ИП
+                <input type="checkbox" id="esf-recon-show-all" style="width:auto" onchange="esfReconRenderPayments()"> показывать все расходные платежи, не только ТОО/АО/ИП
               </label>
               <div style="max-height:40vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
                 <table class="data-table" style="font-size:12px">
@@ -10695,7 +10695,7 @@ function esfReconRenderPayments(){
     const key = `${r.type}:${r.id}`;
     const isChecked = esfReconCheckedIds.has(key);
     return `<tr style="${isChecked?'background:rgba(79,142,247,.12)':''}">
-      <td style="text-align:center"><input type="checkbox" ${isChecked?'checked':''} onchange="esfReconToggleChecked('${r.type}','${r.id}',this.checked)"></td>
+      <td style="text-align:center"><input type="checkbox" style="width:auto" ${isChecked?'checked':''} onchange="esfReconToggleChecked('${r.type}','${r.id}',this.checked)"></td>
       <td style="white-space:nowrap">${r.date||''}</td>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.label}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmtCurrency(r.amount)}</td>
@@ -10812,7 +10812,7 @@ function esfReconRenderEsfCandidates(){
       const checked = esfReconSelectedIds.has(inv.id);
       const disabled = !esfReconActiveSource;
       return `<tr style="${checked?'background:rgba(79,142,247,.12)':''}">
-        <td style="text-align:center"><input type="checkbox" ${checked?'checked':''} ${disabled?'disabled':''} onchange="esfReconOnToggleEsf('${inv.id}',this.checked)"></td>
+        <td style="text-align:center"><input type="checkbox" style="width:auto" ${checked?'checked':''} ${disabled?'disabled':''} onchange="esfReconOnToggleEsf('${inv.id}',this.checked)"></td>
         <td style="white-space:nowrap">${inv.date||''}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inv.supplier_name||''}</td>
         <td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${inv.num||''}</td>
@@ -13017,7 +13017,7 @@ function renderBankStatementPreview(format){
       </tr></thead>
       <tbody>
         ${_bsParsedRows.map((r,i)=>`<tr style="${r.isDuplicate?'opacity:.6':''}">
-          <td><input type="checkbox" ${r.selected?'checked':''} onchange="_bsParsedRows[${i}].selected=this.checked"></td>
+          <td><input type="checkbox" style="width:auto" ${r.selected?'checked':''} onchange="_bsParsedRows[${i}].selected=this.checked"></td>
           <td style="white-space:nowrap">${r.date||'—'}</td>
           <td>${r.counterparty||'—'}${r.matchedSupplierName?` <span title="Найден в справочнике поставщиков" style="color:var(--green)">✓</span>`:''}${r.isAggregatePayout?` <span title="Сводный платёж — после импорта разнесите по заказам вручную" style="color:var(--amber)">🔀</span>`:''}
             ${r.isDuplicate && r.nameMatches?`<div style="font-size:10px;color:var(--text3)">уже есть в базе</div>`:''}
@@ -16448,7 +16448,7 @@ function renderMergeGroups(){
       </div>
       ${g.suppliers.map(s=>`
         <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border);cursor:pointer">
-          <input type="radio" name="merge-canon-${gi}" value="${s.id}" ${s.id===canonicalDefault?'checked':''} style="margin-top:3px">
+          <input type="radio" name="merge-canon-${gi}" value="${s.id}" ${s.id===canonicalDefault?'checked':''} style="width:auto;margin-top:3px">
           <span style="flex:1">
             <div style="font-weight:600;font-size:13px">${s.name} ${s.bin?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">БИН ${s.bin}</span>`:'<span style="color:var(--red);font-size:11px">без БИН</span>'}</div>
             <div style="font-size:11px;color:var(--text3)">${[s.category,s.contact,s.phone,s.email].filter(Boolean).join(' · ')||'нет доп. данных'}</div>
@@ -16580,7 +16580,7 @@ function renderSpellingGroups(){
       ${g.canonicalSupplierName?`<div style="font-size:11px;color:var(--accent);margin-bottom:6px">Есть карточка поставщика: «${g.canonicalSupplierName}»</div>`:''}
       ${g.variants.map(v=>`
         <label style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px dashed var(--border);cursor:pointer">
-          <input type="radio" name="spell-canon-${gi}" value="${v.text.replace(/"/g,'&quot;')}" ${v.text===defaultText?'checked':''} style="margin-top:3px">
+          <input type="radio" name="spell-canon-${gi}" value="${v.text.replace(/"/g,'&quot;')}" ${v.text===defaultText?'checked':''} style="width:auto;margin-top:3px">
           <span style="flex:1">
             <div style="font-size:13px">${v.text}</div>
             <div style="font-size:11px;color:var(--text3)">${v.count} операц. · ${fmtCurrency(v.sum)} · последняя ${v.lastDate||'—'}</div>
