@@ -10686,7 +10686,7 @@ function esfReconGetPaymentRows(){
   } else {
     let rows = esfReconAdvances;
     if(q) rows = rows.filter(a => esfReconNorm(a.emp_name).includes(q));
-    return rows.map(a=>({type:'advance_report', id:a.id, date:a.date, label:a.emp_name||'(без имени)', amount:esfReconSourceAmount('advance_report',a)}));
+    return rows.map(a=>({type:'advance_report', id:a.id, date:a.date, label:(a.emp_name||'(без имени)')+(a.status==='closed'?' 🔒':''), amount:esfReconSourceAmount('advance_report',a)}));
   }
 }
 
@@ -11112,10 +11112,12 @@ async function esfReconAutoDistribute(){
       .filter(inv => !ESF_RECON_ADVANCE_EXCLUDE_RE.test(inv.supplier_name||''))
       .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 
-    const advCaps = esfReconAdvances.map(a=>({
-      id:a.id, date:a.date,
-      cap: esfReconSourceAmount('advance_report', a) - esfReconSourceLinked('advance_report', a.id),
-    }));
+    const advCaps = esfReconAdvances
+      .filter(a=>a.status!=='closed') // не подставляем ЭСФ в уже закрытые авансовые отчёты
+      .map(a=>({
+        id:a.id, date:a.date,
+        cap: esfReconSourceAmount('advance_report', a) - esfReconSourceLinked('advance_report', a.id),
+      }));
 
     for(const inv of freeEsf){
       const rem = esfReconRemaining(inv);
