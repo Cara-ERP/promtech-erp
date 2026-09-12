@@ -5643,6 +5643,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab active" onclick="showMoneyTab('cash',this)">💵 Касса</div>
         <div class="tab" onclick="showMoneyTab('bank',this)">🏦 Расчётные счета</div>
         <div class="tab" onclick="showMoneyTab('salonwb',this)">🧾 Рабочий лист салонов</div>
+        <div class="tab" onclick="showMoneyTab('bankrecon',this)">🔍 Сверка с банком</div>
         <div class="tab" onclick="showMoneyTab('advances',this)">📋 Авансовые отчёты</div>
         <div class="tab" onclick="showMoneyTab('all',this)">📄 Все операции</div>
         <div class="tab" onclick="showMoneyTab('calendar',this)">📅 Платёжный календарь</div>
@@ -5799,6 +5800,30 @@ window.onerror = function(msg, src, line, col){
               <th>Получатель/описание</th><th></th>
             </tr></thead>
             <tbody id="swb-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- СВЕРКА С БАНКОМ -->
+      <div id="money-tab-bankrecon" style="display:none">
+        <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+          <select id="recon-account-select" onchange="showBankReconAccount(this.value)" style="font-size:13px"></select>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('recon-import-file').click()">📥 Загрузить выписку</button>
+          <input type="file" id="recon-import-file" accept=".xlsx,.xls" style="display:none" onchange="handleBankReconImport(event)">
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">
+          Загруженные выписки не влияют на журнал «Расчётные счета», пока конкретная операция не перенесена вручную.
+          Повторная загрузка за тот же период не создаёт дублей — добавляются только новые операции.
+        </div>
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr>
+              <th>Дата</th>
+              <th style="text-align:right">Приход (выписка)</th><th style="text-align:right">Приход (журнал)</th>
+              <th style="text-align:right">Расход (выписка)</th><th style="text-align:right">Расход (журнал)</th>
+              <th style="text-align:center">Сходится?</th><th></th>
+            </tr></thead>
+            <tbody id="recon-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -6055,6 +6080,17 @@ window.onerror = function(msg, src, line, col){
             <button class="btn btn-primary" onclick="saveMoneyTx()" id="tx-save-btn">💾 Сохранить</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Операции банка за день (сверка) -->
+    <div class="modal-overlay" id="reconDayModal">
+      <div class="modal" style="max-width:640px;max-height:85vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title" id="recon-day-title">Операции за день</span>
+          <button class="modal-close" onclick="closeModal('reconDayModal')">✕</button>
+        </div>
+        <div id="recon-day-body"></div>
       </div>
     </div>
 
@@ -8669,19 +8705,265 @@ async function confirmSalonTransfer(){
 
 function set(id,v){ const e=document.getElementById(id); if(e) e.textContent=v; }
 
+// ===== СВЕРКА С БАНКОМ (постоянная выписка отдельно от журнала) =====
+const BANK_RECON_ACCOUNTS = {
+  kaspi: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', // Kaspi Bank
+  halyk: '0265fb65-7812-4bee-b794-71306246edb7', // Халык Банк
+};
+
+let bankReconData = {};
+let bankReconLoaded = {};
+let bankReconActiveAccount = BANK_RECON_ACCOUNTS.kaspi;
+
+async function loadBankReconFromDB(accountId){
+  if(bankReconLoaded[accountId]) return true;
+  try{
+    const data = await sbFetchAllPages('bank_statement_raw', `account_id=eq.${accountId}&order=date.asc`);
+    bankReconData[accountId] = data||[];
+    bankReconLoaded[accountId]=true;
+    return true;
+  } catch(e){
+    console.warn('⚠️ Не удалось загрузить сверку с банком (проверьте, создана ли таблица bank_statement_raw):', e.message);
+    return false;
+  }
+}
+
+function showBankReconAccount(accountId){
+  bankReconActiveAccount = accountId;
+  const sel=document.getElementById('recon-account-select');
+  if(sel){
+    sel.innerHTML = Object.entries(BANK_RECON_ACCOUNTS).map(([fmt,id])=>{
+      const acc=bankAccounts.find(a=>a.id===id);
+      return `<option value="${id}" ${id===accountId?'selected':''}>${acc?.icon||''} ${acc?.name||fmt}</option>`;
+    }).join('');
+  }
+  loadBankReconFromDB(accountId).then(renderBankRecon);
+}
+
+function parseBankStatementForRecon(rows, headerRowIdx, headers, format){
+  const col=name=>headers.findIndex(h=>h.toLowerCase()===name.toLowerCase());
+  const idx = format==='kaspi' ? {
+    docNum: col('№ документа'),
+    date:  col('Дата операции'),
+    debit: col('Дебет'), credit: col('Кредит'),
+    benef: col('Наименование бенефициара / отправителя денег'),
+    desc:  col('Назначение платежа'), knp: col('КНП'),
+  } : {
+    docNum: col('Номер документа'),
+    date:  col('Дата валютирования'),
+    ctrName: col('Контрагент'), ctrBin: col('БИН контрагента'),
+    debit: col('Дебет'), credit: col('Кредит'),
+    desc:  col('Назначение платежа'), knp: col('КНП'),
+  };
+
+  const parsed=[];
+  for(let i=headerRowIdx+1;i<rows.length;i++){
+    const r=rows[i];
+    if(!r || r.every(c=>String(c).trim()==='')) continue;
+    const nonEmptyVals=r.filter(c=>String(c).trim()!=='');
+    if(nonEmptyVals.length && nonEmptyVals.every(c=>/^\d+$/.test(String(c).trim()) && Number(c)<=headers.length)) continue;
+
+    const debit  = parseRuNumber(r[idx.debit]);
+    const credit = parseRuNumber(r[idx.credit]);
+    if(!debit && !credit) continue;
+
+    let name='', bin='';
+    if(format==='kaspi'){
+      const nb=extractNameAndBin(r[idx.benef]);
+      name=nb.name; bin=nb.bin;
+    } else {
+      name=(r[idx.ctrName]||'').toString().trim();
+      bin=(r[idx.ctrBin]||'').toString().trim();
+    }
+    const date  = parseStatementDate(r[idx.date]);
+    const flow  = debit>0 ? 'expense' : 'income';
+    const amount= debit>0 ? debit : credit;
+    const desc  = (r[idx.desc]||'').toString().trim();
+    const knp   = idx.knp>-1 ? (r[idx.knp]||'').toString().trim() : '';
+    const docNum= idx.docNum>-1 ? (r[idx.docNum]||'').toString().trim() : '';
+
+    parsed.push({date, flow, amount, counterparty:name, bin, description:desc, knp, doc_num:docNum, bank_format:format});
+  }
+  return parsed;
+}
+
+function handleBankReconImport(event){
+  const file=event.target.files[0];
+  if(!file) return;
+  if(typeof XLSX==='undefined'){ alert('Excel-библиотека ещё загружается, попробуйте через пару секунд.'); event.target.value=''; return; }
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array', cellDates:false});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(sheet,{header:1, raw:false, defval:''});
+
+      let headerRowIdx=-1;
+      for(let i=0;i<Math.min(rows.length,10);i++){
+        const r=rows[i];
+        const nonEmpty=r.filter(c=>String(c).trim()!=='');
+        if(nonEmpty.length>=5 && nonEmpty.some(c=>/[а-яa-z]/i.test(String(c)) && String(c).length>3)){ headerRowIdx=i; break; }
+      }
+      if(headerRowIdx===-1){ alert('Не удалось найти строку заголовков в файле.'); event.target.value=''; return; }
+      const headers=rows[headerRowIdx].map(h=>(h||'').toString().trim());
+      const format=detectBankFormat(headers);
+      if(!format){ alert('Не удалось определить банк по заголовкам файла. Пока поддерживаются Kaspi и Halyk.'); event.target.value=''; return; }
+
+      const accountId = BANK_RECON_ACCOUNTS[format];
+      const parsedRows = parseBankStatementForRecon(rows, headerRowIdx, headers, format);
+      if(!parsedRows.length){ alert('Не найдено операций для загрузки.'); event.target.value=''; return; }
+
+      await loadBankReconFromDB(accountId);
+      const existing = bankReconData[accountId]||[];
+      const keyOf = r => r.doc_num ? 'doc:'+r.doc_num : `${r.date}|${r.flow}|${Number(r.amount).toFixed(2)}|${(r.counterparty||'').trim()}`;
+      const existingKeys = new Set(existing.map(keyOf));
+      const seenInFile = new Set();
+      const toInsert=[];
+      parsedRows.forEach(r=>{
+        const key=keyOf(r);
+        if(existingKeys.has(key) || seenInFile.has(key)) return;
+        seenInFile.add(key);
+        toInsert.push({...r, account_id:accountId});
+      });
+
+      if(!toInsert.length){
+        alert(`Все ${parsedRows.length} операций из файла уже есть в сверке — новых не найдено.`);
+        event.target.value='';
+        return;
+      }
+
+      const CHUNK=200;
+      let inserted=0;
+      for(let i=0;i<toInsert.length;i+=CHUNK){
+        const created = await sbInsertMany('bank_statement_raw', toInsert.slice(i,i+CHUNK));
+        inserted += (created||[]).length;
+      }
+
+      bankReconLoaded[accountId]=false;
+      bankReconActiveAccount = accountId;
+      await loadBankReconFromDB(accountId);
+      renderBankRecon();
+      alert(`Готово! Добавлено новых операций: ${inserted} (пропущено как уже загруженные: ${parsedRows.length-toInsert.length})`);
+    } catch(err){
+      alert('Ошибка импорта: '+err.message+'\n\nПроверьте, что таблица bank_statement_raw создана в Supabase.');
+    }
+    event.target.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderBankRecon(){
+  const accountId = bankReconActiveAccount;
+  const rawRows = bankReconData[accountId]||[];
+  const tbody = document.getElementById('recon-tbody');
+  if(!tbody) return;
+
+  const byDate = {};
+  rawRows.forEach(r=>{
+    if(!r.date) return;
+    const d = byDate[r.date] = byDate[r.date] || {rawIn:0, rawOut:0, jrnIn:0, jrnOut:0, rawRows:[]};
+    if(r.flow==='income') d.rawIn += Number(r.amount)||0; else d.rawOut += Number(r.amount)||0;
+    d.rawRows.push(r);
+  });
+  moneyTx.filter(t=>String(t.accountId)===String(accountId)).forEach(t=>{
+    if(!t.date) return;
+    const d = byDate[t.date] = byDate[t.date] || {rawIn:0, rawOut:0, jrnIn:0, jrnOut:0, rawRows:[]};
+    if(t.flow==='income') d.jrnIn += Number(t.amount)||0; else d.jrnOut += Number(t.amount)||0;
+  });
+
+  const dates = Object.keys(byDate).sort().reverse();
+  const TOL=0.01;
+  tbody.innerHTML = dates.map(date=>{
+    const d = byDate[date];
+    const mismatch = Math.abs(d.rawIn-d.jrnIn)>TOL || Math.abs(d.rawOut-d.jrnOut)>TOL;
+    const notTransferred = d.rawRows.filter(r=>!r.transferred_to_db).length;
+    return `<tr style="${mismatch?'background:rgba(239,68,68,.08)':''}">
+      <td>${date}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${fmtCurrency(d.rawIn)}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${fmtCurrency(d.jrnIn)}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${fmtCurrency(d.rawOut)}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${fmtCurrency(d.jrnOut)}</td>
+      <td style="text-align:center">${mismatch?`<span style="color:var(--red)">⚠️ не сходится</span>`:`<span style="color:var(--green)">✓</span>`}</td>
+      <td>${d.rawRows.length?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openReconDayModal('${date}')">Операции (${notTransferred} не перенесено)</button>`:''}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">Нет данных — загрузите выписку</td></tr>`;
+}
+
+let _reconDayDate=null;
+function openReconDayModal(date){
+  _reconDayDate = date;
+  const accountId = bankReconActiveAccount;
+  const rows = (bankReconData[accountId]||[]).filter(r=>r.date===date);
+  document.getElementById('recon-day-title').textContent = 'Операции за '+date;
+  document.getElementById('recon-day-body').innerHTML = rows.map(r=>{
+    if(r.transferred_to_db){
+      return `<div class="card" style="padding:8px 12px;margin-bottom:6px;opacity:.6;display:flex;gap:10px;align-items:center">
+        <span style="color:${r.flow==='income'?'var(--green)':'var(--red)'}">${r.flow==='income'?'+':'-'}${fmtCurrency(r.amount)}</span>
+        <span style="flex:1;font-size:12px">${r.counterparty||'—'}</span>
+        <span style="font-size:11px;color:var(--green)">✓ уже в журнале</span>
+      </div>`;
+    }
+    return `<div class="card" style="padding:8px 12px;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span style="color:${r.flow==='income'?'var(--green)':'var(--red)'};font-weight:600">${r.flow==='income'?'+':'-'}${fmtCurrency(r.amount)}</span>
+      <span style="flex:1;min-width:160px;font-size:12px">${r.counterparty||'—'} ${r.bin?`<span style="color:var(--text3);font-size:11px">БИН ${r.bin}</span>`:''}</span>
+      <span style="font-size:11px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.description||'').replace(/"/g,'&quot;')}">${r.description||''}</span>
+      <button class="btn btn-primary btn-sm" style="font-size:11px" onclick="transferReconRow('${r.id}')">Перенести в журнал</button>
+    </div>`;
+  }).join('') || `<div style="color:var(--text3);font-size:12px">Нет операций за этот день</div>`;
+  showModal('reconDayModal');
+}
+
+async function transferReconRow(rowId){
+  const accountId = bankReconActiveAccount;
+  const row = (bankReconData[accountId]||[]).find(r=>String(r.id)===String(rowId));
+  if(!row) return;
+
+  let matchedSupplier=null;
+  if(row.flow==='expense'){
+    matchedSupplier = row.bin
+      ? suppliersData.find(s=>s.bin && s.bin.trim()===row.bin)
+      : suppliersData.find(s=>normSupNameMerge(s.name)===normSupNameMerge(row.counterparty));
+  }
+  let category;
+  if(row.flow==='income') category='other_in';
+  else if(matchedSupplier) category='supplier';
+  else if(row.knp==='841' || /комисси/i.test(row.description||'')) category='bank_fee';
+  else category='other_out';
+
+  try{
+    const created = await sbInsertMoneyTxSafe({
+      date:row.date, account_id:accountId, flow:row.flow, category, subcategory:null,
+      amount:row.amount, description:row.description||'', counterparty:row.counterparty||'',
+      bin:row.bin||null, order_num:'',
+    });
+    moneyTx.push({id:txSeq++, sbId:created?.id, date:row.date, accountId, flow:row.flow, category, amount:row.amount, desc:row.description||'', counterparty:row.counterparty||'', bin:row.bin||'', orderNum:''});
+    await sbPatch('bank_statement_raw', `id=eq.${row.id}`, {transferred_to_db:true, transferred_tx_id:created?.id, transferred_at:new Date().toISOString()});
+    row.transferred_to_db=true; row.transferred_tx_id=created?.id; row.transferred_at=new Date().toISOString();
+
+    if(typeof renderMoneyKPIs==='function') renderMoneyKPIs();
+    if(typeof renderBankTx==='function') renderBankTx();
+    renderBankRecon();
+    openReconDayModal(_reconDayDate);
+  } catch(e){
+    alert('Ошибка переноса: '+e.message);
+  }
+}
+
 function showMoneyTab(tab, el){
   window._activeCashTab = tab;
   const fab = document.getElementById('money-fab');
   if(fab) fab.style.display = (tab==='cash'||tab==='bank') ? 'flex' : 'none'; fab.style.flexDirection='column';
   document.querySelectorAll('#page-money .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  ['cash','bank','salonwb','advances','all','calendar'].forEach(id=>{
+  ['cash','bank','salonwb','bankrecon','advances','all','calendar'].forEach(id=>{
     const e=document.getElementById('money-tab-'+id);
     if(e) e.style.display=id===tab?'':'none';
   });
   if(tab==='cash')     renderCashTx();
   if(tab==='bank')     { renderBankAccounts(); renderBankTx(); }
   if(tab==='salonwb')  showSalonWbSalon(salonWbActiveSalon);
+  if(tab==='bankrecon') showBankReconAccount(bankReconActiveAccount);
   if(tab==='advances'){ loadAdvancesFromDB().then(()=>renderAdvances()); }
   if(tab==='all')      renderAllTx();
   if(tab==='calendar') renderPayCalendar();
