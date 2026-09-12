@@ -9304,7 +9304,7 @@ function renderCashTx(){
       <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
       <td style="font-size:12px;color:var(--text3)">${subcat?subcat.name:'—'}</td>
-      <td style="font-size:12px">${t.desc||'—'}${txOrderTag(t)}</td>
+      <td style="font-size:12px">${t.desc||'—'}${txOrderTag(t)}${esfLinkTag(t)}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
@@ -9388,6 +9388,17 @@ function txOrderTag(t){
   const nums = txOrderNums(t);
   if(!nums.length) return '';
   return ' '+nums.map(n=>`<span style="color:var(--accent);font-size:11px">(${n})</span>`).join(' ');
+}
+
+// Значок "привязано к ЭСФ" — показывает рядом с описанием операции, если на неё
+// есть хотя бы одна связь в esf_payment_links (та же таблица, что и вкладка
+// "Входящие ЭСФ → Сверка с оплатами")
+function esfLinkTag(t){
+  const sourceId = t.sbId || t.id;
+  if(!sourceId || !esfLinksLoaded) return '';
+  const linked = esfLinkedToSource('money_tx', sourceId);
+  if(linked<=0) return '';
+  return ` <span class="badge badge-green" style="font-size:10px" title="Привязано к ЭСФ на ${fmtCurrency(linked)}">🔗 ЭСФ</span>`;
 }
 
 let _bankShowUsd = false;
@@ -9538,7 +9549,7 @@ function renderBankTx(){
       +'<td style="font-size:12px;font-weight:500">'+(acc?.name||'—')+'</td>'
       +'<td style="font-size:12px">'+txCatLabel(t.category)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(subcat?subcat.name:'—')+'</td>'
-      +'<td style="font-size:12px">'+(t.desc||'—')+(t.amountFx?(()=>{const isUsd=bankAccounts.find(a=>a.id===t.accountId)?.currency==='USD';const usdVal=isUsd?t.amount:t.amountFx;return `<div style="font-size:10px;color:var(--text3)">💵 $${Math.round(usdVal).toLocaleString('en-US')}</div>`;})():'')+txOrderTag(t)+'</td>'
+      +'<td style="font-size:12px">'+(t.desc||'—')+(t.amountFx?(()=>{const isUsd=bankAccounts.find(a=>a.id===t.accountId)?.currency==='USD';const usdVal=isUsd?t.amount:t.amountFx;return `<div style="font-size:10px;color:var(--text3)">💵 $${Math.round(usdVal).toLocaleString('en-US')}</div>`;})():'')+txOrderTag(t)+esfLinkTag(t)+'</td>'
       +'<td style="font-size:12px;color:var(--text3)">'+(t.counterparty||'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--green)">'+(t.flow==='income'?fmtTxAmt(t):'—')+'</td>'
       +'<td style="text-align:right;font-family:monospace;color:var(--red)">'+(t.flow==='expense'?fmtTxAmt(t):'—')+'</td>'
@@ -9817,7 +9828,7 @@ function renderAllTx(){
       <td style="font-size:12px">${acc?.name||'—'}</td>
       <td style="font-size:12px">${txCatLabel(t.category)}</td>
       <td style="font-size:12px;color:var(--text3)">${subcat?subcat.name:'—'}</td>
-      <td style="font-size:12px">${t.desc}${txOrderTag(t)}</td>
+      <td style="font-size:12px">${t.desc}${txOrderTag(t)}${esfLinkTag(t)}</td>
       <td style="font-size:12px;color:var(--text3)">${t.counterparty||'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
@@ -10541,12 +10552,33 @@ const ESF_RECON_LEGAL_RE = /(^|[^А-Яа-яЁёA-Za-z])(ТОО|АО|ИП|ГП|П
 const ESF_RECON_ADVANCE_EXCLUDE_RE = /(меркурий|kaspi|каспи|народный\s*банк)/i;
 const ESF_RECON_DATE_TOLERANCE_DAYS_ADVANCE = 12;
 
-let esfReconInvoices=[], esfReconMoneyTx=[], esfReconAdvances=[], esfReconLinks=[];
+let esfReconInvoices=[], esfReconMoneyTx=[], esfReconAdvances=[], esfLinksData=[];
 let esfReconLoaded=false;
+let esfLinksLoaded=false;
 let esfReconSourceTab='money_tx';
 let esfReconActiveSource=null; // {type,id,amount,label,date} или {type:'pool',items:[...],amount,label,date}
 let esfReconSelectedIds=new Set();
 let esfReconCheckedIds=new Set(); // ключи "type:id"
+
+// Лёгкая загрузка одних только связей esf_payment_links — используется значками
+// "привязано к ЭСФ/платежу" в списке ЭСФ и в журнале денежных операций,
+// без необходимости открывать саму вкладку "Сверка с оплатами"
+async function ensureEsfLinksLoaded(){
+  if(esfLinksLoaded) return esfLinksData;
+  try{
+    esfLinksData = await sbFetchAllPages('esf_payment_links','select=*');
+    esfLinksLoaded = true;
+  } catch(e){ console.warn('⚠️ Не удалось загрузить esf_payment_links:', e.message); }
+  return esfLinksData;
+}
+// Сколько уже привязано к конкретной ЭСФ
+function esfLinkedAmount(esfId){
+  return esfLinksData.filter(l=>l.esf_invoice_id===esfId).reduce((s,l)=>s+parseFloat(l.amount||0),0);
+}
+// Сколько уже привязано к конкретной денежной операции (по её реальному id в Supabase)
+function esfLinkedToSource(sourceType, sourceId){
+  return esfLinksData.filter(l=>l.source_type===sourceType && l.source_id===sourceId).reduce((s,l)=>s+parseFloat(l.amount||0),0);
+}
 
 function esfReconNorm(s){ return (s||'').toLowerCase().replace(/[«»"']/g,'').replace(/\s+/g,' ').trim(); }
 function esfReconLog(msg){
@@ -10559,16 +10591,16 @@ function esfReconLog(msg){
 async function initEsfRecon(){
   if(esfReconLoaded){ esfReconRenderAll(); return; }
   try{
-    const [inv, tx, adv, lnk] = await Promise.all([
+    const [inv, tx, adv] = await Promise.all([
       sbFetchAllPages('incoming_invoices', 'select=*&order=date.desc'),
       sbFetchAllPages('money_tx', 'select=*&flow=eq.expense'),
       sbFetchAllPages('advance_reports', 'select=*&order=date.desc'),
-      sbFetchAllPages('esf_payment_links', 'select=*'),
     ]);
+    esfLinksLoaded = false; // всегда берём самые свежие связи при открытии вкладки сверки
+    await ensureEsfLinksLoaded();
     esfReconInvoices = inv||[];
     esfReconMoneyTx  = tx||[];
     esfReconAdvances = adv||[];
-    esfReconLinks    = lnk||[];
     esfReconLoaded = true;
 
     document.getElementById('esf-recon-status').style.display='none';
@@ -10583,11 +10615,11 @@ async function initEsfRecon(){
 }
 
 function esfReconLinked(esfId){
-  return esfReconLinks.filter(l=>l.esf_invoice_id===esfId).reduce((s,l)=>s+parseFloat(l.amount||0),0);
+  return esfLinksData.filter(l=>l.esf_invoice_id===esfId).reduce((s,l)=>s+parseFloat(l.amount||0),0);
 }
 function esfReconRemaining(inv){ return (parseFloat(inv.total_with_nds)||0) - esfReconLinked(inv.id); }
 function esfReconSourceLinked(type,id){
-  return esfReconLinks.filter(l=>l.source_type===type && l.source_id===id).reduce((s,l)=>s+parseFloat(l.amount||0),0);
+  return esfLinksData.filter(l=>l.source_type===type && l.source_id===id).reduce((s,l)=>s+parseFloat(l.amount||0),0);
 }
 function esfReconSourceAmount(type,row){
   return type==='money_tx' ? parseFloat(row.amount||0) : parseFloat(row.issued||0);
@@ -10595,16 +10627,16 @@ function esfReconSourceAmount(type,row){
 function esfReconIsLegalCounterparty(name){ return ESF_RECON_LEGAL_RE.test(name||''); }
 
 async function esfReconRefreshLinks(){
-  try{ esfReconLinks = await sbFetchAllPages('esf_payment_links','select=*'); }
+  try{ esfLinksData = await sbFetchAllPages('esf_payment_links','select=*'); }
   catch(e){ esfReconLog(`⚠️ Не удалось обновить список связей: ${e.message}`); }
 }
 function esfReconSyncSelectedFromLinks(){
   if(!esfReconActiveSource) return;
   if(esfReconActiveSource.type==='pool'){
     const poolSourceIds = esfReconActiveSource.items.map(it=>it.id);
-    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id)).map(l=>l.esf_invoice_id));
+    esfReconSelectedIds = new Set(esfLinksData.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id)).map(l=>l.esf_invoice_id));
   } else {
-    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type===esfReconActiveSource.type && l.source_id===esfReconActiveSource.id).map(l=>l.esf_invoice_id));
+    esfReconSelectedIds = new Set(esfLinksData.filter(l=>l.source_type===esfReconActiveSource.type && l.source_id===esfReconActiveSource.id).map(l=>l.esf_invoice_id));
   }
 }
 
@@ -10698,7 +10730,7 @@ function esfReconRecomputeActiveSource(){
     esfReconSelectedIds=new Set();
   } else if(items.length===1){
     esfReconActiveSource = items[0];
-    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type===items[0].type && l.source_id===items[0].id).map(l=>l.esf_invoice_id));
+    esfReconSelectedIds = new Set(esfLinksData.filter(l=>l.source_type===items[0].type && l.source_id===items[0].id).map(l=>l.esf_invoice_id));
   } else {
     const dates = items.map(it=>it.date).sort();
     esfReconActiveSource = {
@@ -10709,7 +10741,7 @@ function esfReconRecomputeActiveSource(){
       date: dates[dates.length-1],
     };
     const poolSourceIds = items.map(it=>it.id);
-    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id)).map(l=>l.esf_invoice_id));
+    esfReconSelectedIds = new Set(esfLinksData.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id)).map(l=>l.esf_invoice_id));
   }
 }
 
@@ -10823,17 +10855,17 @@ function esfReconClearSelection(){
 
 async function esfReconPostLink(esfId, sourceType, sourceId, amount){
   const saved = await sbInsert('esf_payment_links', { esf_invoice_id: esfId, source_type: sourceType, source_id: sourceId, amount });
-  esfReconLinks.push(saved);
+  esfLinksData.push(saved);
   return saved;
 }
 
 async function esfReconSavePoolLinks(savingSource, savingSelection){
   const poolSourceIds = savingSource.items.map(it=>it.id);
-  const existing = esfReconLinks.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id));
+  const existing = esfLinksData.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id));
 
   let ok=0, failed=0;
   for(const l of existing){
-    try{ await sbDelete('esf_payment_links', `id=eq.${l.id}`); esfReconLinks = esfReconLinks.filter(x=>x.id!==l.id); }
+    try{ await sbDelete('esf_payment_links', `id=eq.${l.id}`); esfLinksData = esfLinksData.filter(x=>x.id!==l.id); }
     catch(e){ esfReconLog(`❌ Ошибка при очистке старых связей группы: ${e.message}`); failed++; }
   }
 
@@ -10871,7 +10903,7 @@ async function esfReconSaveLinks(){
     if(savingSource.type==='pool'){
       await esfReconSavePoolLinks(savingSource, savingSelection);
     } else {
-      const existingForSource = esfReconLinks.filter(l=>l.source_type===savingSource.type && l.source_id===savingSource.id);
+      const existingForSource = esfLinksData.filter(l=>l.source_type===savingSource.type && l.source_id===savingSource.id);
       const existingIds = new Set(existingForSource.map(l=>l.esf_invoice_id));
       const toAdd = [...savingSelection].filter(id=>!existingIds.has(id));
       const toRemove = existingForSource.filter(l=>!savingSelection.has(l.esf_invoice_id));
@@ -10888,7 +10920,7 @@ async function esfReconSaveLinks(){
       for(const l of toRemove){
         try{
           await sbDelete('esf_payment_links', `id=eq.${l.id}`);
-          esfReconLinks = esfReconLinks.filter(x=>x.id!==l.id);
+          esfLinksData = esfLinksData.filter(x=>x.id!==l.id);
           esfReconLog(`↩️ Отвязан ЭСФ id=${l.esf_invoice_id} от ${savingSource.label}`);
           ok++;
         } catch(e){ esfReconLog(`❌ Ошибка отвязки: ${e.message}`); failed++; }
@@ -11094,6 +11126,7 @@ async function initEsfPage(){
     } catch(e){ console.warn('⚠️ ЭСФ:', e.message); return; }
   }
   renderEsfList();
+  ensureEsfLinksLoaded().then(renderEsfList);
 }
 
 function renderEsfList(){
@@ -11141,12 +11174,19 @@ function renderEsfList(){
         <th style="text-align:right">Без НДС</th>
         <th style="text-align:right">НДС</th>
         <th style="text-align:right;color:var(--green)">С НДС</th>
-        <th>Статус</th><th></th>
+        <th>Статус</th><th>Сверка</th><th></th>
       </tr></thead>
       <tbody>${invs.map(inv=>{
         const typeLabel = {goods:'📦 Товары', service:'🔧 Услуги', general:'📋 Общее'};
         const typeColor = {goods:'var(--accent)', service:'var(--green)', general:'var(--text3)'};
         const t = inv.invoice_type||'general';
+        const linked = esfLinkedAmount(inv.id);
+        const total = inv.total_with_nds||0;
+        const reconBadge = linked<=0
+          ? '<span class="badge" style="background:var(--bg3);color:var(--text3)">не сверено</span>'
+          : (linked >= total-100
+            ? '<span class="badge badge-green">✓ сверено</span>'
+            : '<span class="badge badge-amber">частично</span>');
         return `<tr style="cursor:pointer" onclick="openEsfDetail('${inv.id}')">
         <td onclick="event.stopPropagation()">
           <select style="font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:${typeColor[t]};padding:2px 4px"
@@ -11164,6 +11204,7 @@ function renderEsfList(){
         <td style="text-align:right;font-family:monospace;font-size:12px;color:var(--amber)">${fmt(inv.total_nds)}</td>
         <td style="text-align:right;font-family:monospace;font-size:12px;font-weight:600;color:var(--green)">${fmt(inv.total_with_nds)}</td>
         <td><span style="font-size:11px;color:${statusColor[inv.status]||'var(--text3)'}">${statusLabel[inv.status]||inv.status}</span></td>
+        <td>${reconBadge}</td>
         <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="event.stopPropagation();openEsfDetail('${inv.id}')">📋</button></td>
       </tr>`;}).join('')}</tbody>
     </table>
@@ -14047,7 +14088,7 @@ async function renderSalonMoney(){
         <td style="font-size:12px;font-family:monospace">${t.date}</td>
         <td><span class="badge ${t.flow==='income'?'badge-green':'badge-red'}">${t.flow==='income'?'📥':'📤'}</span></td>
         <td style="font-size:11px">${txCatLabel(t.category)}</td>
-        <td style="font-size:12px">${t.desc||'—'}${t.amountFx?`<div style="font-size:10px;color:var(--accent)">💱 $${Math.round(t.amountFx).toLocaleString('en-US')}</div>`:''}${txOrderTag(t)}</td>
+        <td style="font-size:12px">${t.desc||'—'}${t.amountFx?`<div style="font-size:10px;color:var(--accent)">💱 $${Math.round(t.amountFx).toLocaleString('en-US')}</div>`:''}${txOrderTag(t)}${esfLinkTag(t)}</td>
         <td style="text-align:right;font-family:monospace;color:var(--green)">${t.flow==='income'?fmt(t.amount):'—'}</td>
         <td style="text-align:right;font-family:monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
         <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(bal)}</td>
@@ -15101,6 +15142,7 @@ function showPage(id, el){
       renderMoneyKPIs();
       renderCashTx();
     });
+    ensureEsfLinksLoaded().then(()=>{ renderCashTx(); renderBankTx(); if(typeof renderAllTx==='function') renderAllTx(); });
   }
   if(id==='wages') renderPieceWages();
   if(id==='techcards') renderTechCardsPage();
