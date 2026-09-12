@@ -8411,7 +8411,7 @@ function swbParseDateCell(v){
 }
 
 function swbFindHeaderRow(rows){
-  for(let i=0;i<Math.min(rows.length,15);i++){
+  for(let i=0;i<Math.min(rows.length,50);i++){
     const cells=(rows[i]||[]).map(c=>String(c||'').trim().toLowerCase());
     let hits=0;
     SWB_HEADER_MAP.forEach(h=>{ if(cells.some(c=>h.match.includes(c))) hits++; });
@@ -8431,12 +8431,14 @@ function handleSalonWbImport(event){
       const data=new Uint8Array(e.target.result);
       const wb=XLSX.read(data,{type:'array', cellDates:true});
       let allRows=[];
+      const skippedSheets=[], usedSheets=[];
 
       wb.SheetNames.forEach(sheetName=>{
         const sheet=wb.Sheets[sheetName];
         const rows=XLSX.utils.sheet_to_json(sheet,{header:1, raw:true, defval:''});
         const headerIdx=swbFindHeaderRow(rows);
-        if(headerIdx===-1) return; // лист без узнаваемой шапки — пропускаем (например, лист с итогами)
+        if(headerIdx===-1){ skippedSheets.push(sheetName); return; } // лист без узнаваемой шапки — пропускаем (например, лист с итогами)
+        usedSheets.push(`${sheetName} (шапка в строке ${headerIdx+1})`);
 
         const headers=(rows[headerIdx]||[]).map(h=>String(h||'').trim().toLowerCase());
         const colIdx={};
@@ -8465,14 +8467,15 @@ function handleSalonWbImport(event){
       });
 
       if(!allRows.length){
-        alert('Не удалось найти строки с данными. Проверьте, что в файле есть узнаваемая шапка таблицы (как в вашем Excel).');
+        alert('Не удалось найти строки с данными. Проверьте, что в файле есть узнаваемая шапка таблицы (как в вашем Excel).'
+          +(skippedSheets.length?`\n\nНе распознаны листы: ${skippedSheets.join(', ')}`:''));
         event.target.value='';
         return;
       }
 
       const dates = allRows.map(r=>r.order_date||r.payment_date).filter(Boolean).sort();
       const rangeText = dates.length ? `с ${dates[0]} по ${dates[dates.length-1]}` : 'даты не определены';
-      if(!confirm(`Найдено строк: ${allRows.length} (${rangeText}).\nЗагрузить их в рабочий лист салона «${SALON_LABELS[salon]}»?\n\nЭто не повлияет на базу данных — данные лягут только в рабочий лист.`)){
+      if(!confirm(`Найдено строк: ${allRows.length} (${rangeText}).\nРаспознаны листы: ${usedSheets.join('; ')||'—'}${skippedSheets.length?`\nНЕ распознаны (пропущены): ${skippedSheets.join(', ')}`:''}\n\nЗагрузить их в рабочий лист салона «${SALON_LABELS[salon]}»?\n\nЭто не повлияет на базу данных — данные лягут только в рабочий лист.`)){
         event.target.value='';
         return;
       }
