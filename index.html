@@ -2958,6 +2958,12 @@ window.onerror = function(msg, src, line, col){
         <button class="btn btn-ghost btn-sm" onclick="exportEsfGoodsToExcel()">📥 Товары в Excel</button>
       </div>
 
+      <div class="tabs" style="margin-bottom:14px">
+        <div class="tab active" id="esf-tab-btn-list" onclick="showEsfTab('list')">📋 Список ЭСФ</div>
+        <div class="tab" id="esf-tab-btn-recon" onclick="showEsfTab('recon')">🔗 Сверка с оплатами</div>
+      </div>
+
+      <div id="esf-tab-list">
       <!-- Фильтры -->
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
         <input id="esf-search" type="search" placeholder="🔍 Поставщик, номер..."
@@ -2978,6 +2984,76 @@ window.onerror = function(msg, src, line, col){
 
       <!-- Список ЭСФ -->
       <div id="esf-list"></div>
+      </div>
+
+      <!-- СВЕРКА ЭСФ С ОПЛАТАМИ -->
+      <div id="esf-tab-recon" style="display:none">
+        <div id="esf-recon-status" style="padding:20px;color:var(--text3);font-size:13px">Загрузка данных для сверки...</div>
+        <div id="esf-recon-kpis" style="display:none;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px"></div>
+
+        <div id="esf-recon-main" style="display:none">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+            Слева — платежи (расчётный счёт, касса, авансовые отчёты). Справа — ЭСФ. Выбираете платёж → подбираете к нему ЭСФ.
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" id="esf-recon-automatch-btn" onclick="esfReconAutoMatch()">🔍 Найти очевидные совпадения (авто)</button>
+            <span id="esf-recon-automatch-result" style="font-size:12px;color:var(--text3)"></span>
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" id="esf-recon-autodist-btn" onclick="esfReconAutoDistribute()">🤖 Разнести свободные ЭСФ (платежи → авансовые отчёты)</button>
+            <span id="esf-recon-autodist-result" style="font-size:12px;color:var(--text3)"></span>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <!-- LEFT: payments -->
+            <div class="card">
+              <div class="tabs" style="margin-bottom:10px">
+                <div class="tab active" id="esf-recon-tab-moneytx" onclick="esfReconSetSourceTab('money_tx')">Платежи РС/касса</div>
+                <div class="tab" id="esf-recon-tab-advance" onclick="esfReconSetSourceTab('advance_report')">Авансовые отчёты</div>
+              </div>
+              <input id="esf-recon-payment-search" type="search" placeholder="🔍 Поиск по контрагенту/сотруднику..."
+                style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);margin-bottom:8px"
+                oninput="esfReconRenderPayments()">
+              <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px;margin-bottom:8px">
+                <input type="checkbox" id="esf-recon-show-all" onchange="esfReconRenderPayments()"> показывать все расходные платежи, не только ТОО/АО/ИП
+              </label>
+              <div style="max-height:40vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                <table class="data-table" style="font-size:12px">
+                  <thead><tr><th></th><th>Дата</th><th>Кто</th><th style="text-align:right">Сумма</th><th>Привязано</th></tr></thead>
+                  <tbody id="esf-recon-payments-body"></tbody>
+                </table>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+                <span id="esf-recon-pool-info" style="font-size:11px;color:var(--text3)">Отметьте один платёж галочкой — или несколько, чтобы объединить в группу</span>
+                <span style="flex:1"></span>
+                <button class="btn btn-ghost btn-sm" onclick="esfReconClearPool()">Снять отметки</button>
+              </div>
+            </div>
+
+            <!-- RIGHT: ESF candidates -->
+            <div class="card">
+              <div id="esf-recon-active-info" style="margin-bottom:8px;font-size:12px;color:var(--text3)">Выберите платёж слева</div>
+              <input id="esf-recon-esf-search" type="search" placeholder="🔍 Поиск ЭСФ по поставщику/номеру..."
+                style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);margin-bottom:8px"
+                oninput="esfReconRenderEsfCandidates()">
+              <div style="max-height:40vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                <table class="data-table" style="font-size:12px">
+                  <thead><tr><th></th><th>Дата</th><th>Поставщик</th><th>№ ЭСФ</th><th style="text-align:right">Сумма</th></tr></thead>
+                  <tbody id="esf-recon-esf-body"></tbody>
+                </table>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+                <span id="esf-recon-sum-info" style="font-size:12px"></span>
+                <span style="flex:1"></span>
+                <button class="btn btn-ghost btn-sm" onclick="esfReconClearSelection()">Очистить выбор</button>
+                <button class="btn btn-primary btn-sm" id="esf-recon-save-btn" disabled onclick="esfReconSaveLinks()">Сохранить связи</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="esf-recon-log" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:11px;max-height:140px;overflow-y:auto;white-space:pre-wrap;margin-top:10px"></div>
+        </div>
+      </div>
 
       <!-- Модал деталей ЭСФ -->
       <div class="modal-overlay" id="esfDetailModal">
@@ -10450,6 +10526,529 @@ let _payrollData = null;
 
 // ── Входящие ЭСФ ─────────────────────────────────────────────────────────────
 let _esfData = null;
+
+function showEsfTab(tab){
+  document.getElementById('esf-tab-btn-list').classList.toggle('active', tab==='list');
+  document.getElementById('esf-tab-btn-recon').classList.toggle('active', tab==='recon');
+  document.getElementById('esf-tab-list').style.display = tab==='list' ? '' : 'none';
+  document.getElementById('esf-tab-recon').style.display = tab==='recon' ? '' : 'none';
+  if(tab==='recon') initEsfRecon();
+}
+
+// ===== СВЕРКА ЭСФ С ОПЛАТАМИ (перенесено из отдельного инструмента) =====
+const ESF_RECON_TOLERANCE = 100; // допустимое расхождение в сумме, тенге
+const ESF_RECON_LEGAL_RE = /(^|[^А-Яа-яЁёA-Za-z])(ТОО|АО|ИП|ГП|ПК|КХ|TOO)([^А-Яа-яЁёA-Za-z]|$)/i;
+const ESF_RECON_ADVANCE_EXCLUDE_RE = /(меркурий|kaspi|каспи|народный\s*банк)/i;
+const ESF_RECON_DATE_TOLERANCE_DAYS_ADVANCE = 12;
+
+let esfReconInvoices=[], esfReconMoneyTx=[], esfReconAdvances=[], esfReconLinks=[];
+let esfReconLoaded=false;
+let esfReconSourceTab='money_tx';
+let esfReconActiveSource=null; // {type,id,amount,label,date} или {type:'pool',items:[...],amount,label,date}
+let esfReconSelectedIds=new Set();
+let esfReconCheckedIds=new Set(); // ключи "type:id"
+
+function esfReconNorm(s){ return (s||'').toLowerCase().replace(/[«»"']/g,'').replace(/\s+/g,' ').trim(); }
+function esfReconLog(msg){
+  const el=document.getElementById('esf-recon-log');
+  if(!el) return;
+  el.textContent += msg+'\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function initEsfRecon(){
+  if(esfReconLoaded){ esfReconRenderAll(); return; }
+  try{
+    const [inv, tx, adv, lnk] = await Promise.all([
+      sbFetchAllPages('incoming_invoices', 'select=*&order=date.desc'),
+      sbFetchAllPages('money_tx', 'select=*&flow=eq.expense'),
+      sbFetchAllPages('advance_reports', 'select=*&order=date.desc'),
+      sbFetchAllPages('esf_payment_links', 'select=*'),
+    ]);
+    esfReconInvoices = inv||[];
+    esfReconMoneyTx  = tx||[];
+    esfReconAdvances = adv||[];
+    esfReconLinks    = lnk||[];
+    esfReconLoaded = true;
+
+    document.getElementById('esf-recon-status').style.display='none';
+    document.getElementById('esf-recon-kpis').style.display='grid';
+    document.getElementById('esf-recon-main').style.display='block';
+    esfReconRenderAll();
+  } catch(e){
+    document.getElementById('esf-recon-status').innerHTML =
+      `<b style="color:var(--red)">Ошибка подключения к Supabase:</b> ${e.message}<br>
+       <span style="color:var(--text3)">Если ошибка про esf_payment_links — убедитесь, что таблица создана и на ней настроен доступ (RLS), как на остальных таблицах.</span>`;
+  }
+}
+
+function esfReconLinked(esfId){
+  return esfReconLinks.filter(l=>l.esf_invoice_id===esfId).reduce((s,l)=>s+parseFloat(l.amount||0),0);
+}
+function esfReconRemaining(inv){ return (parseFloat(inv.total_with_nds)||0) - esfReconLinked(inv.id); }
+function esfReconSourceLinked(type,id){
+  return esfReconLinks.filter(l=>l.source_type===type && l.source_id===id).reduce((s,l)=>s+parseFloat(l.amount||0),0);
+}
+function esfReconSourceAmount(type,row){
+  return type==='money_tx' ? parseFloat(row.amount||0) : parseFloat(row.issued||0);
+}
+function esfReconIsLegalCounterparty(name){ return ESF_RECON_LEGAL_RE.test(name||''); }
+
+async function esfReconRefreshLinks(){
+  try{ esfReconLinks = await sbFetchAllPages('esf_payment_links','select=*'); }
+  catch(e){ esfReconLog(`⚠️ Не удалось обновить список связей: ${e.message}`); }
+}
+function esfReconSyncSelectedFromLinks(){
+  if(!esfReconActiveSource) return;
+  if(esfReconActiveSource.type==='pool'){
+    const poolSourceIds = esfReconActiveSource.items.map(it=>it.id);
+    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id)).map(l=>l.esf_invoice_id));
+  } else {
+    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type===esfReconActiveSource.type && l.source_id===esfReconActiveSource.id).map(l=>l.esf_invoice_id));
+  }
+}
+
+function esfReconRenderAll(){
+  const totalEsf = esfReconInvoices.length;
+  const fullyLinked = esfReconInvoices.filter(i=>esfReconRemaining(i) <= ESF_RECON_TOLERANCE).length;
+  const partially = esfReconInvoices.filter(i=>{ const l=esfReconLinked(i.id); return l>0 && esfReconRemaining(i)>ESF_RECON_TOLERANCE; }).length;
+  const notLinked = totalEsf - fullyLinked - partially;
+  document.getElementById('esf-recon-kpis').innerHTML = [
+    ['Всего ЭСФ', totalEsf, ''],
+    ['Полностью сверено', fullyLinked, 'var(--green)'],
+    ['Частично', partially, 'var(--amber)'],
+    ['Не сверено', notLinked, 'var(--red)'],
+  ].map(([l,v,c])=>`<div class="card" style="padding:10px 12px">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">${l}</div>
+      <div style="font-size:18px;font-weight:700;${c?'color:'+c:''}">${v}</div>
+    </div>`).join('');
+
+  esfReconRenderPayments();
+  esfReconRenderEsfCandidates();
+}
+
+function esfReconSetSourceTab(tab){
+  esfReconSourceTab = tab;
+  document.getElementById('esf-recon-tab-moneytx').classList.toggle('active', tab==='money_tx');
+  document.getElementById('esf-recon-tab-advance').classList.toggle('active', tab==='advance_report');
+  esfReconActiveSource=null;
+  esfReconSelectedIds=new Set();
+  esfReconCheckedIds=new Set();
+  esfReconRenderPayments();
+  esfReconRenderEsfCandidates();
+}
+
+function esfReconGetPaymentRows(){
+  const q = esfReconNorm(document.getElementById('esf-recon-payment-search').value);
+  const showAll = document.getElementById('esf-recon-show-all').checked;
+  if(esfReconSourceTab==='money_tx'){
+    let rows = esfReconMoneyTx.filter(t => showAll || esfReconIsLegalCounterparty(t.counterparty));
+    if(q) rows = rows.filter(t => esfReconNorm(t.counterparty).includes(q));
+    return rows.map(t=>({type:'money_tx', id:t.id, date:t.date, label:t.counterparty||'(без контрагента)', amount:esfReconSourceAmount('money_tx',t)}));
+  } else {
+    let rows = esfReconAdvances;
+    if(q) rows = rows.filter(a => esfReconNorm(a.emp_name).includes(q));
+    return rows.map(a=>({type:'advance_report', id:a.id, date:a.date, label:a.emp_name||'(без имени)', amount:esfReconSourceAmount('advance_report',a)}));
+  }
+}
+
+function esfReconRenderPayments(){
+  const rows = esfReconGetPaymentRows().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const body = document.getElementById('esf-recon-payments-body');
+  body.innerHTML = rows.map(r=>{
+    const linked = esfReconSourceLinked(r.type, r.id);
+    const remaining = r.amount - linked;
+    const pct = r.amount ? Math.min(100, Math.round(linked/r.amount*100)) : 0;
+    const badge = remaining<=ESF_RECON_TOLERANCE ? '<span class="badge badge-green">✓</span>' : (linked>0 ? '<span class="badge badge-amber">…</span>' : '<span class="badge" style="background:var(--bg3);color:var(--text3)">—</span>');
+    const key = `${r.type}:${r.id}`;
+    const isChecked = esfReconCheckedIds.has(key);
+    return `<tr style="${isChecked?'background:rgba(79,142,247,.12)':''}">
+      <td style="text-align:center"><input type="checkbox" ${isChecked?'checked':''} onchange="esfReconToggleChecked('${r.type}','${r.id}',this.checked)"></td>
+      <td style="white-space:nowrap">${r.date||''}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.label}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmtCurrency(r.amount)}</td>
+      <td>${badge}<div style="height:4px;border-radius:2px;background:var(--bg3);overflow:hidden;margin-top:3px;width:60px"><div style="height:100%;width:${pct}%;background:var(--green)"></div></div></td>
+    </tr>`;
+  }).join('');
+  esfReconUpdatePoolBar();
+}
+
+function esfReconToggleChecked(type,id,checked){
+  const key = `${type}:${id}`;
+  if(checked) esfReconCheckedIds.add(key); else esfReconCheckedIds.delete(key);
+  esfReconRecomputeActiveSource();
+  esfReconRenderPayments();
+  esfReconRenderEsfCandidates();
+}
+
+function esfReconRecomputeActiveSource(){
+  const items = [...esfReconCheckedIds].map(key=>{
+    const [type,id] = key.split(':');
+    if(type==='money_tx'){
+      const t = esfReconMoneyTx.find(x=>String(x.id)===id);
+      return t ? {type:'money_tx', id:t.id, date:t.date, label:t.counterparty||'(без контрагента)', amount: esfReconSourceAmount('money_tx', t)} : null;
+    } else {
+      const a = esfReconAdvances.find(x=>String(x.id)===id);
+      return a ? {type:'advance_report', id:a.id, date:a.date, label:a.emp_name||'(без имени)', amount: esfReconSourceAmount('advance_report', a)} : null;
+    }
+  }).filter(Boolean);
+
+  if(items.length===0){
+    esfReconActiveSource=null;
+    esfReconSelectedIds=new Set();
+  } else if(items.length===1){
+    esfReconActiveSource = items[0];
+    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type===items[0].type && l.source_id===items[0].id).map(l=>l.esf_invoice_id));
+  } else {
+    const dates = items.map(it=>it.date).sort();
+    esfReconActiveSource = {
+      type:'pool',
+      items: items.map(it=>({type:it.type, id:it.id, amount:it.amount})),
+      amount: items.reduce((s,it)=>s+it.amount,0),
+      label: items.map(it=>it.label).join(' + '),
+      date: dates[dates.length-1],
+    };
+    const poolSourceIds = items.map(it=>it.id);
+    esfReconSelectedIds = new Set(esfReconLinks.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id)).map(l=>l.esf_invoice_id));
+  }
+}
+
+function esfReconUpdatePoolBar(){
+  const info = document.getElementById('esf-recon-pool-info');
+  const n = esfReconCheckedIds.size;
+  if(n===0) info.textContent = 'Отметьте один платёж галочкой — или несколько, чтобы объединить в группу';
+  else if(n===1) info.textContent = 'Отмечен 1 платёж — работаете с ним';
+  else info.textContent = `Отмечено ${n} платежей — объединены в группу`;
+}
+
+function esfReconClearPool(){
+  esfReconCheckedIds=new Set();
+  esfReconRecomputeActiveSource();
+  esfReconRenderPayments();
+  esfReconRenderEsfCandidates();
+}
+
+function esfReconGetEsfCandidates(){
+  const q = esfReconNorm(document.getElementById('esf-recon-esf-search').value);
+  let rows = esfReconInvoices.filter(inv => esfReconRemaining(inv) > ESF_RECON_TOLERANCE || (esfReconActiveSource && esfReconSelectedIds.has(inv.id)));
+  if(esfReconActiveSource && esfReconActiveSource.type==='money_tx'){
+    const cpNorm = esfReconNorm(esfReconActiveSource.label);
+    rows = rows.slice().sort((a,b)=>{
+      const am = esfReconNorm(a.supplier_name).includes(cpNorm) || cpNorm.includes(esfReconNorm(a.supplier_name)) ? 0 : 1;
+      const bm = esfReconNorm(b.supplier_name).includes(cpNorm) || cpNorm.includes(esfReconNorm(b.supplier_name)) ? 0 : 1;
+      if(am!==bm) return am-bm;
+      return (b.date||'').localeCompare(a.date||'');
+    });
+  } else if(esfReconActiveSource && esfReconActiveSource.type==='pool'){
+    const cpNorms = esfReconActiveSource.label.split(' + ').map(esfReconNorm);
+    rows = rows.slice().sort((a,b)=>{
+      const sup_a = esfReconNorm(a.supplier_name), sup_b = esfReconNorm(b.supplier_name);
+      const am = cpNorms.some(c=>sup_a.includes(c) || c.includes(sup_a)) ? 0 : 1;
+      const bm = cpNorms.some(c=>sup_b.includes(c) || c.includes(sup_b)) ? 0 : 1;
+      if(am!==bm) return am-bm;
+      return (b.date||'').localeCompare(a.date||'');
+    });
+  } else if(esfReconActiveSource){
+    rows = rows.slice().sort((a,b)=>{
+      const da = Math.abs(new Date(a.date) - new Date(esfReconActiveSource.date));
+      const db = Math.abs(new Date(b.date) - new Date(esfReconActiveSource.date));
+      return da-db;
+    });
+  }
+  if(q) rows = rows.filter(inv => esfReconNorm(inv.supplier_name).includes(q) || esfReconNorm(inv.num).includes(q) || esfReconNorm(inv.reg_num).includes(q));
+  if(esfReconActiveSource){
+    rows = rows.slice().sort((a,b)=>{
+      const as = esfReconSelectedIds.has(a.id) ? 0 : 1;
+      const bs = esfReconSelectedIds.has(b.id) ? 0 : 1;
+      return as-bs;
+    });
+  }
+  return rows;
+}
+
+function esfReconRenderEsfCandidates(){
+  try{
+    const body = document.getElementById('esf-recon-esf-body');
+    const rows = esfReconGetEsfCandidates();
+
+    const infoEl = document.getElementById('esf-recon-active-info');
+    if(!esfReconActiveSource) infoEl.innerHTML = 'Выберите платёж слева';
+    else if(esfReconActiveSource.type==='pool') infoEl.innerHTML = `<strong>Группа: ${esfReconActiveSource.label}</strong> · ${esfReconActiveSource.items.length} платежей · ${fmtCurrency(esfReconActiveSource.amount)}`;
+    else infoEl.innerHTML = `<strong>${esfReconActiveSource.label}</strong> · ${esfReconActiveSource.date} · ${fmtCurrency(esfReconActiveSource.amount)}`;
+
+    body.innerHTML = rows.map(inv=>{
+      const checked = esfReconSelectedIds.has(inv.id);
+      const disabled = !esfReconActiveSource;
+      return `<tr style="${checked?'background:rgba(79,142,247,.12)':''}">
+        <td style="text-align:center"><input type="checkbox" ${checked?'checked':''} ${disabled?'disabled':''} onchange="esfReconOnToggleEsf('${inv.id}',this.checked)"></td>
+        <td style="white-space:nowrap">${inv.date||''}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inv.supplier_name||''}</td>
+        <td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${inv.num||''}</td>
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmtCurrency(inv.total_with_nds||0)}</td>
+      </tr>`;
+    }).join('');
+    esfReconUpdateSumInfo();
+  } catch(e){
+    esfReconLog(`❌ Ошибка при построении списка ЭСФ: ${e.message}`);
+  }
+}
+
+function esfReconSelectedSum(){
+  return [...esfReconSelectedIds].reduce((s,id)=>{
+    const inv = esfReconInvoices.find(i=>i.id===id);
+    return s + (inv ? parseFloat(inv.total_with_nds||0) : 0);
+  }, 0);
+}
+
+function esfReconUpdateSumInfo(){
+  const sumEl = document.getElementById('esf-recon-sum-info');
+  const saveBtn = document.getElementById('esf-recon-save-btn');
+  if(!esfReconActiveSource){ sumEl.textContent=''; saveBtn.disabled=true; return; }
+  const sum = esfReconSelectedSum();
+  const over = sum > esfReconActiveSource.amount + ESF_RECON_TOLERANCE;
+  sumEl.innerHTML = `Выбрано: <strong style="${over?'color:var(--red)':''}">${fmtCurrency(sum)}</strong> из ${fmtCurrency(esfReconActiveSource.amount)}`
+    + (over ? ` <span style="color:var(--red)">— превышает сумму платежа, но можно всё равно связать</span>` : '');
+  saveBtn.disabled=false;
+}
+
+function esfReconOnToggleEsf(esfId, checked){
+  if(checked) esfReconSelectedIds.add(esfId); else esfReconSelectedIds.delete(esfId);
+  esfReconUpdateSumInfo();
+}
+
+function esfReconClearSelection(){
+  esfReconSelectedIds=new Set();
+  esfReconRenderEsfCandidates();
+}
+
+async function esfReconPostLink(esfId, sourceType, sourceId, amount){
+  const saved = await sbInsert('esf_payment_links', { esf_invoice_id: esfId, source_type: sourceType, source_id: sourceId, amount });
+  esfReconLinks.push(saved);
+  return saved;
+}
+
+async function esfReconSavePoolLinks(savingSource, savingSelection){
+  const poolSourceIds = savingSource.items.map(it=>it.id);
+  const existing = esfReconLinks.filter(l=>l.source_type==='money_tx' && poolSourceIds.includes(l.source_id));
+
+  let ok=0, failed=0;
+  for(const l of existing){
+    try{ await sbDelete('esf_payment_links', `id=eq.${l.id}`); esfReconLinks = esfReconLinks.filter(x=>x.id!==l.id); }
+    catch(e){ esfReconLog(`❌ Ошибка при очистке старых связей группы: ${e.message}`); failed++; }
+  }
+
+  const caps = savingSource.items.map(it=>({id:it.id, cap:it.amount}));
+  const selectedInvs = [...savingSelection]
+    .map(id=>esfReconInvoices.find(i=>i.id===id)).filter(Boolean)
+    .sort((a,b)=>parseFloat(b.total_with_nds||0)-parseFloat(a.total_with_nds||0));
+
+  for(const inv of selectedInvs){
+    let amtLeft = parseFloat(inv.total_with_nds||0);
+    for(let ci=0; ci<caps.length; ci++){
+      const cap = caps[ci];
+      if(amtLeft <= 0.005) break;
+      const isLast = ci === caps.length-1;
+      const alloc = (cap.cap > 0.005 || isLast) ? (isLast ? amtLeft : Math.min(amtLeft, cap.cap)) : 0;
+      if(alloc <= 0.005) continue;
+      try{
+        await esfReconPostLink(inv.id, 'money_tx', cap.id, alloc);
+        esfReconLog(`✅ ЭСФ ${inv.num}: ${fmtCurrency(alloc)} → платёж ${cap.id}`);
+        ok++;
+      } catch(e){ esfReconLog(`❌ Ошибка привязки ЭСФ ${inv.num}: ${e.message}`); failed++; }
+      cap.cap -= alloc; amtLeft -= alloc;
+    }
+  }
+  esfReconLog(`▶ Готово (группа). Изменений: ${ok}. Ошибок: ${failed}.`);
+}
+
+async function esfReconSaveLinks(){
+  if(!esfReconActiveSource){ esfReconLog('⚠️ Нет выбранного платежа — нечего сохранять.'); return; }
+  const savingSource = esfReconActiveSource;
+  const savingSelection = new Set(esfReconSelectedIds);
+  const btn = document.getElementById('esf-recon-save-btn');
+  btn.disabled=true;
+  try{
+    if(savingSource.type==='pool'){
+      await esfReconSavePoolLinks(savingSource, savingSelection);
+    } else {
+      const existingForSource = esfReconLinks.filter(l=>l.source_type===savingSource.type && l.source_id===savingSource.id);
+      const existingIds = new Set(existingForSource.map(l=>l.esf_invoice_id));
+      const toAdd = [...savingSelection].filter(id=>!existingIds.has(id));
+      const toRemove = existingForSource.filter(l=>!savingSelection.has(l.esf_invoice_id));
+
+      let ok=0, failed=0;
+      for(const esfId of toAdd){
+        const inv = esfReconInvoices.find(i=>i.id===esfId);
+        try{
+          await esfReconPostLink(esfId, savingSource.type, savingSource.id, parseFloat(inv.total_with_nds||0));
+          esfReconLog(`✅ Привязан ЭСФ ${inv.num} (${fmtCurrency(inv.total_with_nds)}) → ${savingSource.label}`);
+          ok++;
+        } catch(e){ esfReconLog(`❌ Ошибка привязки ЭСФ ${inv?.num}: ${e.message}`); failed++; }
+      }
+      for(const l of toRemove){
+        try{
+          await sbDelete('esf_payment_links', `id=eq.${l.id}`);
+          esfReconLinks = esfReconLinks.filter(x=>x.id!==l.id);
+          esfReconLog(`↩️ Отвязан ЭСФ id=${l.esf_invoice_id} от ${savingSource.label}`);
+          ok++;
+        } catch(e){ esfReconLog(`❌ Ошибка отвязки: ${e.message}`); failed++; }
+      }
+      esfReconLog(`▶ Готово. Изменений: ${ok}. Ошибок: ${failed}.`);
+    }
+    await esfReconRefreshLinks();
+    esfReconSyncSelectedFromLinks();
+    esfReconRenderAll();
+  } catch(e){
+    esfReconLog(`❌ Ошибка при сохранении: ${e.message}`);
+  } finally {
+    btn.disabled=false;
+  }
+}
+
+async function esfReconAutoMatch(){
+  const btn = document.getElementById('esf-recon-automatch-btn');
+  btn.disabled=true;
+  document.getElementById('esf-recon-automatch-result').textContent='Ищу совпадения...';
+
+  const candidates = esfReconMoneyTx.filter(t=>esfReconIsLegalCounterparty(t.counterparty));
+  let suggestions=[];
+  for(const t of candidates){
+    const remaining = esfReconSourceAmount('money_tx',t) - esfReconSourceLinked('money_tx', t.id);
+    if(remaining <= ESF_RECON_TOLERANCE) continue;
+    const cpNorm = esfReconNorm(t.counterparty);
+    const matchingEsf = esfReconInvoices.filter(inv=>{
+      if(esfReconRemaining(inv) <= ESF_RECON_TOLERANCE) return false;
+      const supNorm = esfReconNorm(inv.supplier_name);
+      return supNorm.includes(cpNorm) || cpNorm.includes(supNorm);
+    });
+    const singleMatch = matchingEsf.find(inv=>{
+      const amtOk = Math.abs(esfReconRemaining(inv) - remaining) < ESF_RECON_TOLERANCE;
+      const dateOk = Math.abs(new Date(inv.date) - new Date(t.date)) < 45*24*3600*1000;
+      return amtOk && dateOk;
+    });
+    if(singleMatch){ suggestions.push({source:t, esf:[singleMatch]}); continue; }
+    const windowed = matchingEsf.filter(inv=>Math.abs(new Date(inv.date) - new Date(t.date)) < 45*24*3600*1000);
+    outer:
+    for(let i=0;i<windowed.length;i++){
+      for(let j=i+1;j<windowed.length;j++){
+        const sum = esfReconRemaining(windowed[i]) + esfReconRemaining(windowed[j]);
+        if(Math.abs(sum - remaining) < ESF_RECON_TOLERANCE){
+          suggestions.push({source:t, esf:[windowed[i], windowed[j]]});
+          break outer;
+        }
+      }
+    }
+  }
+
+  const totalLinksToSave = suggestions.reduce((s,x)=>s+x.esf.length,0);
+  document.getElementById('esf-recon-automatch-result').textContent = `Найдено ${suggestions.length} совпадений (${totalLinksToSave} связей) — сохраняю...`;
+
+  let applied=0, doneCount=0;
+  for(const s of suggestions){
+    for(const inv of s.esf){
+      doneCount++;
+      document.getElementById('esf-recon-automatch-result').textContent = `Сохраняю: ${doneCount} / ${totalLinksToSave}...`;
+      try{ await esfReconPostLink(inv.id, 'money_tx', s.source.id, parseFloat(inv.total_with_nds||0)); applied++; }
+      catch(e){}
+    }
+  }
+  document.getElementById('esf-recon-automatch-result').textContent = `Найдено и привязано автоматически: ${applied} ЭСФ (по ${suggestions.length} платежам).`;
+  esfReconLog(`🔍 Авто-сопоставление: ${suggestions.length} платежей, ${applied} ЭСФ привязано`);
+  btn.disabled=false;
+  await esfReconRefreshLinks();
+  esfReconSyncSelectedFromLinks();
+  esfReconRenderAll();
+}
+
+function esfReconDaysBetween(d1,d2){ return Math.abs(new Date(d1)-new Date(d2))/(24*3600*1000); }
+
+async function esfReconAutoDistribute(){
+  const btn = document.getElementById('esf-recon-autodist-btn');
+  btn.disabled=true;
+  const resultEl = document.getElementById('esf-recon-autodist-result');
+  let pass1Linked=0, pass1Groups=0, pass2Linked=0, errors=0;
+
+  try{
+    resultEl.textContent='Шаг 1: группирую свободные платежи со свободными ЭСФ...';
+    const payByCounterparty={};
+    esfReconMoneyTx.forEach(t=>{
+      const rem = esfReconSourceAmount('money_tx',t) - esfReconSourceLinked('money_tx', t.id);
+      if(rem <= ESF_RECON_TOLERANCE) return;
+      const key = esfReconNorm(t.counterparty);
+      if(!key) return;
+      (payByCounterparty[key]=payByCounterparty[key]||[]).push(t);
+    });
+
+    for(const key of Object.keys(payByCounterparty)){
+      const payments = payByCounterparty[key];
+      const esfList = esfReconInvoices.filter(inv => esfReconRemaining(inv) > ESF_RECON_TOLERANCE && (
+        esfReconNorm(inv.supplier_name).includes(key) || key.includes(esfReconNorm(inv.supplier_name))
+      ));
+      if(esfList.length===0) continue;
+
+      const totalPay = payments.reduce((s,t)=>s+(esfReconSourceAmount('money_tx',t) - esfReconSourceLinked('money_tx', t.id)),0);
+      esfList.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      let cumEsf=0;
+      const toLink=[];
+      for(const inv of esfList){
+        const rem = esfReconRemaining(inv);
+        if(cumEsf+rem > totalPay + ESF_RECON_TOLERANCE) continue;
+        cumEsf += rem;
+        toLink.push(inv);
+      }
+      if(toLink.length===0) continue;
+
+      const caps = payments.map(t=>({id:t.id, cap: esfReconSourceAmount('money_tx',t) - esfReconSourceLinked('money_tx', t.id)}));
+      for(const inv of toLink){
+        let amtLeft = esfReconRemaining(inv);
+        for(let ci=0; ci<caps.length && amtLeft>0.005; ci++){
+          const cap = caps[ci];
+          if(cap.cap <= 0.005) continue;
+          const alloc = Math.min(amtLeft, cap.cap);
+          try{ await esfReconPostLink(inv.id, 'money_tx', cap.id, alloc); pass1Linked++; }
+          catch(e){ errors++; esfReconLog(`❌ Группировка: ЭСФ ${inv.num} → платёж: ${e.message}`); }
+          cap.cap -= alloc; amtLeft -= alloc;
+        }
+      }
+      if(toLink.length) pass1Groups++;
+      resultEl.textContent = `Шаг 1: обработано контрагентов — привязано ${pass1Linked} ЭСФ...`;
+    }
+    esfReconLog(`▶ Шаг 1 готово: сгруппировано по ${pass1Groups} контрагентам, привязано ${pass1Linked} ЭСФ.`);
+
+    resultEl.textContent = 'Шаг 2: раскладываю оставшиеся свободные ЭСФ по авансовым отчётам...';
+    const freeEsf = esfReconInvoices
+      .filter(inv => esfReconRemaining(inv) > ESF_RECON_TOLERANCE)
+      .filter(inv => !ESF_RECON_ADVANCE_EXCLUDE_RE.test(inv.supplier_name||''))
+      .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+
+    const advCaps = esfReconAdvances.map(a=>({
+      id:a.id, date:a.date,
+      cap: esfReconSourceAmount('advance_report', a) - esfReconSourceLinked('advance_report', a.id),
+    }));
+
+    for(const inv of freeEsf){
+      const rem = esfReconRemaining(inv);
+      const candidates = advCaps
+        .filter(a => a.cap > ESF_RECON_TOLERANCE && esfReconDaysBetween(a.date, inv.date) <= ESF_RECON_DATE_TOLERANCE_DAYS_ADVANCE)
+        .sort((a,b)=> esfReconDaysBetween(a.date, inv.date) - esfReconDaysBetween(b.date, inv.date));
+      const target = candidates.find(a => a.cap >= rem - ESF_RECON_TOLERANCE);
+      if(!target) continue;
+      try{ await esfReconPostLink(inv.id, 'advance_report', target.id, rem); target.cap -= rem; pass2Linked++; }
+      catch(e){ errors++; esfReconLog(`❌ Авансовый отчёт: ЭСФ ${inv.num}: ${e.message}`); }
+      resultEl.textContent = `Шаг 2: привязано к авансовым отчётам — ${pass2Linked}...`;
+    }
+    esfReconLog(`▶ Шаг 2 готово: привязано к авансовым отчётам ${pass2Linked} ЭСФ.`);
+    resultEl.textContent = `Готово: группировка — ${pass1Linked} ЭСФ, авансовые отчёты — ${pass2Linked} ЭСФ. Ошибок: ${errors}.`;
+  } catch(e){
+    esfReconLog(`❌ Ошибка авто-разноски: ${e.message}`);
+    resultEl.textContent = `Ошибка: ${e.message}`;
+  } finally {
+    await esfReconRefreshLinks();
+    esfReconSyncSelectedFromLinks();
+    esfReconRenderAll();
+    btn.disabled=false;
+  }
+}
 
 async function initEsfPage(){
   if(!_esfData){
