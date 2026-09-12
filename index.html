@@ -8799,16 +8799,15 @@ function handleBankReconImport(event){
       const sheet=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(sheet,{header:1, raw:false, defval:''});
 
-      let headerRowIdx=-1;
-      for(let i=0;i<Math.min(rows.length,10);i++){
-        const r=rows[i];
-        const nonEmpty=r.filter(c=>String(c).trim()!=='');
-        if(nonEmpty.length>=5 && nonEmpty.some(c=>/[а-яa-z]/i.test(String(c)) && String(c).length>3)){ headerRowIdx=i; break; }
+      let headerRowIdx=-1, format=null;
+      for(let i=0;i<Math.min(rows.length,50);i++){
+        const cand=(rows[i]||[]).map(h=>(h||'').toString().trim());
+        if(cand.filter(c=>c!=='').length<5) continue;
+        const fmt=detectBankFormat(cand);
+        if(fmt){ headerRowIdx=i; format=fmt; break; }
       }
-      if(headerRowIdx===-1){ alert('Не удалось найти строку заголовков в файле.'); event.target.value=''; return; }
+      if(headerRowIdx===-1){ alert('Не удалось найти строку заголовков в файле. Пока поддерживаются выписки Kaspi и Halyk.'); event.target.value=''; return; }
       const headers=rows[headerRowIdx].map(h=>(h||'').toString().trim());
-      const format=detectBankFormat(headers);
-      if(!format){ alert('Не удалось определить банк по заголовкам файла. Пока поддерживаются Kaspi и Halyk.'); event.target.value=''; return; }
 
       const accountId = BANK_RECON_ACCOUNTS[format];
       const parsedRows = parseBankStatementForRecon(rows, headerRowIdx, headers, format);
@@ -12168,19 +12167,17 @@ function handleBankStatementFile(event){
       const sheet=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(sheet,{header:1, raw:false, defval:''});
 
-      // Ищем строку заголовка среди первых 10 строк
-      let headerRowIdx=-1;
-      for(let i=0;i<Math.min(rows.length,10);i++){
-        const r=rows[i];
-        const nonEmpty=r.filter(c=>String(c).trim()!=='');
-        if(nonEmpty.length>=5 && nonEmpty.some(c=>/[а-яa-z]/i.test(String(c)) && String(c).length>3)){
-          headerRowIdx=i; break;
-        }
+      // Ищем строку заголовка (может быть далеко от начала — у Kaspi перед ней
+      // идёт блок с реквизитами счёта, остатками и периодом выписки)
+      let headerRowIdx=-1, format=null;
+      for(let i=0;i<Math.min(rows.length,50);i++){
+        const cand=(rows[i]||[]).map(h=>(h||'').toString().trim());
+        if(cand.filter(c=>c!=='').length<5) continue;
+        const fmt=detectBankFormat(cand);
+        if(fmt){ headerRowIdx=i; format=fmt; break; }
       }
-      if(headerRowIdx===-1){ alert('Не удалось найти строку заголовков в файле.'); event.target.value=''; return; }
+      if(headerRowIdx===-1){ alert('Не удалось найти строку заголовков в файле. Пока поддерживаются выписки Kaspi и Halyk.'); event.target.value=''; return; }
       const headers=rows[headerRowIdx].map(h=>(h||'').toString().trim());
-      const format=detectBankFormat(headers);
-      if(!format){ alert('Не удалось определить банк по заголовкам файла. Пока поддерживаются выписки Kaspi и Halyk (Народный Банк).'); event.target.value=''; return; }
 
       const col=name=>headers.findIndex(h=>h.toLowerCase()===name.toLowerCase());
       const idx = format==='kaspi' ? {
