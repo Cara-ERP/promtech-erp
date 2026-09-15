@@ -13845,7 +13845,10 @@ function updateAdvSupplierEsf(){
     // Актуальная проверка "уже сверено" — напрямую по esf_payment_links,
     // как и во вкладке "Сверка с оплатами" (а не по устаревшему полю в отчётах
     // и не по угадыванию совпадения суммы платежа)
-    const supplierEsf = allInvoices.filter(inv => esfReconNorm(inv.supplier_name)===supNorm);
+    const supplierEsf = allInvoices.filter(inv => {
+      const invNorm = esfReconNorm(inv.supplier_name);
+      return invNorm===supNorm || invNorm.includes(supNorm) || supNorm.includes(invNorm);
+    });
 
     // ЭСФ, уже выбранные в ДРУГИХ строках этого же (текущего, ещё не сохранённого) отчёта
     const usedInThisReport = new Set((window._advLines||[]).map(l=>l.esfInvoiceId).filter(Boolean));
@@ -13870,6 +13873,9 @@ function updateAdvSupplierEsf(){
     } else {
       esfRow.style.display='none';
     }
+  }).catch(e=>{
+    console.warn('⚠️ Не удалось подобрать ЭСФ поставщика:', e.message);
+    esfRow.style.display='none';
   });
 }
 
