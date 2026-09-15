@@ -6097,6 +6097,16 @@ window.onerror = function(msg, src, line, col){
               background:var(--bg3);border-radius:6px;font-size:12px;color:var(--text2)">
             </div>
           </div>
+          <div class="form-row" id="tx-esf-row" style="grid-column:1/-1;display:none">
+            <label class="label">Связать с ЭСФ <span style="color:var(--text3);font-size:11px">(необязательно)</span></label>
+            <div id="tx-esf-lines" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px"></div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <input id="tx-esf-search" type="search" placeholder="🔍 Поиск ЭСФ этого поставщика..."
+                style="font-size:13px;flex:1;min-width:180px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)"
+                oninput="renderTxEsfCandidates()">
+            </div>
+            <div id="tx-esf-candidates" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-top:6px"></div>
+          </div>
           <div class="form-row" id="tx-advance-emp-row" style="display:none;grid-column:1/-1">
             <label class="label">Сотрудник</label>
             <select id="tx-advance-emp" style="font-size:13px"
@@ -9907,6 +9917,136 @@ function clearTxOrderLines(){
   renderTxOrderLines();
 }
 
+// ===== ПРИВЯЗКА ЭСФ ПРЯМО ИЗ ФОРМЫ ОПЕРАЦИИ =====
+let _txEsfLines = [];
+
+function clearTxEsfLines(){
+  _txEsfLines = [];
+  renderTxEsfLines();
+}
+
+async function loadTxEsfCandidatesData(){
+  // Переиспользуем то, что уже могла загрузить вкладка "Сверка с оплатами", иначе грузим сами
+  if(!esfReconInvoices.length){
+    try{ esfReconInvoices = await sbFetchAllPages('incoming_invoices','select=*&order=date.desc'); }
+    catch(e){ console.warn('⚠️ Не удалось загрузить ЭСФ для привязки:', e.message); }
+  }
+  await ensureEsfLinksLoaded();
+}
+
+function txEsfRemaining(inv){
+  return (parseFloat(inv.total_with_nds)||0) - esfLinkedAmount(inv.id);
+}
+
+async function updateTxEsfSection(){
+  const row = document.getElementById('tx-esf-row');
+  if(!row) return;
+  const category = document.getElementById('tx-category')?.value||'';
+  const flow = document.getElementById('tx-flow')?.value||'';
+  const show = flow==='expense' && category==='supplier';
+  row.style.display = show ? '' : 'none';
+  if(!show) return;
+  await loadTxEsfCandidatesData();
+  renderTxEsfLines();
+  renderTxEsfCandidates();
+}
+
+function renderTxEsfCandidates(){
+  const wrap = document.getElementById('tx-esf-candidates');
+  if(!wrap) return;
+  const counterparty = document.getElementById('tx-counterparty')?.value||'';
+  const bin = document.getElementById('tx-counterparty-bin')?.value.trim()||'';
+  const q = esfReconNorm(document.getElementById('tx-esf-search')?.value||'');
+  const cpNorm = esfReconNorm(counterparty);
+  if(!cpNorm){
+    wrap.innerHTML = '<div style="padding:10px;color:var(--text3);font-size:12px">Сначала укажите поставщика</div>';
+    return;
+  }
+
+  const addedIds = new Set(_txEsfLines.map(l=>l.esfId));
+  let candidates = esfReconInvoices.filter(inv=>{
+    if(addedIds.has(inv.id)) return false;
+    if(txEsfRemaining(inv) <= 100) return false;
+    if(bin && inv.supplier_bin) return inv.supplier_bin.trim()===bin;
+    const supNorm = esfReconNorm(inv.supplier_name);
+    return supNorm.includes(cpNorm) || cpNorm.includes(supNorm);
+  });
+  if(q) candidates = candidates.filter(inv=>esfReconNorm(inv.num).includes(q) || esfReconNorm(inv.supplier_name).includes(q));
+  candidates.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  if(!candidates.length){
+    wrap.innerHTML = '<div style="padding:10px;color:var(--text3);font-size:12px">Не найдено несверенных ЭСФ этого поставщика</div>';
+    return;
+  }
+  wrap.innerHTML = candidates.slice(0,30).map(inv=>{
+    const rem = txEsfRemaining(inv);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px dashed var(--border);font-size:12px">
+      <span style="color:var(--text3);white-space:nowrap">${inv.date||''}</span>
+      <span style="font-family:'IBM Plex Mono',monospace">${inv.num||''}</span>
+      <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace">${fmtCurrency(rem)}</span>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="addTxEsfLine('${inv.id}')">+ Добавить</button>
+    </div>`;
+  }).join('');
+}
+
+function addTxEsfLine(esfId){
+  const inv = esfReconInvoices.find(i=>i.id===esfId);
+  if(!inv) return;
+  const rem = txEsfRemaining(inv);
+  const txAmount = parseFloat(document.getElementById('tx-amount')?.value)||0;
+  const alreadyLinked = _txEsfLines.reduce((s,l)=>s+l.amount,0);
+  const leftInTx = Math.max(0, txAmount - alreadyLinked);
+  const amount = leftInTx>0 ? Math.min(rem, leftInTx) : rem;
+  _txEsfLines.push({esfId, num:inv.num, supplier:inv.supplier_name, amount});
+  renderTxEsfLines();
+  renderTxEsfCandidates();
+}
+
+function removeTxEsfLine(esfId){
+  _txEsfLines = _txEsfLines.filter(l=>l.esfId!==esfId);
+  renderTxEsfLines();
+  renderTxEsfCandidates();
+}
+
+function updateTxEsfLineAmount(esfId, value){
+  const line = _txEsfLines.find(l=>l.esfId===esfId);
+  if(line) line.amount = parseFloat(value)||0;
+}
+
+function renderTxEsfLines(){
+  const list = document.getElementById('tx-esf-lines');
+  if(!list) return;
+  list.innerHTML = _txEsfLines.map(l=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:6px;font-size:13px">
+      <span style="color:var(--accent);font-family:'IBM Plex Mono',monospace;font-weight:600">${l.num}</span>
+      <span style="color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.supplier||''}</span>
+      <input type="number" value="${l.amount}" min="0" style="width:110px;font-size:12px" onchange="updateTxEsfLineAmount('${l.esfId}',this.value)">
+      <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removeTxEsfLine('${l.esfId}')">✕</button>
+    </div>`).join('');
+}
+
+// Сохраняет привязки ЭСФ для уже созданной/отредактированной операции (реальный id из Supabase)
+async function saveTxEsfLinks(sourceId){
+  if(!sourceId) return;
+  const existing = esfLinksData.filter(l=>l.source_type==='money_tx' && l.source_id===sourceId);
+  const currentIds = new Set(_txEsfLines.map(l=>l.esfId));
+  const existingIds = new Set(existing.map(l=>l.esf_invoice_id));
+
+  for(const l of existing){
+    if(!currentIds.has(l.esf_invoice_id)){
+      try{ await sbDelete('esf_payment_links', `id=eq.${l.id}`); esfLinksData = esfLinksData.filter(x=>x.id!==l.id); }
+      catch(e){ console.warn('⚠️ Не удалось отвязать ЭСФ:', e.message); }
+    }
+  }
+  for(const l of _txEsfLines){
+    if(existingIds.has(l.esfId)) continue;
+    try{
+      const saved = await sbInsert('esf_payment_links', {esf_invoice_id:l.esfId, source_type:'money_tx', source_id:sourceId, amount:l.amount});
+      esfLinksData.push(saved);
+    } catch(e){ console.warn('⚠️ Не удалось привязать ЭСФ №'+l.num+':', e.message); }
+  }
+}
+
 function onTxOrderSelect(){
   const orderNum = document.getElementById('tx-order')?.value||'';
   const linkEl   = document.getElementById('tx-order-link');
@@ -10141,6 +10281,7 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   const srch=document.getElementById('tx-order-search');
   if(srch) srch.value='';
   clearTxOrderLines();
+  clearTxEsfLines();
   // Загружаем привязанные заказы из order_payments для существующей записи
   if(tx?.sbId){
     const linked = (window._orderPaymentsData||[]).filter(p=>p.tx_id===tx.sbId);
@@ -10155,6 +10296,18 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
   }
   const info=document.getElementById('tx-order-info');
   if(info){ info.style.display='none'; info.innerHTML=''; }
+  // Загружаем уже существующие привязки к ЭСФ для этой операции
+  if(tx?.sbId){
+    loadTxEsfCandidatesData().then(()=>{
+      const linked = esfLinksData.filter(l=>l.source_type==='money_tx' && l.source_id===tx.sbId);
+      _txEsfLines = linked.map(l=>{
+        const inv = esfReconInvoices.find(i=>i.id===l.esf_invoice_id);
+        return {esfId:l.esf_invoice_id, num:inv?.num||'?', supplier:inv?.supplier_name||'', amount:parseFloat(l.amount)||0};
+      });
+      renderTxEsfLines();
+      renderTxEsfCandidates();
+    });
+  }
   const lnk=document.getElementById('tx-order-link');
   if(lnk) lnk.style.display='none';
 
@@ -12586,6 +12739,7 @@ function updateTxForm(){
   if(inputEl)   inputEl.style.display   = 'block';
   if(selEl)     selEl.style.display     = 'none';
   if(ctpLabel)  ctpLabel.textContent    = ctpConfig.label;
+  updateTxEsfSection();
 
   if(ctpConfig.type==='employee' || ctpConfig.type==='employee_salon'){
     // Показываем селект сотрудников
@@ -12635,6 +12789,7 @@ function updateTxForm(){
     if(suppliersData.length===0 && typeof loadSuppliersFromDB==='function'){
       loadSuppliersFromDB().then(updateTxForm);
     }
+    if(inputEl) inputEl.oninput = function(){ autofillTxCounterpartyBin(this.value); renderTxEsfCandidates(); };
 
   } else if(ctpConfig.type==='fixed'){
     // Селект с фиксированными значениями
@@ -13240,6 +13395,7 @@ function saveMoneyTx(){
           order_num:    obj.orderNum||'',
         }).then(()=>console.log('✅ Транзакция обновлена в Supabase'))
           .catch(e=>console.warn('⚠️ Ошибка обновления:', e.message));
+        saveTxEsfLinks(sbId).then(()=>{ renderCashTx(); renderBankTx(); if(typeof renderAllTx==='function') renderAllTx(); });
       }
     }
   } else {
@@ -13278,6 +13434,7 @@ function saveMoneyTx(){
             amount: obj.amount,
           }).catch(e=>console.warn('⚠️ order_payments:', e.message));
         }
+        saveTxEsfLinks(res.id).then(()=>{ renderCashTx(); renderBankTx(); if(typeof renderAllTx==='function') renderAllTx(); });
       }
     }).catch(e=>console.warn('⚠️ Ошибка сохранения транзакции:', e.message));
 
