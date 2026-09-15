@@ -12611,56 +12611,30 @@ function updateTxForm(){
     if(cat==='advance_return' && advRetRow) advRetRow.style.display='';
 
   } else if(ctpConfig.type==='supplier'){
-    // Поиск + select поставщиков
-    if(inputEl) inputEl.style.display='none';
+    // Простое поле с нативной подсказкой браузера (datalist) — надёжнее ручной
+    // синхронизации двух полей через JS, браузер сам подставляет полное значение
     if(selEl) selEl.style.display='none';
-
-    // Создаём блок поиска если нет
-    let supWrap = document.getElementById('tx-supplier-wrap');
-    if(!supWrap){
-      supWrap = document.createElement('div');
-      supWrap.id = 'tx-supplier-wrap';
-      supWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px';
-      selEl?.parentNode?.insertBefore(supWrap, selEl);
+    const supWrapOld = document.getElementById('tx-supplier-wrap');
+    if(supWrapOld) supWrapOld.remove();
+    if(inputEl){
+      inputEl.style.display='block';
+      inputEl.setAttribute('list','tx-supplier-datalist');
+      inputEl.oninput = function(){ autofillTxCounterpartyBin(this.value); };
     }
-
-    const fillSuppliers = () => {
-      const opts = [...new Set([
-        ...suppliersData.map(s=>s.name||s.company||s),
-        ...moneyTx.filter(t=>t.category==='supplier'&&t.counterparty).map(t=>t.counterparty)
-      ])].filter(Boolean).sort();
-
-      const curVal = document.getElementById('tx-counterparty')?.value||'';
-
-      supWrap.innerHTML = `
-        <input id="tx-supplier-search" type="search" placeholder="🔍 Начните вводить название..."
-          style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1)"
-          oninput="filterSupplierOpts(this.value)" value="${curVal}">
-        <select id="tx-supplier-sel" size="5"
-          style="font-size:13px;width:100%;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);display:none"
-          onchange="(function(v){
-            var s=document.getElementById('tx-supplier-search');
-            var c=document.getElementById('tx-counterparty');
-            if(s){s.value=v;}
-            if(c){c.value=v;}
-            document.getElementById('tx-supplier-sel').style.display='none';
-            autofillTxCounterpartyBin(v);
-          })(this.value)">
-          ${opts.map(n=>`<option value="${n}">${n}</option>`).join('')}
-        </select>`;
-
-      // Если уже есть значение — показываем его в поле
-      if(curVal){
-        const search = document.getElementById('tx-supplier-search');
-        if(search) search.value = curVal;
-      }
-
-      // Сохраняем полный список для фильтрации
-      supWrap._allOpts = opts;
-    };
-
-    if(suppliersData.length > 0){ fillSuppliers(); }
-    else { loadSuppliersFromDB ? loadSuppliersFromDB().then(fillSuppliers) : fillSuppliers(); }
+    let dl = document.getElementById('tx-supplier-datalist');
+    if(!dl){
+      dl = document.createElement('datalist');
+      dl.id = 'tx-supplier-datalist';
+      document.body.appendChild(dl);
+    }
+    const supplierOpts = [...new Set([
+      ...suppliersData.map(s=>s.name),
+      ...moneyTx.filter(t=>t.category==='supplier'&&t.counterparty).map(t=>t.counterparty)
+    ])].filter(Boolean).sort();
+    dl.innerHTML = supplierOpts.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+    if(suppliersData.length===0 && typeof loadSuppliersFromDB==='function'){
+      loadSuppliersFromDB().then(updateTxForm);
+    }
 
   } else if(ctpConfig.type==='fixed'){
     // Селект с фиксированными значениями
@@ -12899,15 +12873,17 @@ function detectBankFormat(headers){
 
 function extractNameAndBin(cellValue){
   // Каспи: "ТОО Кар-Тел\nИИН/БИН 980540000397"
+  // Иногда название переносится ещё на одну строку — тогда строк до БИН больше одной
   const text=(cellValue||'').toString();
   const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-  const name=lines[0]||'';
   let bin='';
-  const binLine=lines.find(l=>/иин\/бин|бин\/иин|бин|иин/i.test(l));
-  if(binLine){
-    const m=binLine.match(/(\d{10,12})/);
+  const binLineIdx=lines.findIndex(l=>/иин\/бин|бин\/иин|бин|иин/i.test(l));
+  if(binLineIdx>-1){
+    const m=lines[binLineIdx].match(/(\d{10,12})/);
     if(m) bin=m[1];
   }
+  const nameLines = binLineIdx>-1 ? lines.slice(0,binLineIdx) : lines;
+  const name = nameLines.join(' ').trim() || lines[0] || '';
   return {name, bin};
 }
 
@@ -13349,17 +13325,22 @@ function saveMoneyTx(){
   }
 
   closeModal('moneyTxModal');
-  // Обновляем только текущую активную вкладку — не все сразу
+  // Обновляем сразу — локальный массив moneyTx уже содержит новую запись,
+  // ждать ответа от базы для этого не нужно
   renderMoneyKPIs();
-  // Перезагружаем данные из базы чтобы избежать рассинхронизации
+  renderCashTx();
+  renderBankTx();
+  if(typeof renderAllTx==='function') renderAllTx();
+  renderAdvances();
+  if(obj.orderNum) recalcOrderPayment(obj.orderNum);
+  if(document.getElementById('page-sales')?.style.display!=='none') renderOrders();
+  // Фоновая досверка с базой (на случай рассинхронизации между вкладками/устройствами)
   setTimeout(()=>{
     loadMoneyFromDB().then(()=>{
       renderCashTx();
       renderBankTx();
       renderAllTx();
       renderAdvances();
-      if(obj.orderNum) recalcOrderPayment(obj.orderNum);
-      if(document.getElementById('page-sales')?.style.display!=='none') renderOrders();
     });
   }, 100);
 }
