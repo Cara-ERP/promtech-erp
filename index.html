@@ -6048,7 +6048,7 @@ window.onerror = function(msg, src, line, col){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 4px">
           <div class="form-row">
             <label class="label">Дата</label>
-            <input id="tx-date" type="date">
+            <input id="tx-date" type="date" onchange="renderTxEsfCandidates()">
           </div>
           <div class="form-row">
             <label class="label">Сумма (₸)</label>
@@ -6298,7 +6298,7 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="form-row">
             <label class="label">Дата выдачи</label>
-            <input id="adv-date" type="date">
+            <input id="adv-date" type="date" onchange="updateAdvSupplierEsf()">
           </div>
           <div class="form-row">
             <label class="label">Дата отчёта <span style="color:var(--text3)">(когда отчитался)</span></label>
