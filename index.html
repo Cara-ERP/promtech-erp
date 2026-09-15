@@ -6393,9 +6393,10 @@ window.onerror = function(msg, src, line, col){
           <div id="adv-line-extra" style="margin-top:8px;display:none">
             <div id="adv-line-supplier-row" style="display:none">
               <label class="label">Поставщик</label>
-              <select id="adv-line-supplier" style="font-size:12px;width:100%" onchange="updateAdvSupplierDocs();updateAdvSupplierEsf()">
-                <option value="">— выберите поставщика —</option>
-              </select>
+              <input id="adv-line-supplier" type="text" list="adv-line-supplier-datalist"
+                placeholder="🔍 Начните вводить название..." style="font-size:12px;width:100%"
+                oninput="updateAdvSupplierDocs();updateAdvSupplierEsf()">
+              <datalist id="adv-line-supplier-datalist"></datalist>
               <div id="adv-line-supplier-esf-row" style="display:none;margin-top:6px">
                 <label class="label">📄 ЭСФ поставщика <span style="color:var(--text3)">(без оплаты и не привязан к др. отчёту)</span></label>
                 <select id="adv-line-supplier-esf" style="font-size:12px;width:100%" onchange="onAdvEsfSelect()">
@@ -13726,15 +13727,14 @@ function updateAdvLineForm(){
   if(extra) extra.style.display = type==='expense'?'none':'';
   if(supRow) supRow.style.display = type==='supplier'?'':'none';
   if(type==='supplier'){
-    // Заполняем список поставщиков
-    const supSel = document.getElementById('adv-line-supplier');
-    if(supSel && supSel.options.length <= 1){
+    // Заполняем подсказки поставщиков (нативный datalist — с поиском по буквам)
+    const supDatalist = document.getElementById('adv-line-supplier-datalist');
+    if(supDatalist){
       const suppliers = [...new Set([
         ...suppliersData.map(s=>s.name||s.company),
         ...moneyTx.filter(t=>t.category==='supplier'&&t.counterparty).map(t=>t.counterparty)
       ])].filter(Boolean).sort();
-      supSel.innerHTML = '<option value="">— выберите поставщика —</option>' +
-        suppliers.map(s=>`<option value="${s}">${s}</option>`).join('');
+      supDatalist.innerHTML = suppliers.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">`).join('');
     }
     const docRow = document.getElementById('adv-line-supplier-doc-row');
     if(docRow) docRow.style.display='none';
@@ -13974,6 +13974,32 @@ function updateAdvSummary(){
   renderAdvLines();
 }
 
+// Синхронизирует esf_payment_links с ЭСФ, выбранными в строках авансового отчёта
+// (чтобы это было видно и в "Сверке с оплатами", и учитывалось проверкой на устаревшие связи)
+async function syncAdvanceEsfLinks(reportId, lines){
+  if(!reportId) return;
+  await ensureEsfLinksLoaded();
+  const currentEsfIds = new Map(); // esfInvoiceId -> amount (из строки отчёта)
+  (lines||[]).forEach(l=>{ if(l.esfInvoiceId) currentEsfIds.set(l.esfInvoiceId, l.amount||0); });
+
+  const existing = esfLinksData.filter(l=>l.source_type==='advance_report' && l.source_id===reportId);
+  const existingIds = new Set(existing.map(l=>l.esf_invoice_id));
+
+  for(const l of existing){
+    if(!currentEsfIds.has(l.esf_invoice_id)){
+      try{ await sbDelete('esf_payment_links', `id=eq.${l.id}`); esfLinksData = esfLinksData.filter(x=>x.id!==l.id); }
+      catch(e){ console.warn('⚠️ Не удалось отвязать ЭСФ от авансового отчёта:', e.message); }
+    }
+  }
+  for(const [esfId, amount] of currentEsfIds){
+    if(existingIds.has(esfId)) continue;
+    try{
+      const saved = await sbInsert('esf_payment_links', {esf_invoice_id:esfId, source_type:'advance_report', source_id:reportId, amount});
+      esfLinksData.push(saved);
+    } catch(e){ console.warn('⚠️ Не удалось привязать ЭСФ к авансовому отчёту:', e.message); }
+  }
+}
+
 async function saveAdvance(){
   const editId  = document.getElementById('adv-edit-id').value||'';
   const issued  = parseFloat(document.getElementById('adv-issued').value)||0;
@@ -14020,6 +14046,7 @@ async function saveAdvance(){
     if(editId){
       // Обновляем в Supabase
       await sbPatch('advance_reports', `id=eq.${editId}`, dbObj);
+      syncAdvanceEsfLinks(editId, obj.lines);
       const idx = advanceReports.findIndex(a=>(a.sbId||a.id)===editId);
       if(idx>=0){
         const prev = advanceReports[idx];
@@ -14045,6 +14072,7 @@ async function saveAdvance(){
       const res = await sbInsert('advance_reports', dbObj);
       const newId = res?.id||advSeq++;
       advanceReports.push({id:newId, sbId:newId, ...obj});
+      syncAdvanceEsfLinks(newId, obj.lines);
       moneyTx.push({id:txSeq++, date:obj.date, accountId:obj.accountId,
         flow:'expense', category:'advance_out', amount:obj.issued,
         desc:'Выдача аванса: '+obj.purpose, counterparty:obj.empName, orderNum:''});
