@@ -9973,7 +9973,15 @@ function renderTxEsfCandidates(){
     return supNorm.includes(cpNorm) || cpNorm.includes(supNorm);
   });
   if(q) candidates = candidates.filter(inv=>esfReconNorm(inv.num).includes(q) || esfReconNorm(inv.supplier_name).includes(q));
-  candidates.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const txDate = document.getElementById('tx-date')?.value||'';
+  candidates.sort((a,b)=>{
+    const da = txDate ? esfReconDaysBetween(a.date, txDate) : Infinity;
+    const db = txDate ? esfReconDaysBetween(b.date, txDate) : Infinity;
+    const aClose = da<=15, bClose = db<=15;
+    if(aClose!==bClose) return aClose ? -1 : 1; // сначала ЭСФ в пределах ±15 дней
+    if(aClose && bClose) return da-db;          // среди близких — сначала самые близкие по дате
+    return (b.date||'').localeCompare(a.date||'');
+  });
 
   if(!candidates.length){
     wrap.innerHTML = '<div style="padding:10px;color:var(--text3);font-size:12px">Не найдено несверенных ЭСФ этого поставщика</div>';
@@ -13856,9 +13864,17 @@ function updateAdvSupplierEsf(){
 
   if(availableEsf.length > 0){
     esfRow.style.display='';
+    const advDate = document.getElementById('adv-date')?.value||'';
+    availableEsf.sort((a,b)=>{
+      const da = advDate ? esfReconDaysBetween(a.date, advDate) : Infinity;
+      const db = advDate ? esfReconDaysBetween(b.date, advDate) : Infinity;
+      const aClose = da<=15, bClose = db<=15;
+      if(aClose!==bClose) return aClose ? -1 : 1;
+      if(aClose && bClose) return da-db;
+      return (b.date||'').localeCompare(a.date||'');
+    });
     esfSel.innerHTML = '<option value="">— без ЭСФ —</option>' +
-      availableEsf.sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-        .map(inv=>`<option value="${inv.id}" data-amount="${inv.total_with_nds}" data-num="${(inv.num||'').replace(/"/g,'&quot;')}">${inv.date} — №${inv.num} — ₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</option>`).join('');
+      availableEsf.map(inv=>`<option value="${inv.id}" data-amount="${inv.total_with_nds}" data-num="${(inv.num||'').replace(/"/g,'&quot;')}">${inv.date} — №${inv.num} — ₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</option>`).join('');
   } else {
     esfRow.style.display='none';
   }
