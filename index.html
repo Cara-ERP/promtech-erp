@@ -13835,49 +13835,42 @@ function updateAdvSupplierEsf(){
   const supplier = supSel.value;
   if(!supplier){ esfRow.style.display='none'; return; }
 
-  const supNorm = normSupName(supplier);
-  const allInvoices = (_esfData?.invoices||[]);
+  const supNorm = esfReconNorm(supplier);
 
-  // Все ЭСФ этого поставщика
-  const supplierEsf = allInvoices.filter(inv => normSupName(inv.supplier_name)===supNorm);
+  const loadInvoices = esfReconInvoices.length
+    ? Promise.resolve(esfReconInvoices)
+    : sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{ esfReconInvoices = data||[]; return esfReconInvoices; });
 
-  // ID ЭСФ уже привязанных к другим авансовым отчётам
-  const linkedEsfIds = new Set();
-  advanceReports.forEach(a=>{
-    (a.lines||[]).forEach(l=>{ if(l.esfInvoiceId) linkedEsfIds.add(l.esfInvoiceId); });
+  Promise.all([loadInvoices, ensureEsfLinksLoaded()]).then(([allInvoices])=>{
+    // Актуальная проверка "уже сверено" — напрямую по esf_payment_links,
+    // как и во вкладке "Сверка с оплатами" (а не по устаревшему полю в отчётах
+    // и не по угадыванию совпадения суммы платежа)
+    const supplierEsf = allInvoices.filter(inv => esfReconNorm(inv.supplier_name)===supNorm);
+
+    // ЭСФ, уже выбранные в ДРУГИХ строках этого же (текущего, ещё не сохранённого) отчёта
+    const usedInThisReport = new Set((window._advLines||[]).map(l=>l.esfInvoiceId).filter(Boolean));
+
+    const availableEsf = supplierEsf.filter(inv =>
+      !usedInThisReport.has(inv.id) && esfLinkedAmount(inv.id) <= 100
+    );
+
+    if(availableEsf.length > 0){
+      esfRow.style.display='';
+      const advDate = document.getElementById('adv-date')?.value||'';
+      availableEsf.sort((a,b)=>{
+        const da = advDate ? esfReconDaysBetween(a.date, advDate) : Infinity;
+        const db = advDate ? esfReconDaysBetween(b.date, advDate) : Infinity;
+        const aClose = da<=15, bClose = db<=15;
+        if(aClose!==bClose) return aClose ? -1 : 1;
+        if(aClose && bClose) return da-db;
+        return (b.date||'').localeCompare(a.date||'');
+      });
+      esfSel.innerHTML = '<option value="">— без ЭСФ —</option>' +
+        availableEsf.map(inv=>`<option value="${inv.id}" data-amount="${inv.total_with_nds}" data-num="${(inv.num||'').replace(/"/g,'&quot;')}">${inv.date} — №${inv.num} — ₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</option>`).join('');
+    } else {
+      esfRow.style.display='none';
+    }
   });
-
-  // Оплаты по РС этому поставщику
-  const paidTx = moneyTx.filter(t=>t.flow==='expense'&&t.category==='supplier'&&normSupName(t.counterparty)===supNorm);
-
-  // Для каждой ЭСФ проверяем — есть ли оплата с близкой суммой (±3 дня, сумма совпадает в пределах 5%)
-  function esfIsPaid(inv){
-    return paidTx.some(t=>{
-      const diffDays = Math.abs((new Date(t.date) - new Date(inv.date))/(1000*60*60*24));
-      const sumClose = Math.abs(t.amount - inv.total_with_nds) / Math.max(inv.total_with_nds,1) < 0.05;
-      return diffDays <= 5 && sumClose;
-    });
-  }
-
-  // Фильтруем: без привязки к другому отчёту, и нет явной оплаты по РС
-  const availableEsf = supplierEsf.filter(inv => !linkedEsfIds.has(inv.id) && !esfIsPaid(inv));
-
-  if(availableEsf.length > 0){
-    esfRow.style.display='';
-    const advDate = document.getElementById('adv-date')?.value||'';
-    availableEsf.sort((a,b)=>{
-      const da = advDate ? esfReconDaysBetween(a.date, advDate) : Infinity;
-      const db = advDate ? esfReconDaysBetween(b.date, advDate) : Infinity;
-      const aClose = da<=15, bClose = db<=15;
-      if(aClose!==bClose) return aClose ? -1 : 1;
-      if(aClose && bClose) return da-db;
-      return (b.date||'').localeCompare(a.date||'');
-    });
-    esfSel.innerHTML = '<option value="">— без ЭСФ —</option>' +
-      availableEsf.map(inv=>`<option value="${inv.id}" data-amount="${inv.total_with_nds}" data-num="${(inv.num||'').replace(/"/g,'&quot;')}">${inv.date} — №${inv.num} — ₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</option>`).join('');
-  } else {
-    esfRow.style.display='none';
-  }
 }
 
 function onAdvEsfSelect(){
