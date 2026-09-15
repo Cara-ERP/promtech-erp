@@ -6395,7 +6395,7 @@ window.onerror = function(msg, src, line, col){
               <label class="label">Поставщик</label>
               <input id="adv-line-supplier" type="text" list="adv-line-supplier-datalist"
                 placeholder="🔍 Начните вводить название..." style="font-size:12px;width:100%"
-                oninput="updateAdvSupplierDocs();updateAdvSupplierEsf()">
+                oninput="updateAdvSupplierEsf()">
               <datalist id="adv-line-supplier-datalist"></datalist>
               <div id="adv-line-supplier-esf-row" style="display:none;margin-top:6px">
                 <label class="label">📄 ЭСФ поставщика <span style="color:var(--text3)">(без оплаты и не привязан к др. отчёту)</span></label>
@@ -13746,6 +13746,7 @@ function updateAdvLineForm(){
     }
     const docRow = document.getElementById('adv-line-supplier-doc-row');
     if(docRow) docRow.style.display='none';
+    updateAdvSupplierEsf();
   }
   if(matRow) matRow.style.display = type==='material'?'':'none';
 
@@ -13833,34 +13834,42 @@ function updateAdvSupplierEsf(){
   const esfSel = document.getElementById('adv-line-supplier-esf');
   if(!supSel||!esfRow||!esfSel) return;
   const supplier = supSel.value;
-  if(!supplier){ esfRow.style.display='none'; return; }
-
   const supNorm = esfReconNorm(supplier);
+  const advDate = document.getElementById('adv-date')?.value||'';
+
+  // Без даты и без поставщика искать нечего — иначе показали бы вообще все ЭСФ подряд
+  if(!supplier && !advDate){ esfRow.style.display='none'; return; }
 
   const loadInvoices = esfReconInvoices.length
     ? Promise.resolve(esfReconInvoices)
     : sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{ esfReconInvoices = data||[]; return esfReconInvoices; });
 
   Promise.all([loadInvoices, ensureEsfLinksLoaded()]).then(([allInvoices])=>{
-    // Актуальная проверка "уже сверено" — напрямую по esf_payment_links,
-    // как и во вкладке "Сверка с оплатами" (а не по устаревшему полю в отчётах
-    // и не по угадыванию совпадения суммы платежа)
-    const supplierEsf = allInvoices.filter(inv => {
-      const invNorm = esfReconNorm(inv.supplier_name);
-      return invNorm===supNorm || invNorm.includes(supNorm) || supNorm.includes(invNorm);
-    });
-
     // ЭСФ, уже выбранные в ДРУГИХ строках этого же (текущего, ещё не сохранённого) отчёта
     const usedInThisReport = new Set((window._advLines||[]).map(l=>l.esfInvoiceId).filter(Boolean));
 
-    const availableEsf = supplierEsf.filter(inv =>
+    // Актуальная проверка "уже сверено" — напрямую по esf_payment_links,
+    // как и во вкладке "Сверка с оплатами" (а не по устаревшему полю в отчётах
+    // и не по угадыванию совпадения суммы платежа)
+    let candidates = allInvoices.filter(inv =>
       !usedInThisReport.has(inv.id) && esfLinkedAmount(inv.id) <= 100
     );
 
-    if(availableEsf.length > 0){
+    if(supplier){
+      // Поставщик указан — фильтруем по нему (гибкое совпадение "содержит")
+      candidates = candidates.filter(inv => {
+        const invNorm = esfReconNorm(inv.supplier_name);
+        return invNorm===supNorm || invNorm.includes(supNorm) || supNorm.includes(invNorm);
+      });
+    } else {
+      // Поставщик не указан — предлагаем свободные ЭСФ любых поставщиков,
+      // но только рядом по дате (иначе список был бы огромным и бесполезным)
+      candidates = candidates.filter(inv => advDate && esfReconDaysBetween(inv.date, advDate) <= 15);
+    }
+
+    if(candidates.length > 0){
       esfRow.style.display='';
-      const advDate = document.getElementById('adv-date')?.value||'';
-      availableEsf.sort((a,b)=>{
+      candidates.sort((a,b)=>{
         const da = advDate ? esfReconDaysBetween(a.date, advDate) : Infinity;
         const db = advDate ? esfReconDaysBetween(b.date, advDate) : Infinity;
         const aClose = da<=15, bClose = db<=15;
@@ -13869,7 +13878,7 @@ function updateAdvSupplierEsf(){
         return (b.date||'').localeCompare(a.date||'');
       });
       esfSel.innerHTML = '<option value="">— без ЭСФ —</option>' +
-        availableEsf.map(inv=>`<option value="${inv.id}" data-amount="${inv.total_with_nds}" data-num="${(inv.num||'').replace(/"/g,'&quot;')}">${inv.date} — №${inv.num} — ₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</option>`).join('');
+        candidates.map(inv=>`<option value="${inv.id}" data-amount="${inv.total_with_nds}" data-num="${(inv.num||'').replace(/"/g,'&quot;')}" data-supplier="${(inv.supplier_name||'').replace(/"/g,'&quot;')}">${inv.date} — №${inv.num}${!supplier?' — '+(inv.supplier_name||''):''} — ₸${Math.round(inv.total_with_nds).toLocaleString('ru-RU')}</option>`).join('');
     } else {
       esfRow.style.display='none';
     }
@@ -13883,12 +13892,17 @@ function onAdvEsfSelect(){
   const esfSel = document.getElementById('adv-line-supplier-esf');
   const amountEl = document.getElementById('adv-line-amount');
   const descEl = document.getElementById('adv-line-desc');
+  const supSel = document.getElementById('adv-line-supplier');
   const opt = esfSel.options[esfSel.selectedIndex];
   if(!opt || !opt.value) return;
   const amount = parseFloat(opt.dataset.amount)||0;
   const num = opt.dataset.num||'';
+  const supplierName = opt.dataset.supplier||'';
   if(amountEl && !amountEl.value) amountEl.value = amount;
   if(descEl && !descEl.value) descEl.value = `ЭСФ №${num}`;
+  if(supSel && !supSel.value && supplierName){
+    supSel.value = supplierName;
+  }
 }
 
 function updateAdvSupplierDocs(){
