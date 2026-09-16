@@ -23782,26 +23782,40 @@ function plRevenueTableHtml(rows){
   </table>`;
 }
 
+function plNormOrderNum(s){ return (s||'').toString().trim().toUpperCase().replace(/\s+/g,''); }
+
 function renderRevenueByChannel(){
   const el = document.getElementById('pl-rev-by-channel');
   if(!el) return;
   const year = plBuildRevenueYearOptions('pl-rev-channel-year');
-  const chMap = {};
-  ordersData.forEach(o=>{ chMap[o.num]=o.channel; });
+
+  const orderEntries = ordersData.map(o=>({norm:plNormOrderNum(o.num), channel:o.channel}));
+  const chExact = {};
+  orderEntries.forEach(o=>{ chExact[o.norm]=o.channel; });
+  function findChannel(orderNum){
+    const n = plNormOrderNum(orderNum);
+    if(!n) return null;
+    if(chExact[n]) return chExact[n];
+    // Гибкое совпадение на случай, если номер записан по-разному
+    // (например, "513" в одном месте и "НФНФ-000513" в другом)
+    const m = orderEntries.find(o=>o.norm && (o.norm.endsWith(n) || n.endsWith(o.norm)));
+    return m ? m.channel : null;
+  }
 
   const grid = {};
   PL_CHANNEL_ORDER.forEach(c=>{ grid[c]=Array(12).fill(0); });
   const other = Array(12).fill(0);
+  let matchedCount=0, otherCount=0;
 
   (realizationsData||[]).forEach(r=>{
     const d = r.doc_date||r.date||'';
     if(d.slice(0,4)!==year) return;
     const m = parseInt(d.slice(5,7),10)-1;
     if(m<0||m>11) return;
-    const channel = chMap[r.order_num];
+    const channel = findChannel(r.order_num);
     const amount = r.revenue||0;
-    if(channel && grid[channel]) grid[channel][m]+=amount;
-    else other[m]+=amount;
+    if(channel && grid[channel]){ grid[channel][m]+=amount; matchedCount++; }
+    else { other[m]+=amount; otherCount++; }
   });
 
   const rows = PL_CHANNEL_ORDER
@@ -23809,32 +23823,55 @@ function renderRevenueByChannel(){
     .filter(r=>r.data.some(v=>v>0));
   if(other.some(v=>v>0)) rows.push({label:'Без канала / прочее', data:other});
 
-  el.innerHTML = plRevenueTableHtml(rows);
+  const totalCount = matchedCount+otherCount;
+  const hint = (totalCount>0 && otherCount>0)
+    ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Не удалось определить канал для ${otherCount} из ${totalCount} строк реализации — попали в «Без канала / прочее» (возможно, номер заказа записан иначе, чем в самом заказе).</div>`
+    : '';
+  el.innerHTML = hint + plRevenueTableHtml(rows);
 }
+
+function plNormProductName(s){ return (s||'').toString().trim().toLowerCase(); }
 
 function renderRevenueByCategory(){
   const el = document.getElementById('pl-rev-by-category');
   if(!el) return;
   const year = plBuildRevenueYearOptions('pl-rev-category-year');
-  const catMap = {};
-  (catalogData||[]).forEach(p=>{ catMap[p.name]=p.category||'Без категории'; });
+
+  const catEntries = (catalogData||[]).map(p=>({norm:plNormProductName(p.name), category:p.category||'Без категории'}));
+  const catExact = {};
+  catEntries.forEach(c=>{ catExact[c.norm]=c.category; });
+  function findCategory(name){
+    const n = plNormProductName(name);
+    if(!n) return null;
+    if(catExact[n]) return catExact[n];
+    // Гибкое совпадение на случай небольших расхождений в названии
+    const m = catEntries.find(c=>c.norm && (c.norm.includes(n) || n.includes(c.norm)));
+    return m ? m.category : null;
+  }
 
   const grid = {};
+  let matchedCount=0, otherCount=0;
   (realizationsData||[]).forEach(r=>{
     const d = r.doc_date||r.date||'';
     if(d.slice(0,4)!==year) return;
     const m = parseInt(d.slice(5,7),10)-1;
     if(m<0||m>11) return;
-    const cat = catMap[r.name] || 'Без категории';
-    if(!grid[cat]) grid[cat]=Array(12).fill(0);
-    grid[cat][m]+=(r.revenue||0);
+    const cat = findCategory(r.name);
+    if(cat) matchedCount++; else otherCount++;
+    const key = cat || 'Без категории';
+    if(!grid[key]) grid[key]=Array(12).fill(0);
+    grid[key][m]+=(r.revenue||0);
   });
 
   const rows = Object.entries(grid)
     .map(([label,data])=>({label,data}))
     .sort((a,b)=>b.data.reduce((s,v)=>s+v,0)-a.data.reduce((s,v)=>s+v,0));
 
-  el.innerHTML = plRevenueTableHtml(rows);
+  const totalCount = matchedCount+otherCount;
+  const hint = (totalCount>0 && otherCount>0)
+    ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Не удалось определить категорию для ${otherCount} из ${totalCount} строк реализации — попали в «Без категории» (возможно, название товара записано иначе, чем в справочнике).</div>`
+    : '';
+  el.innerHTML = hint + plRevenueTableHtml(rows);
 }
 
 function renderPL(){
