@@ -22951,29 +22951,56 @@ function renderPurchasesDash(){
 
 function openSupplierReconciliation(supplierName, fromDate, toDate){
   const fmt2 = n => '₸'+Math.round(n).toLocaleString('ru-RU');
-  const norm = s => (s||'').replace(/\s+/g,' ').replace(/["«»\'\u2018\u2019]/g,'').toLowerCase().trim();
-  const sNorm = norm(supplierName);
+  const sNorm = esfReconNorm(supplierName);
+  const supplierRecord = suppliersData.find(s=>esfReconNorm(s.name)===sNorm);
+  const sBin = (supplierRecord?.bin||'').trim();
 
-  const allInvoices = (_esfData?.invoices||[]).filter(i=>norm(i.supplier_name)===sNorm||norm(i.supplier_bin)===sNorm);
-  const allPayments = moneyTx.filter(t=>t.flow==='expense' && norm(t.counterparty)===sNorm);
+  const matchesSupplier = (name, bin) => {
+    if(sBin && bin && bin.trim()===sBin) return true;
+    const n = esfReconNorm(name);
+    return n===sNorm || n.includes(sNorm) || sNorm.includes(n);
+  };
+
+  // Кредит (увеличивает то, что мы должны поставщику): входящие ЭСФ
+  const invoiceSource = esfReconInvoices.length ? esfReconInvoices : (_esfData?.invoices||[]);
+  const allInvoices = invoiceSource.filter(i=>matchesSupplier(i.supplier_name, i.supplier_bin));
+
+  // Дебет (уменьшает долг): прямые оплаты по расчётному счёту/кассе
+  const directPayments = moneyTx.filter(t=>t.flow==='expense' && t.category==='supplier' && matchesSupplier(t.counterparty, t.bin));
+
+  // Дебет: оплаты этому поставщику, проведённые через авансовые отчёты сотрудников
+  const advancePayments = [];
+  advanceReports.forEach(a=>{
+    (a.lines||[]).forEach(l=>{
+      if(l.type==='supplier' && matchesSupplier(l.supplier, '')){
+        advancePayments.push({date:a.date, amount:l.amount||0, desc:l.desc||'', empName:a.empName||a.emp_name||''});
+      }
+    });
+  });
+
+  // Собираем единую хронологическую ведомость
+  let docs = [];
+  allInvoices.forEach(i=>docs.push({date:i.date||'', kind:'📄 ЭСФ', doc:i.num||'—', credit:i.total_with_nds||0, debit:0, note:i.status||''}));
+  directPayments.forEach(t=>docs.push({date:t.date||'', kind:'💳 Оплата (РС/касса)', doc:'', credit:0, debit:t.amount||0, note:(t.desc||'').slice(0,70)}));
+  advancePayments.forEach(p=>docs.push({date:p.date||'', kind:'🧾 Через авансовый отчёт', doc:'', credit:0, debit:p.amount, note:(p.empName?p.empName+' — ':'')+(p.desc||'')}));
+  docs.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 
   const from = fromDate || '';
   const to   = toDate   || '';
 
-  // Сальдо на начало (всё до from)
-  const invBefore  = from ? allInvoices.filter(i=>i.date<from) : [];
-  const payBefore  = from ? allPayments.filter(t=>t.date<from) : [];
-  const esfBefore  = invBefore.reduce((s,i)=>s+i.total_with_nds,0);
-  const paidBefore = payBefore.reduce((s,t)=>s+(t.amount||0),0);
-  const saldoStart = esfBefore - paidBefore; // + долг, - аванс
+  const before = from ? docs.filter(d=>d.date<from) : [];
+  const saldoStart = before.reduce((s,d)=>s+d.credit-d.debit, 0);
 
-  const invoices = allInvoices.filter(i=>(!from||i.date>=from)&&(!to||i.date<=to));
-  const payments = allPayments.filter(t=>(!from||t.date>=from)&&(!to||t.date<=to));
+  const period = docs.filter(d=>(!from||d.date>=from)&&(!to||d.date<=to));
+  let running = saldoStart;
+  const periodRows = period.map(d=>{
+    running += d.credit - d.debit;
+    return {...d, running};
+  });
 
-  const totalEsf  = invoices.reduce((s,i)=>s+i.total_with_nds,0);
-  const totalPaid = payments.reduce((s,t)=>s+(t.amount||0),0);
-  const balance   = totalEsf - totalPaid;
-  const saldoEnd  = saldoStart + balance;
+  const totalCredit = period.reduce((s,d)=>s+d.credit,0);
+  const totalDebit  = period.reduce((s,d)=>s+d.debit,0);
+  const saldoEnd = saldoStart + totalCredit - totalDebit;
 
   let modal = document.getElementById('supplier-card-modal');
   if(!modal){
@@ -22984,27 +23011,21 @@ function openSupplierReconciliation(supplierName, fromDate, toDate){
     document.body.appendChild(modal);
   }
 
-  const esfRows = invoices.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,30).map(i=>`
+  const ledgerRows = periodRows.map(d=>`
     <tr>
-      <td>${(i.date||'').slice(0,10)}</td>
-      <td style="font-family:monospace;font-size:11px">${i.num||'—'}</td>
-      <td style="text-align:right;font-family:monospace">${fmt2(i.total_with_nds)}</td>
-      <td><span style="font-size:10px;color:var(--text3)">${i.status||'—'}</span></td>
+      <td style="white-space:nowrap">${(d.date||'').slice(0,10)}</td>
+      <td style="font-size:11px">${d.kind}${d.doc?' №'+d.doc:''}</td>
+      <td style="font-size:11px;color:var(--text3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(d.note||'').replace(/"/g,'&quot;')}">${d.note||''}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${d.credit?fmt2(d.credit):''}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--green)">${d.debit?fmt2(d.debit):''}</td>
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;color:${d.running>0?'var(--red)':d.running<0?'var(--accent)':'var(--text3)'}">${fmt2(Math.abs(d.running))}${d.running!==0?(d.running>0?' долг':' аванс'):''}</td>
     </tr>`).join('');
 
-  const payRows = payments.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,30).map(t=>`
-    <tr>
-      <td>${(t.date||'').slice(0,10)}</td>
-      <td style="font-size:11px;color:var(--text3)">${t.accountName||'—'}</td>
-      <td style="font-size:11px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(t.description||'—').slice(0,60)}</td>
-      <td style="text-align:right;font-family:monospace;color:var(--red)">${fmt2(t.amount)}</td>
-    </tr>`).join('');
-
-  modal.innerHTML = `<div class="modal" style="max-width:720px;max-height:85vh;overflow-y:auto">
+  modal.innerHTML = `<div class="modal" style="max-width:860px;max-height:88vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <div>
-        <div style="font-weight:700;font-size:15px">${supplierName}</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:2px">${invoices.length} ЭСФ · ${payments.length} оплат</div>
+        <div style="font-weight:700;font-size:15px">${supplierName}${sBin?` <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text3)">БИН ${sBin}</span>`:''}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${allInvoices.length} ЭСФ · ${directPayments.length+advancePayments.length} оплат</div>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('supplier-card-modal').classList.remove('open')">✕</button>
     </div>
@@ -23016,40 +23037,38 @@ function openSupplierReconciliation(supplierName, fromDate, toDate){
       <span style="font-size:12px;color:var(--text3)">—</span>
       <input type="date" id="sc-to" value="${to}" style="font-size:12px"
         onchange="openSupplierReconciliation(document.getElementById('sc-from').dataset.s,document.getElementById('sc-from').value,this.value)">
-      <button class="btn btn-ghost btn-sm" onclick="openSupplierReconciliation(document.getElementById('sc-from').dataset.s,'','')">Все время</button>
+      <button class="btn btn-ghost btn-sm" onclick="openSupplierReconciliation(document.getElementById('sc-from').dataset.s,'','')">Всё время</button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
       <div class="card" style="padding:10px 14px">
         <div style="font-size:10px;color:var(--text3)">Сальдо на начало</div>
-        <div style="font-size:14px;font-weight:700;color:${saldoStart>0?'var(--red)':saldoStart<0?'var(--green)':'var(--text3)'}">${from?fmt2(Math.abs(saldoStart))+'\n'+(saldoStart>0?' долг':saldoStart<0?' аванс':' ✓'):'—'}</div>
+        <div style="font-size:14px;font-weight:700;color:${saldoStart>0?'var(--red)':saldoStart<0?'var(--accent)':'var(--text3)'}">${from?fmt2(Math.abs(saldoStart))+(saldoStart>0?' долг':saldoStart<0?' аванс':' ✓'):'—'}</div>
       </div>
       <div class="card" style="padding:10px 14px">
-        <div style="font-size:10px;color:var(--text3)">Поставлено (ЭСФ)</div>
-        <div style="font-size:14px;font-weight:700;color:var(--accent)">${fmt2(totalEsf)}</div>
+        <div style="font-size:10px;color:var(--text3)">Оборот по кредиту (поступление/ЭСФ)</div>
+        <div style="font-size:14px;font-weight:700;color:var(--accent)">${fmt2(totalCredit)}</div>
       </div>
       <div class="card" style="padding:10px 14px">
-        <div style="font-size:10px;color:var(--text3)">Оплачено</div>
-        <div style="font-size:14px;font-weight:700;color:var(--green)">${fmt2(totalPaid)}</div>
-      </div>
-      <div class="card" style="padding:10px 14px">
-        <div style="font-size:10px;color:var(--text3)">${balance>0?'За период долг':'За период аванс'}</div>
-        <div style="font-size:14px;font-weight:700;color:${balance>0?'var(--red)':'var(--amber)'}">${fmt2(Math.abs(balance))}</div>
+        <div style="font-size:10px;color:var(--text3)">Оборот по дебету (оплата)</div>
+        <div style="font-size:14px;font-weight:700;color:var(--green)">${fmt2(totalDebit)}</div>
       </div>
       <div class="card" style="padding:10px 14px;border:2px solid ${saldoEnd>0?'var(--red)':'var(--green)'}">
         <div style="font-size:10px;color:var(--text3)">Сальдо на конец</div>
-        <div style="font-size:14px;font-weight:700;color:${saldoEnd>0?'var(--red)':saldoEnd<0?'var(--green)':'var(--text3)'}">${fmt2(Math.abs(saldoEnd))} ${saldoEnd>0?'долг':saldoEnd<0?'аванс':'✓'}</div>
+        <div style="font-size:14px;font-weight:700;color:${saldoEnd>0?'var(--red)':saldoEnd<0?'var(--accent)':'var(--text3)'}">${fmt2(Math.abs(saldoEnd))} ${saldoEnd>0?'долг':saldoEnd<0?'аванс':'✓'}</div>
       </div>
     </div>
-    <div style="font-weight:600;font-size:13px;margin-bottom:8px">📄 Входящие ЭСФ (${invoices.length})</div>
-    <table class="data-table" style="font-size:12px;margin-bottom:16px">
-      <thead><tr><th>Дата</th><th>№</th><th style="text-align:right">Сумма с НДС</th><th>Статус</th></tr></thead>
-      <tbody>${esfRows}${invoices.length>30?`<tr><td colspan="4" style="text-align:center;color:var(--text3)">+ ещё ${invoices.length-30}</td></tr>`:''}</tbody>
-    </table>
-    <div style="font-weight:600;font-size:13px;margin-bottom:8px">💳 Оплаты (${payments.length})</div>
-    <table class="data-table" style="font-size:12px">
-      <thead><tr><th>Дата</th><th>Счёт</th><th>Описание</th><th style="text-align:right">Сумма</th></tr></thead>
-      <tbody>${payRows}${payments.length>30?`<tr><td colspan="4" style="text-align:center;color:var(--text3)">+ ещё ${payments.length-30}</td></tr>`:''}</tbody>
-    </table>
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Ведомость операций (бегущее сальдо)</div>
+    <div style="max-height:50vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr>
+          <th>Дата</th><th>Документ</th><th>Примечание</th>
+          <th style="text-align:right">Кредит (поступление)</th>
+          <th style="text-align:right">Дебет (оплата)</th>
+          <th style="text-align:right">Сальдо</th>
+        </tr></thead>
+        <tbody>${ledgerRows || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Нет операций за период</td></tr>'}</tbody>
+      </table>
+    </div>
   </div>`;
   modal.classList.add('open');
 }
