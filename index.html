@@ -5158,12 +5158,19 @@ window.onerror = function(msg, src, line, col){
             <div class="card-header"><span class="card-title">Маржинальность по категориям</span></div>
             <div id="pl-by-category"></div>
           </div>
-          <div class="card">
+          <div class="card" style="grid-column:1/3">
             <div class="card-header">
-              <span class="card-title">Дебиторская задолженность</span>
-              <span id="pl-ar-total" style="font-family:'IBM Plex Mono',monospace;color:var(--red);font-size:13px"></span>
+              <span class="card-title">Выручка по направлениям</span>
+              <select id="pl-rev-channel-year" onchange="renderRevenueByChannel()" style="font-size:12px;width:auto"></select>
             </div>
-            <div id="pl-ar-table"></div>
+            <div id="pl-rev-by-channel" style="overflow-x:auto"></div>
+          </div>
+          <div class="card" style="grid-column:1/3">
+            <div class="card-header">
+              <span class="card-title">Выручка по категориям продукции</span>
+              <select id="pl-rev-category-year" onchange="renderRevenueByCategory()" style="font-size:12px;width:auto"></select>
+            </div>
+            <div id="pl-rev-by-category" style="overflow-x:auto"></div>
           </div>
           <div class="card">
             <div class="card-header">
@@ -23721,6 +23728,115 @@ function initFinancePeriod(){
   }
 }
 
+const PL_CHANNEL_LABELS = {
+  salon_armada:'Салон Армада', salon_nazarbayeva:'Салон Назарбаева',
+  dealer_astana:'Дилер Астана', dealer_aktau:'Дилер Актау', dealer_atyrau:'Дилер Атырау',
+  dealer_shymkent:'Дилер Шымкент', dealer_aktobe:'Дилер Актобе', office:'Офис',
+};
+const PL_CHANNEL_ORDER = ['salon_armada','salon_nazarbayeva','dealer_astana','dealer_aktau','dealer_atyrau','dealer_shymkent','dealer_aktobe','office'];
+const PL_MONTH_LABELS = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
+
+// Заполняет выпадающий список годов на основе реальных дат реализаций,
+// сохраняя уже выбранный пользователем год при перерисовке
+function plBuildRevenueYearOptions(selectId){
+  const years = [...new Set((realizationsData||[]).map(r=>(r.doc_date||r.date||'').slice(0,4)).filter(Boolean))].sort().reverse();
+  const curYear = String(new Date().getFullYear());
+  if(!years.length) years.push(curYear);
+  const sel = document.getElementById(selectId);
+  if(!sel) return years[0];
+  const prevVal = sel.value;
+  sel.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  sel.value = years.includes(prevVal) ? prevVal : (years.includes(curYear) ? curYear : years[0]);
+  return sel.value;
+}
+
+function plRevenueTableHtml(rows){
+  const fmt2 = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+  if(!rows.length) return '<div style="padding:16px;color:var(--text3);text-align:center">Нет данных за этот год</div>';
+  const totals = Array(12).fill(0);
+  rows.forEach(r=>r.data.forEach((v,i)=>totals[i]+=v));
+  const grandTotal = totals.reduce((s,v)=>s+v,0);
+  return `<table class="data-table" style="font-size:11px;white-space:nowrap">
+    <thead><tr>
+      <th>Направление</th>
+      ${PL_MONTH_LABELS.map(m=>`<th style="text-align:right">${m}</th>`).join('')}
+      <th style="text-align:right;color:var(--accent)">Итого за год</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(r=>{
+        const rowTotal = r.data.reduce((s,v)=>s+v,0);
+        return `<tr>
+          <td style="font-weight:500">${r.label}</td>
+          ${r.data.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmt2(v)}</td>`).join('')}
+          <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--accent)">${fmt2(rowTotal)}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+    <tfoot>
+      <tr style="border-top:2px solid var(--border)">
+        <td style="font-weight:700">Итого</td>
+        ${totals.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700">${fmt2(v)}</td>`).join('')}
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--accent)">${fmt2(grandTotal)}</td>
+      </tr>
+    </tfoot>
+  </table>`;
+}
+
+function renderRevenueByChannel(){
+  const el = document.getElementById('pl-rev-by-channel');
+  if(!el) return;
+  const year = plBuildRevenueYearOptions('pl-rev-channel-year');
+  const chMap = {};
+  ordersData.forEach(o=>{ chMap[o.num]=o.channel; });
+
+  const grid = {};
+  PL_CHANNEL_ORDER.forEach(c=>{ grid[c]=Array(12).fill(0); });
+  const other = Array(12).fill(0);
+
+  (realizationsData||[]).forEach(r=>{
+    const d = r.doc_date||r.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m<0||m>11) return;
+    const channel = chMap[r.order_num];
+    const amount = r.revenue||0;
+    if(channel && grid[channel]) grid[channel][m]+=amount;
+    else other[m]+=amount;
+  });
+
+  const rows = PL_CHANNEL_ORDER
+    .map(c=>({label:PL_CHANNEL_LABELS[c], data:grid[c]}))
+    .filter(r=>r.data.some(v=>v>0));
+  if(other.some(v=>v>0)) rows.push({label:'Без канала / прочее', data:other});
+
+  el.innerHTML = plRevenueTableHtml(rows);
+}
+
+function renderRevenueByCategory(){
+  const el = document.getElementById('pl-rev-by-category');
+  if(!el) return;
+  const year = plBuildRevenueYearOptions('pl-rev-category-year');
+  const catMap = {};
+  (catalogData||[]).forEach(p=>{ catMap[p.name]=p.category||'Без категории'; });
+
+  const grid = {};
+  (realizationsData||[]).forEach(r=>{
+    const d = r.doc_date||r.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m<0||m>11) return;
+    const cat = catMap[r.name] || 'Без категории';
+    if(!grid[cat]) grid[cat]=Array(12).fill(0);
+    grid[cat][m]+=(r.revenue||0);
+  });
+
+  const rows = Object.entries(grid)
+    .map(([label,data])=>({label,data}))
+    .sort((a,b)=>b.data.reduce((s,v)=>s+v,0)-a.data.reduce((s,v)=>s+v,0));
+
+  el.innerHTML = plRevenueTableHtml(rows);
+}
+
 function renderPL(){
   const pl = buildPL();
   const pct = v => pl.revenue>0 ? Math.round(v/pl.revenue*100)+'%' : '—';
@@ -23774,25 +23890,9 @@ function renderPL(){
     </tr>`).join('')}</tbody>
   </table>`;
 
-  // ── Дебиторка ────────────────────────────────────────────────────
-  const arTotal=document.getElementById('pl-ar-total');
-  if(arTotal) arTotal.textContent=fmt(pl.ar);
-  const arTable=document.getElementById('pl-ar-table');
-  if(arTable){
-    const arOrders=ordersData.filter(o=>o.payment<100&&o.status!=='done');
-    arTable.innerHTML=`<table class="data-table" style="margin-top:8px">
-      <thead><tr><th>Заказ</th><th>Клиент</th><th>Сумма</th><th>Оплачено</th><th style="color:var(--red)">Долг</th></tr></thead>
-      <tbody>${arOrders.map(o=>{
-        const tot=orderTotal(o), debt=tot*(1-o.payment/100);
-        return `<tr><td style="color:var(--accent)">${o.num}</td>
-          <td>${resolveCustomerName(o)}</td>
-          <td style="font-family:'IBM Plex Mono',monospace">${fmt(tot)}</td>
-          <td style="font-family:'IBM Plex Mono',monospace;color:var(--green)">${fmt(tot*o.payment/100)}</td>
-          <td style="font-family:'IBM Plex Mono',monospace;color:var(--red);font-weight:600">${fmt(debt)}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table>`;
-  }
+  // ── Выручка по направлениям и категориям (помесячно + за год) ─────
+  renderRevenueByChannel();
+  renderRevenueByCategory();
 
   // ── Постоянные затраты ────────────────────────────────────────────
   const fcEl=document.getElementById('pl-fc-summary');
