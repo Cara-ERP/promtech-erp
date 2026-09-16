@@ -23835,6 +23835,11 @@ function plNormProductName(s){ return (s||'').toString().trim().toLowerCase(); }
 function renderRevenueByCategory(){
   const el = document.getElementById('pl-rev-by-category');
   if(!el) return;
+  if(!catalogData.length && typeof loadCatalogFromDB==='function'){
+    loadCatalogFromDB().then(renderRevenueByCategory);
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка справочника товаров...</div>';
+    return;
+  }
   const year = plBuildRevenueYearOptions('pl-rev-category-year');
 
   const catEntries = (catalogData||[]).map(p=>({norm:plNormProductName(p.name), category:p.category||'Без категории'}));
