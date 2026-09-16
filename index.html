@@ -22719,9 +22719,10 @@ async function renderDashboard(){
       <span style="color:var(--red);font-weight:700;font-family:monospace">${m.qty} ${m.unit||'шт'}</span>
     </div>`).join('')
     : '<div style="color:var(--green);font-size:13px;padding:8px 0">✅ Критичных позиций нет</div>';
-  // График Приход/Расход по месяцам
+  // График Приход/Расход по месяцам (переводы между своими счетами/кассами — не доход и не расход, исключаем)
   const inByMonth = {}, outByMonth = {};
   moneyTx.forEach(t=>{
+    if(t.category==='transfer_in' || t.category==='transfer_out' || t.category==='transfer') return;
     const m = (t.date||'').slice(0,7);
     if(!m) return;
     if(t.flow==='income')  inByMonth[m]  = (inByMonth[m]||0)  + (t.amountFx||t.amount||0);
