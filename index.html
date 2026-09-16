@@ -5161,14 +5161,20 @@ window.onerror = function(msg, src, line, col){
           <div class="card" style="grid-column:1/3">
             <div class="card-header">
               <span class="card-title">Выручка по направлениям</span>
-              <select id="pl-rev-channel-year" onchange="renderRevenueByChannel()" style="font-size:12px;width:auto"></select>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="pl-rev-channel-year" onchange="renderRevenueByChannel()" style="font-size:12px;width:auto"></select>
+                <button class="btn btn-ghost btn-sm" onclick="exportRevenueByChannelToExcel()">📥 Excel</button>
+              </div>
             </div>
             <div id="pl-rev-by-channel" style="overflow-x:auto"></div>
           </div>
           <div class="card" style="grid-column:1/3">
             <div class="card-header">
               <span class="card-title">Выручка по категориям продукции</span>
-              <select id="pl-rev-category-year" onchange="renderRevenueByCategory()" style="font-size:12px;width:auto"></select>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="pl-rev-category-year" onchange="renderRevenueByCategory()" style="font-size:12px;width:auto"></select>
+                <button class="btn btn-ghost btn-sm" onclick="exportRevenueByCategoryToExcel()">📥 Excel</button>
+              </div>
             </div>
             <div id="pl-rev-by-category" style="overflow-x:auto"></div>
           </div>
@@ -23787,6 +23793,11 @@ function plNormOrderNum(s){ return (s||'').toString().trim().toUpperCase().repla
 function renderRevenueByChannel(){
   const el = document.getElementById('pl-rev-by-channel');
   if(!el) return;
+  if(!ordersData.length && typeof loadOrdersFromDB==='function'){
+    loadOrdersFromDB().then(renderRevenueByChannel);
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка заказов...</div>';
+    return;
+  }
   const year = plBuildRevenueYearOptions('pl-rev-channel-year');
 
   const orderEntries = ordersData.map(o=>({norm:plNormOrderNum(o.num), channel:o.channel}));
@@ -23828,6 +23839,7 @@ function renderRevenueByChannel(){
     ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Не удалось определить канал для ${otherCount} из ${totalCount} строк реализации — попали в «Без канала / прочее» (возможно, номер заказа записан иначе, чем в самом заказе).</div>`
     : '';
   el.innerHTML = hint + plRevenueTableHtml(rows);
+  window._plChannelRows = rows; window._plChannelYear = year;
 }
 
 function plNormProductName(s){ return (s||'').toString().trim().toLowerCase(); }
@@ -23877,6 +23889,35 @@ function renderRevenueByCategory(){
     ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Не удалось определить категорию для ${otherCount} из ${totalCount} строк реализации — попали в «Без категории» (возможно, название товара записано иначе, чем в справочнике).</div>`
     : '';
   el.innerHTML = hint + plRevenueTableHtml(rows);
+  window._plCategoryRows = rows; window._plCategoryYear = year;
+}
+
+function exportRevenueTableToExcel(rows, year, title, filenamePrefix){
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
+  if(!rows || !rows.length){alert('Нет данных для выгрузки.');return;}
+  const header = ['Направление', ...PL_MONTH_LABELS, 'Итого за год'];
+  const totals = Array(12).fill(0);
+  rows.forEach(r=>r.data.forEach((v,i)=>totals[i]+=v));
+  const grandTotal = totals.reduce((s,v)=>s+v,0);
+  const aoa = [
+    [title+' — '+year],
+    [],
+    header,
+    ...rows.map(r=>[r.label, ...r.data.map(v=>Math.round(v)), Math.round(r.data.reduce((s,v)=>s+v,0))]),
+    ['Итого', ...totals.map(v=>Math.round(v)), Math.round(grandTotal)],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:26}, ...Array(12).fill({wch:12}), {wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, year);
+  XLSX.writeFile(wb, `${filenamePrefix}_${year}.xlsx`);
+}
+
+function exportRevenueByChannelToExcel(){
+  exportRevenueTableToExcel(window._plChannelRows, window._plChannelYear, 'Выручка по направлениям', 'PromTech_Vyruchka_napravleniya');
+}
+function exportRevenueByCategoryToExcel(){
+  exportRevenueTableToExcel(window._plCategoryRows, window._plCategoryYear, 'Выручка по категориям продукции', 'PromTech_Vyruchka_kategorii');
 }
 
 function renderPL(){
