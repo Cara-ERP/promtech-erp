@@ -5337,6 +5337,36 @@ window.onerror = function(msg, src, line, col){
       </div>
       </div>
 
+      <!-- TAB: Маржинальность -->
+      <div id="finance-margin" style="display:none">
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <input id="margin-search" type="search" placeholder="🔍 Поиск по товару или номеру заказа..."
+            style="flex:1;min-width:220px;font-size:13px" oninput="renderMarginReport()">
+          <select id="margin-status-filter" onchange="renderMarginReport()" style="font-size:13px;width:auto">
+            <option value="all">Все статусы</option>
+            <option value="queue">В очереди</option>
+            <option value="production">В производстве</option>
+            <option value="done">Завершённые</option>
+          </select>
+        </div>
+        <div id="margin-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
+        <div class="card" style="padding:0">
+          <table class="data-table">
+            <thead><tr>
+              <th>Заказ</th><th>Товар</th><th>Кол-во</th>
+              <th style="text-align:right">Выручка</th>
+              <th style="text-align:right">Материалы</th>
+              <th style="text-align:right">Труд</th>
+              <th style="text-align:right">Себестоимость</th>
+              <th style="text-align:right">Маржа</th>
+              <th>Маржа %</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="margin-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- TAB: Точка безубыточности -->
       <div id="finance-bep" style="display:none">
 
