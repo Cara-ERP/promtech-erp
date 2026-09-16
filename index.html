@@ -23963,7 +23963,21 @@ function exportRevenueByCategoryToExcel(){
 function renderExpensesByMonth(){
   const el = document.getElementById('pl-exp-by-month');
   if(!el) return;
+  if(!_expenseCatsLoaded || !_expenseCats.length){
+    loadExpenseCategories().then(renderExpensesByMonth);
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка справочника статей расходов...</div>';
+    return;
+  }
   const year = plBuildRevenueYearOptions('pl-exp-year');
+
+  // Название категории/статьи берём из справочника "expense_categories" (тот, что
+  // заполняется в самой программе), а не из встроенного короткого списка —
+  // иначе технические коды вроде "prod_wood" не превращались бы в читаемые названия
+  const catNameByCode = {};
+  _expenseCats.forEach(c=>{ catNameByCode[c.code]=c.name; });
+  function catLabelFor(code){
+    return catNameByCode[code] || TX_EXPENSE_CATS.find(c=>c.id===code)?.label || code;
+  }
 
   const grid = {};
   function addAmount(label, dateStr, amount){
@@ -23976,13 +23990,14 @@ function renderExpensesByMonth(){
     grid[label][m]+=amount;
   }
 
-  // Прямые операции по расчётному счёту/кассе (переводы между своими счетами и
-  // сама "Выдача аванса" исключены — сумма аванса разбирается ниже по факту трат)
+  // Прямые операции по расчётному счёту/кассе. Исключены: переводы между своими
+  // счетами, сама "Выдача аванса" (разбирается ниже по факту трат) и дивиденды
+  // (это распределение прибыли собственникам, а не операционный расход)
   moneyTx.forEach(t=>{
     if(t.flow!=='expense') return;
-    if(['transfer_in','transfer_out','transfer','advance_out'].includes(t.category)) return;
-    const catLabel = TX_EXPENSE_CATS.find(c=>c.id===t.category)?.label || t.category || 'Прочее';
-    const label = t.subcategory ? `${catLabel} — ${t.subcategory}` : catLabel;
+    if(['transfer_in','transfer_out','transfer','advance_out','dividend'].includes(t.category)) return;
+    const catLabel = catLabelFor(t.category) || 'Прочее';
+    const label = t.subcategory ? `${catLabel} — ${catLabelFor(t.subcategory)}` : catLabel;
     addAmount(label, t.date, t.amount||0);
   });
 
@@ -23991,7 +24006,7 @@ function renderExpensesByMonth(){
     (a.lines||[]).forEach(l=>{
       const label = l.type==='material' ? 'Материалы (аванс)'
                   : l.type==='supplier' ? 'Оплата поставщику (аванс)'
-                  : (TX_EXPENSE_CATS.find(c=>c.id===l.category)?.label || 'Прочее (аванс)');
+                  : (catLabelFor(l.category) || 'Прочее (аванс)');
       addAmount(label, a.date, l.amount||0);
     });
   });
