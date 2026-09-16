@@ -13828,6 +13828,8 @@ function normSupName(s){
   return (s||'').replace(/\s+/g,' ').replace(/["«»'']/g,'').toLowerCase().trim();
 }
 
+let _advEsfRequestSeq = 0;
+
 function updateAdvSupplierEsf(){
   const supSel = document.getElementById('adv-line-supplier');
   const esfRow = document.getElementById('adv-line-supplier-esf-row');
@@ -13840,11 +13842,17 @@ function updateAdvSupplierEsf(){
   // Без даты и без поставщика искать нечего — иначе показали бы вообще все ЭСФ подряд
   if(!supplier && !advDate){ esfRow.style.display='none'; return; }
 
+  // Пока печатают — на каждую букву запускается новый поиск; чтобы более ранний
+  // (уже устаревший) запрос не перезаписал результат более позднего, помечаем
+  // каждый вызов номером и применяем результат только самого свежего
+  const requestId = ++_advEsfRequestSeq;
+
   const loadInvoices = esfReconInvoices.length
     ? Promise.resolve(esfReconInvoices)
     : sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{ esfReconInvoices = data||[]; return esfReconInvoices; });
 
   Promise.all([loadInvoices, ensureEsfLinksLoaded()]).then(([allInvoices])=>{
+    if(requestId !== _advEsfRequestSeq) return; // пришёл не последний запрос — игнорируем
     // ЭСФ, уже выбранные в ДРУГИХ строках этого же (текущего, ещё не сохранённого) отчёта
     const usedInThisReport = new Set((window._advLines||[]).map(l=>l.esfInvoiceId).filter(Boolean));
 
@@ -13883,6 +13891,7 @@ function updateAdvSupplierEsf(){
       esfRow.style.display='none';
     }
   }).catch(e=>{
+    if(requestId !== _advEsfRequestSeq) return;
     console.warn('⚠️ Не удалось подобрать ЭСФ поставщика:', e.message);
     esfRow.style.display='none';
   });
