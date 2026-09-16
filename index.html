@@ -24026,16 +24026,30 @@ function renderExpensesByMonth(){
       .sort((a,b)=>b.monthly.reduce((s,v)=>s+v,0)-a.monthly.reduce((s,v)=>s+v,0)),
   })).sort((a,b)=>b.monthly.reduce((s,v)=>s+v,0)-a.monthly.reduce((s,v)=>s+v,0));
 
-  el.innerHTML = plExpenseTreeHtml(catRows);
-  window._plExpenseCatRows = catRows; window._plExpenseYear = year;
+  // Дивиденды — сознательно НЕ входят в расходы выше (это не операционный расход,
+  // а распределение уже заработанной прибыли), но показываем отдельной строкой внизу,
+  // чтобы директор/собственник видел, сколько лично получил
+  const dividendMonthly = Array(12).fill(0);
+  moneyTx.forEach(t=>{
+    if(t.flow!=='expense' || t.category!=='dividend') return;
+    const d = t.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m>=0 && m<=11) dividendMonthly[m]+=(t.amount||0);
+  });
+
+  el.innerHTML = plExpenseTreeHtml(catRows, dividendMonthly);
+  window._plExpenseCatRows = catRows; window._plExpenseYear = year; window._plExpenseDividends = dividendMonthly;
 }
 
-function plExpenseTreeHtml(catRows){
+function plExpenseTreeHtml(catRows, dividendMonthly){
   const fmt2 = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
   if(!catRows.length) return '<div style="padding:16px;color:var(--text3);text-align:center">Нет данных за этот год</div>';
   const totals = Array(12).fill(0);
   catRows.forEach(r=>r.monthly.forEach((v,i)=>totals[i]+=v));
   const grandTotal = totals.reduce((s,v)=>s+v,0);
+  const hasDividends = dividendMonthly && dividendMonthly.some(v=>v>0);
+  const dividendTotal = hasDividends ? dividendMonthly.reduce((s,v)=>s+v,0) : 0;
 
   function catRowHtml(r){
     const hasSubs = r.subs.length>0;
@@ -24072,6 +24086,11 @@ function plExpenseTreeHtml(catRows){
         ${totals.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700">${fmt2(v)}</td>`).join('')}
         <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--accent)">${fmt2(grandTotal)}</td>
       </tr>
+      ${hasDividends?`<tr style="border-top:2px dashed var(--border)">
+        <td style="font-weight:600;color:var(--amber)">💰 Дивиденды <span style="font-weight:400;font-size:10px;color:var(--text3)">(не входит в расходы выше)</span></td>
+        ${dividendMonthly.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--amber)">${fmt2(v)}</td>`).join('')}
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--amber)">${fmt2(dividendTotal)}</td>
+      </tr>`:''}
     </tfoot>
   </table>`;
 }
@@ -24100,6 +24119,11 @@ function exportExpensesByMonthToExcel(){
     });
   });
   aoa.push(['Итого', ...totals.map(v=>Math.round(v)), Math.round(totals.reduce((s,v)=>s+v,0))]);
+  const dividends = window._plExpenseDividends;
+  if(dividends && dividends.some(v=>v>0)){
+    aoa.push([]);
+    aoa.push(['Дивиденды (не входит в расходы выше)', ...dividends.map(v=>Math.round(v)), Math.round(dividends.reduce((s,v)=>s+v,0))]);
+  }
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{wch:32}, ...Array(12).fill({wch:12}), {wch:14}];
   const wb = XLSX.utils.book_new();
