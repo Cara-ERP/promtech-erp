@@ -21196,6 +21196,7 @@ function buildOSV(){
     '90.2': {name:'Себестоимость продаж',           type:'active',  kz:'7010'},
     '91.1': {name:'Прочие доходы',            type:'passive', kz:'6290'},
     '91.2': {name:'Прочие расходы',            type:'active',  kz:'7480'},
+    '7210': {name:'Административные расходы', type:'active',  kz:'7210'},
   };
 
   // ledger[acc] = {openDt, openKt, dtOb, ktOb}
@@ -21329,12 +21330,17 @@ function buildOSV(){
     });
   });
 
-  // ── 3. ЗАКУПКИ материалов: Дт10 / Кт60 ───────────────────────
-  whDocuments.filter(d=>d.type==='receipt'&&d.status==='done').forEach(doc=>{
-    const p = per(doc.date);
+  // ── 3. ЗАКУПКИ — по входящим ЭСФ, в зависимости от Типа документа:
+  // "Товары" → Дт10 (Материалы/ТМЗ) / Кт60; "Услуги"/"Общее" → Дт7210
+  // (Административные расходы) / Кт60. Источник — сама ЭСФ, а не складской
+  // приход, чтобы совпадало с реальным документом поставщика.
+  (esfReconInvoices||[]).forEach(inv=>{
+    const p = per(inv.date);
     if(!p) return;
-    const amt = (doc.items||[]).reduce((s,it)=>s+it.qty*it.price,0);
-    post('10','60',amt,p);
+    const amt = inv.total_with_nds||0;
+    if(amt<=0) return;
+    if(inv.invoice_type==='goods') post('10','60',amt,p,'Приобретение ТМЗ по ЭСФ',inv.num||'',inv.date);
+    else post('7210','60',amt,p,'Приобретение услуг по ЭСФ',inv.num||'',inv.date);
   });
 
   // ── 4. СПИСАНИЕ материалов в производство: Дт20 / Кт10 ───────
@@ -21457,7 +21463,19 @@ function aggregateRows(code, name, subRows){
   };
 }
 
+let _osvEsfLoaded = false;
 function renderOSV(){
+  if(!_osvEsfLoaded && !esfReconInvoices.length){
+    sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{
+      esfReconInvoices = data||[];
+      _osvEsfLoaded = true;
+      renderOSV();
+    });
+    const body = document.getElementById('osv-body');
+    if(body) body.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка входящих ЭСФ...</div>';
+    return;
+  }
+  _osvEsfLoaded = true;
   const osv = buildOSV();
   const fmt = n=>n?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
   const body = document.getElementById('osv-body');
