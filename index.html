@@ -21190,9 +21190,6 @@ function buildOSV(){
       // Налоги: Дт68 / Кт50/51
       case 'tax':
         post('68',cashAcc,amt,p); break;
-      // Аренда, коммунальные, транспорт, прочее: Дт91.2 / Кт50/51
-      case 'rent': case 'utility': case 'transport': case 'other_out':
-        post('91.2',cashAcc,amt,p); break;
       // Выдача аванса: Дт71 / Кт50/51
       case 'advance_out':
         post('71',cashAcc,amt,p); break;
@@ -21205,9 +21202,21 @@ function buildOSV(){
       // Прочий приход: Дт50/51 / Кт91.1
       case 'other_in':
         post(cashAcc,'91.1',amt,p); break;
-      // Переводы: Дт50/51_to / Кт50/51_from (нейтрально внутри группы)
-      case 'transfer':
-        // не создаём проводок — внутреннее движение
+      // Дивиденды: Дт84 (уменьшают нераспределённую прибыль) / Кт50/51 —
+      // это распределение уже заработанной прибыли, а не текущий расход
+      case 'dividend':
+        post('84',cashAcc,amt,p, tx.desc||'Дивиденды', '', tx.date); break;
+      // Переводы между своими счетами/кассами — внутреннее движение,
+      // проводок не создаёт (иначе задвоили бы обороты)
+      case 'transfer': case 'transfer_in': case 'transfer_out':
+        break;
+      // Всё остальное — реальные статьи из справочника expense_categories
+      // (производство/коммерческие/общие и т.п.). Раньше нераспознанные
+      // категории просто пропускались молча — теперь они не теряются:
+      // расход → Дт91.2/Кт счёт, приход → Дт счёт/Кт91.1
+      default:
+        if(tx.flow==='expense') post('91.2',cashAcc,amt,p, tx.desc||'', tx.category||'', tx.date);
+        else if(tx.flow==='income') post(cashAcc,'91.1',amt,p, tx.desc||'', tx.category||'', tx.date);
         break;
     }
   });
@@ -21226,22 +21235,41 @@ function buildOSV(){
     else if(openBal<0) ledger[cashAcc].openKt += Math.abs(openBal);
   });
 
-  // ── 2. ВЫРУЧКА из заказов: Дт62 / Кт90.1 ─────────────────────
-  // + Себестоимость: Дт90.2 / Кт43
-  ordersData.forEach(o=>{
-    const d = o.rawDate || parseDMY(o.date);
-    if(!d) return;
+  // ── 2. ВЫРУЧКА — из "Реализации" (тот же источник, что и в P&L), а не из
+  // плановой суммы заказов: Дт62 / Кт90.1 ─────────────────────────────────
+  (realizationsData||[]).forEach(r=>{
+    const d = r.doc_date || r.date;
     const p = per(d);
     if(!p) return;
-    const total = orderTotal(o);
-    // Выручка: Дт62 / Кт90.1
-    post('62','90.1',total,p);
-    // Себестоимость продаж: Дт90.2 / Кт43
-    const cost = (o.items||[]).reduce((s,it)=>{
-      const m = calcItemMargin(it,o);
-      return s + (m.totalMaterialCost||0) + (m.totalWageCost||0);
-    },0);
-    if(cost>0) post('90.2','43',cost,p);
+    const amt = r.revenue||0;
+    if(amt>0) post('62','90.1',amt,p, 'Реализация', r.order_num||'', d);
+  });
+
+  // ── Себестоимость продаж: Дт90.2 / Кт43 ──────────────────────────────────
+  // Берём ИТОГО материалы+труд за период из того же расчёта, что и P&L
+  // (buildPL), чтобы себестоимость в ОСВ совпадала с P&L один-в-один —
+  // разбивка по отдельным заказам здесь не нужна, важна сходимость итога
+  {
+    const plForCogs = (typeof buildPL==='function') ? buildPL() : null;
+    const cogsTotal = plForCogs ? (plForCogs.materialCost||0) + (plForCogs.wageCost||0) : 0;
+    if(cogsTotal>0) post('90.2','43',cogsTotal,'cur','Себестоимость продаж (по данным P&L)','',dateTo);
+  }
+
+  // ── Расходы через авансовые отчёты (тип "Прочий расход") ─────────────────
+  // Материалы/оплата поставщику из авансовых отчётов уже учтены одним числом
+  // в Себестоимости продаж выше (через buildPL) — здесь добавляем только
+  // "прочие" строки, чтобы Сч.91.2 тоже сходился с P&L. Кредитуем Сч.71 —
+  // это списание с подотчётного лица того, что он потратил.
+  // ВАЖНО (упрощение): для строк "Материал"/"Поставщик" сальдо по Сч.71
+  // не корректируется отдельно — иначе задвоило бы себестоимость выше.
+  advanceReports.forEach(a=>{
+    const p = per(a.date);
+    if(!p) return;
+    (a.lines||[]).forEach(l=>{
+      if(l.type==='expense' && l.amount>0){
+        post('91.2','71',l.amount,p,'Расход из аванс. отчёта',a.empName||a.emp_name||'',a.date);
+      }
+    });
   });
 
   // ── 3. ЗАКУПКИ материалов: Дт10 / Кт60 ───────────────────────
