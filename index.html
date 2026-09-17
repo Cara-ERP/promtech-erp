@@ -23957,22 +23957,23 @@ function renderRevenueByChannel(){
     const found = Object.entries(CUSTOMER_NAME_TO_CHANNEL).find(([key])=>n.includes(key) || key.includes(n));
     return found ? found[1] : null;
   }
-  function determineChannel(o){
-    if(o.channel && PL_CHANNEL_ORDER.includes(o.channel)) return o.channel;
-    return channelByCustomerName(o.customer) || o.channel || null;
-  }
 
-  const orderEntries = ordersData.map(o=>({norm:plNormOrderNum(o.num), channel:determineChannel(o)}));
-  const chExact = {};
-  orderEntries.forEach(o=>{ chExact[o.norm]=o.channel; });
-  function findChannel(orderNum){
+  function findOrder(orderNum){
     const n = plNormOrderNum(orderNum);
     if(!n) return null;
-    if(chExact[n]) return chExact[n];
-    // Гибкое совпадение на случай, если номер записан по-разному
-    // (например, "513" в одном месте и "НФНФ-000513" в другом)
-    const m = orderEntries.find(o=>o.norm && (o.norm.endsWith(n) || n.endsWith(o.norm)));
-    return m ? m.channel : null;
+    return ordersData.find(o=>plNormOrderNum(o.num)===n)
+        || ordersData.find(o=>{const on=plNormOrderNum(o.num); return on && (on.endsWith(n)||n.endsWith(on));})
+        || null;
+  }
+  // Канал строки реализации определяем по цепочке: явный канал заказа →
+  // покупатель из заказа → покупатель ИЗ САМОЙ РЕАЛИЗАЦИИ (там колонка
+  // "Покупатель" заполнена всегда, даже если заказ не нашёлся вообще)
+  function findChannelForRealization(r){
+    const ord = findOrder(r.order_num);
+    if(ord && ord.channel && PL_CHANNEL_ORDER.includes(ord.channel)) return ord.channel;
+    const byOrderCustomer = ord ? channelByCustomerName(ord.customer) : null;
+    if(byOrderCustomer) return byOrderCustomer;
+    return channelByCustomerName(r.customer) || (ord ? ord.channel : null) || null;
   }
 
   const grid = {};
@@ -23986,15 +23987,13 @@ function renderRevenueByChannel(){
     if(d.slice(0,4)!==year) return;
     const m = parseInt(d.slice(5,7),10)-1;
     if(m<0||m>11) return;
-    const channel = findChannel(r.order_num);
+    const channel = findChannelForRealization(r);
     const amount = r.revenue||0;
     if(channel && grid[channel]){ grid[channel][m]+=amount; matchedCount++; }
     else {
       other[m]+=amount; otherCount++;
       if(unmatchedSamples.length<8){
-        const n = plNormOrderNum(r.order_num);
-        const ord = ordersData.find(o=>plNormOrderNum(o.num)===n) || ordersData.find(o=>{const on=plNormOrderNum(o.num); return on && (on.endsWith(n)||n.endsWith(on));});
-        unmatchedSamples.push({orderNum:r.order_num||'(пусто)', customer: ord ? (ord.customer||'(без имени)') : (ord===undefined?'заказ не найден':'')});
+        unmatchedSamples.push({orderNum:r.order_num||'(пусто)', customer: r.customer||'(без имени в реализации)'});
       }
     }
   });
