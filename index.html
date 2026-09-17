@@ -5195,6 +5195,16 @@ window.onerror = function(msg, src, line, col){
             </div>
             <div id="pl-exp-by-month" style="overflow-x:auto"></div>
           </div>
+          <div class="card" style="grid-column:1/3">
+            <div class="card-header">
+              <span class="card-title">Выручка: направление → категория → товар</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="pl-rev-tree-year" onchange="renderRevenueByChannelCategory()" style="font-size:12px;width:auto"></select>
+                <button class="btn btn-ghost btn-sm" onclick="exportRevenueTreeToExcel()">📥 Excel</button>
+              </div>
+            </div>
+            <div id="pl-rev-tree" style="overflow-x:auto"></div>
+          </div>
           <div class="card">
             <div class="card-header">
               <span class="card-title">Постоянные затраты / мес</span>
@@ -23928,6 +23938,51 @@ function plRevenueTableHtml(rows){
 
 function plNormOrderNum(s){ return (s||'').toString().trim().toUpperCase().replace(/\s+/g,''); }
 
+// Определение канала и категории для строки реализации — переиспользуется
+// в нескольких таблицах ниже, поэтому вынесено в отдельные функции
+const CUSTOMER_NAME_TO_CHANNEL = {
+  'cara-армада': 'salon_armada',
+  'cara-назарбаева': 'salon_nazarbayeva',
+  'cara-астана': 'dealer_astana',
+  'cara-актау': 'dealer_aktau',
+  'cara-атырау': 'dealer_atyrau',
+  'нияз шымкент': 'dealer_shymkent',
+  'олжас-актобе': 'dealer_aktobe',
+  'частное лицо': 'office',
+};
+function plChannelByCustomerName(name){
+  const n = esfReconNorm(name||'');
+  if(!n) return null;
+  if(CUSTOMER_NAME_TO_CHANNEL[n]) return CUSTOMER_NAME_TO_CHANNEL[n];
+  const found = Object.entries(CUSTOMER_NAME_TO_CHANNEL).find(([key])=>n.includes(key) || key.includes(n));
+  return found ? found[1] : null;
+}
+function plFindOrderForRealization(orderNum){
+  const n = plNormOrderNum(orderNum);
+  if(!n) return null;
+  return ordersData.find(o=>plNormOrderNum(o.num)===n)
+      || ordersData.find(o=>{const on=plNormOrderNum(o.num); return on && (on.endsWith(n)||n.endsWith(on));})
+      || null;
+}
+// Канал строки реализации: явный канал заказа → покупатель из заказа →
+// покупатель ИЗ САМОЙ РЕАЛИЗАЦИИ (заполнена всегда, даже если заказ не нашёлся)
+function plChannelForRealization(r){
+  const ord = plFindOrderForRealization(r.order_num);
+  if(ord && ord.channel && PL_CHANNEL_ORDER.includes(ord.channel)) return ord.channel;
+  const byOrderCustomer = ord ? plChannelByCustomerName(ord.customer) : null;
+  if(byOrderCustomer) return byOrderCustomer;
+  return plChannelByCustomerName(r.customer) || (ord ? ord.channel : null) || null;
+}
+function plNormProductName(s){ return (s||'').toString().trim().toLowerCase(); }
+function plCategoryForProductName(name){
+  const n = plNormProductName(name);
+  if(!n) return null;
+  const exact = (catalogData||[]).find(p=>plNormProductName(p.name)===n);
+  if(exact) return exact.category||'Без категории';
+  const partial = (catalogData||[]).find(p=>{const pn=plNormProductName(p.name); return pn && (pn.includes(n)||n.includes(pn));});
+  return partial ? (partial.category||'Без категории') : null;
+}
+
 function renderRevenueByChannel(){
   const el = document.getElementById('pl-rev-by-channel');
   if(!el) return;
@@ -23937,44 +23992,6 @@ function renderRevenueByChannel(){
     return;
   }
   const year = plBuildRevenueYearOptions('pl-rev-channel-year');
-
-  // Запасной вариант: если у заказа не заполнен явный канал, определяем его
-  // по названию клиента (так реально ведутся дилеры/салоны в вашей базе)
-  const CUSTOMER_NAME_TO_CHANNEL = {
-    'cara-армада': 'salon_armada',
-    'cara-назарбаева': 'salon_nazarbayeva',
-    'cara-астана': 'dealer_astana',
-    'cara-актау': 'dealer_aktau',
-    'cara-атырау': 'dealer_atyrau',
-    'нияз шымкент': 'dealer_shymkent',
-    'олжас-актобе': 'dealer_aktobe',
-    'частное лицо': 'office',
-  };
-  function channelByCustomerName(name){
-    const n = esfReconNorm(name||'');
-    if(!n) return null;
-    if(CUSTOMER_NAME_TO_CHANNEL[n]) return CUSTOMER_NAME_TO_CHANNEL[n];
-    const found = Object.entries(CUSTOMER_NAME_TO_CHANNEL).find(([key])=>n.includes(key) || key.includes(n));
-    return found ? found[1] : null;
-  }
-
-  function findOrder(orderNum){
-    const n = plNormOrderNum(orderNum);
-    if(!n) return null;
-    return ordersData.find(o=>plNormOrderNum(o.num)===n)
-        || ordersData.find(o=>{const on=plNormOrderNum(o.num); return on && (on.endsWith(n)||n.endsWith(on));})
-        || null;
-  }
-  // Канал строки реализации определяем по цепочке: явный канал заказа →
-  // покупатель из заказа → покупатель ИЗ САМОЙ РЕАЛИЗАЦИИ (там колонка
-  // "Покупатель" заполнена всегда, даже если заказ не нашёлся вообще)
-  function findChannelForRealization(r){
-    const ord = findOrder(r.order_num);
-    if(ord && ord.channel && PL_CHANNEL_ORDER.includes(ord.channel)) return ord.channel;
-    const byOrderCustomer = ord ? channelByCustomerName(ord.customer) : null;
-    if(byOrderCustomer) return byOrderCustomer;
-    return channelByCustomerName(r.customer) || (ord ? ord.channel : null) || null;
-  }
 
   const grid = {};
   PL_CHANNEL_ORDER.forEach(c=>{ grid[c]=Array(12).fill(0); });
@@ -23987,7 +24004,7 @@ function renderRevenueByChannel(){
     if(d.slice(0,4)!==year) return;
     const m = parseInt(d.slice(5,7),10)-1;
     if(m<0||m>11) return;
-    const channel = findChannelForRealization(r);
+    const channel = plChannelForRealization(r);
     const amount = r.revenue||0;
     if(channel && grid[channel]){ grid[channel][m]+=amount; matchedCount++; }
     else {
@@ -24014,8 +24031,6 @@ function renderRevenueByChannel(){
   window._plChannelRows = rows; window._plChannelYear = year;
 }
 
-function plNormProductName(s){ return (s||'').toString().trim().toLowerCase(); }
-
 function renderRevenueByCategory(){
   const el = document.getElementById('pl-rev-by-category');
   if(!el) return;
@@ -24026,18 +24041,6 @@ function renderRevenueByCategory(){
   }
   const year = plBuildRevenueYearOptions('pl-rev-category-year');
 
-  const catEntries = (catalogData||[]).map(p=>({norm:plNormProductName(p.name), category:p.category||'Без категории'}));
-  const catExact = {};
-  catEntries.forEach(c=>{ catExact[c.norm]=c.category; });
-  function findCategory(name){
-    const n = plNormProductName(name);
-    if(!n) return null;
-    if(catExact[n]) return catExact[n];
-    // Гибкое совпадение на случай небольших расхождений в названии
-    const m = catEntries.find(c=>c.norm && (c.norm.includes(n) || n.includes(c.norm)));
-    return m ? m.category : null;
-  }
-
   const grid = {};
   let matchedCount=0, otherCount=0;
   (realizationsData||[]).forEach(r=>{
@@ -24045,7 +24048,7 @@ function renderRevenueByCategory(){
     if(d.slice(0,4)!==year) return;
     const m = parseInt(d.slice(5,7),10)-1;
     if(m<0||m>11) return;
-    const cat = findCategory(r.name);
+    const cat = plCategoryForProductName(r.name);
     if(cat) matchedCount++; else otherCount++;
     const key = cat || 'Без категории';
     if(!grid[key]) grid[key]=Array(12).fill(0);
@@ -24062,6 +24065,144 @@ function renderRevenueByCategory(){
     : '';
   el.innerHTML = hint + plRevenueTableHtml(rows);
   window._plCategoryRows = rows; window._plCategoryYear = year;
+}
+
+// ===== СВОДНАЯ СТРУКТУРА: НАПРАВЛЕНИЕ → КАТЕГОРИЯ → ТОВАР =====
+let _plRevTreeExpanded = new Set();
+function togglePlRevTree(key){
+  if(_plRevTreeExpanded.has(key)) _plRevTreeExpanded.delete(key); else _plRevTreeExpanded.add(key);
+  renderRevenueByChannelCategory();
+}
+
+function renderRevenueByChannelCategory(){
+  const el = document.getElementById('pl-rev-tree');
+  if(!el) return;
+  if(!ordersData.length && typeof loadOrdersFromDB==='function'){
+    loadOrdersFromDB().then(renderRevenueByChannelCategory);
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка заказов...</div>';
+    return;
+  }
+  if(!catalogData.length && typeof loadCatalogFromDB==='function'){
+    loadCatalogFromDB().then(renderRevenueByChannelCategory);
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка справочника товаров...</div>';
+    return;
+  }
+  const year = plBuildRevenueYearOptions('pl-rev-tree-year');
+
+  const tree = {};
+  function ensureChannel(code,label){ if(!tree[code]) tree[code]={label, monthly:Array(12).fill(0), cats:{}}; return tree[code]; }
+
+  (realizationsData||[]).forEach(r=>{
+    const d = r.doc_date||r.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m<0||m>11) return;
+    const amount = r.revenue||0;
+    if(!amount) return;
+
+    const channel = plChannelForRealization(r) || 'other';
+    const chLabel = PL_CHANNEL_LABELS[channel] || 'Без канала / прочее';
+    const ch = ensureChannel(channel, chLabel);
+    ch.monthly[m]+=amount;
+
+    const cat = plCategoryForProductName(r.name) || 'Без категории';
+    if(!ch.cats[cat]) ch.cats[cat]={label:cat, monthly:Array(12).fill(0), items:{}};
+    ch.cats[cat].monthly[m]+=amount;
+
+    const prodName = r.name || 'Без названия';
+    if(!ch.cats[cat].items[prodName]) ch.cats[cat].items[prodName]={label:prodName, monthly:Array(12).fill(0)};
+    ch.cats[cat].items[prodName].monthly[m]+=amount;
+  });
+
+  const channelRows = Object.entries(tree).map(([code,ch])=>{
+    const chKey = 'ch:'+code;
+    return {
+      key:chKey, label:ch.label, monthly:ch.monthly,
+      cats: Object.entries(ch.cats).map(([catName,c])=>{
+        const catKey = chKey+'|cat:'+catName;
+        return {
+          key:catKey, label:c.label, monthly:c.monthly,
+          items: Object.entries(c.items).map(([pn,it])=>({key:catKey+'|item:'+pn, label:it.label, monthly:it.monthly}))
+            .sort((a,b)=>b.monthly.reduce((s,v)=>s+v,0)-a.monthly.reduce((s,v)=>s+v,0)),
+        };
+      }).sort((a,b)=>b.monthly.reduce((s,v)=>s+v,0)-a.monthly.reduce((s,v)=>s+v,0)),
+    };
+  }).sort((a,b)=>b.monthly.reduce((s,v)=>s+v,0)-a.monthly.reduce((s,v)=>s+v,0));
+
+  el.innerHTML = plRevenueTreeHtml(channelRows);
+  window._plRevTreeRows = channelRows; window._plRevTreeYear = year;
+}
+
+function plRevenueTreeHtml(channelRows){
+  const fmt2 = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+  if(!channelRows.length) return '<div style="padding:16px;color:var(--text3);text-align:center">Нет данных за этот год</div>';
+  const totals = Array(12).fill(0);
+  channelRows.forEach(r=>r.monthly.forEach((v,i)=>totals[i]+=v));
+  const grandTotal = totals.reduce((s,v)=>s+v,0);
+  const colors = ['var(--accent)','var(--green)','var(--text2)'];
+
+  function rowHtml(r, level){
+    const hasChildren = level===0 ? r.cats.length>0 : (r.items && r.items.length>0);
+    const expanded = _plRevTreeExpanded.has(r.key);
+    const rowTotal = r.monthly.reduce((s,v)=>s+v,0);
+    const bg = level===0 ? 'background:var(--bg3);font-weight:600' : '';
+    const indent = level*24;
+    let html = `<tr style="${bg}${hasChildren?';cursor:pointer':''}" ${hasChildren?`onclick="togglePlRevTree('${r.key}')"`:''}>
+      <td style="padding-left:${indent}px;color:${colors[level]}">${hasChildren?(expanded?'▼ ':'▶ '):(level>0?'&nbsp;&nbsp;&nbsp;':'')}${r.label}</td>
+      ${r.monthly.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmt2(v)}</td>`).join('')}
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:${colors[level]}">${fmt2(rowTotal)}</td>
+    </tr>`;
+    if(hasChildren && expanded){
+      const children = level===0 ? r.cats : r.items;
+      children.forEach(ch=>{ html += rowHtml(ch, level+1); });
+    }
+    return html;
+  }
+
+  return `<table class="data-table" style="font-size:11px;white-space:nowrap">
+    <thead><tr>
+      <th>Направление / категория / товар</th>
+      ${PL_MONTH_LABELS.map(m=>`<th style="text-align:right">${m}</th>`).join('')}
+      <th style="text-align:right;color:var(--accent)">Итого за год</th>
+    </tr></thead>
+    <tbody>${channelRows.map(r=>rowHtml(r,0)).join('')}</tbody>
+    <tfoot>
+      <tr style="border-top:2px solid var(--border)">
+        <td style="font-weight:700">Итого</td>
+        ${totals.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700">${fmt2(v)}</td>`).join('')}
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--accent)">${fmt2(grandTotal)}</td>
+      </tr>
+    </tfoot>
+  </table>`;
+}
+
+function exportRevenueTreeToExcel(){
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
+  const channelRows = window._plRevTreeRows;
+  const year = window._plRevTreeYear;
+  if(!channelRows || !channelRows.length){alert('Нет данных для выгрузки.');return;}
+  const totals = Array(12).fill(0);
+  const aoa = [
+    ['Выручка по направлениям, категориям и товарам — '+year],
+    [],
+    ['Направление / Категория / Товар', ...PL_MONTH_LABELS, 'Итого за год'],
+  ];
+  channelRows.forEach(ch=>{
+    ch.monthly.forEach((v,i)=>totals[i]+=v);
+    aoa.push([ch.label, ...ch.monthly.map(v=>Math.round(v)), Math.round(ch.monthly.reduce((s,v)=>s+v,0))]);
+    ch.cats.forEach(cat=>{
+      aoa.push(['   '+cat.label, ...cat.monthly.map(v=>Math.round(v)), Math.round(cat.monthly.reduce((s,v)=>s+v,0))]);
+      cat.items.forEach(it=>{
+        aoa.push(['      '+it.label, ...it.monthly.map(v=>Math.round(v)), Math.round(it.monthly.reduce((s,v)=>s+v,0))]);
+      });
+    });
+  });
+  aoa.push(['Итого', ...totals.map(v=>Math.round(v)), Math.round(totals.reduce((s,v)=>s+v,0))]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:36}, ...Array(12).fill({wch:12}), {wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, String(year));
+  XLSX.writeFile(wb, `PromTech_Vyruchka_struktura_${year}.xlsx`);
 }
 
 function exportRevenueTableToExcel(rows, year, title, filenamePrefix){
@@ -24320,6 +24461,7 @@ function renderPL(){
   renderRevenueByChannel();
   renderRevenueByCategory();
   renderExpensesByMonth();
+  renderRevenueByChannelCategory();
 
   // ── Постоянные затраты ────────────────────────────────────────────
   const fcEl=document.getElementById('pl-fc-summary');
