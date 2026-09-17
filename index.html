@@ -21179,22 +21179,23 @@ function buildOSV(){
     ? financePeriod.to.toISOString().slice(0,10)
     : (document.getElementById('osv-date-to')?.value||'2026-12-31');
 
-  // ── План счетов (управленческий) ──────────────────────────────
+  // ── План счетов (управленческий, коды по Плану счетов РК) ──────
   const ACCOUNTS = {
-    '50': {name:'Касса',                      type:'active'},
-    '51': {name:'Расчётные счета',            type:'active'},
-    '60': {name:'Расчёты с поставщиками',     type:'passive'},
-    '62': {name:'Расчёты с покупателями',     type:'active'},
-    '68': {name:'Расчёты по налогам',         type:'passive'},
-    '70': {name:'Расчёты по оплате труда',    type:'passive'},
-    '71': {name:'Расчёты с подотчётными',     type:'active'},
-    '10': {name:'Материалы / ТМЗ',            type:'active'},
-    '20': {name:'Основное производство',      type:'active'},
-    '43': {name:'Готовая продукция',          type:'active'},
-    '90.1': {name:'Выручка от продаж',             type:'passive'},
-    '90.2': {name:'Себестоимость продаж',           type:'active'},
-    '91.1': {name:'Прочие доходы',            type:'passive'},
-    '91.2': {name:'Прочие расходы',            type:'active'},
+    '50': {name:'Касса',                      type:'active',  kz:'1010'},
+    '51': {name:'Расчётные счета',            type:'active',  kz:'1030'},
+    '60': {name:'Расчёты с поставщиками',     type:'passive', kz:'3310'},
+    '62': {name:'Расчёты с покупателями',     type:'active',  kz:'1210'},
+    '68': {name:'Расчёты по налогам',         type:'passive', kz:'3190'},
+    '70': {name:'Расчёты по оплате труда',    type:'passive', kz:'3350'},
+    '71': {name:'Расчёты с подотчётными',     type:'active',  kz:'1250'},
+    '10': {name:'Материалы / ТМЗ',            type:'active',  kz:'1310'},
+    '20': {name:'Основное производство',      type:'active',  kz:'8110'},
+    '43': {name:'Готовая продукция',          type:'active',  kz:'1320'},
+    '84': {name:'Нераспределённая прибыль',   type:'passive', kz:'5610'},
+    '90.1': {name:'Выручка от продаж',             type:'passive', kz:'6010'},
+    '90.2': {name:'Себестоимость продаж',           type:'active',  kz:'7010'},
+    '91.1': {name:'Прочие доходы',            type:'passive', kz:'6290'},
+    '91.2': {name:'Прочие расходы',            type:'active',  kz:'7480'},
   };
 
   // ledger[acc] = {openDt, openKt, dtOb, ktOb}
@@ -21374,11 +21375,12 @@ function buildOSV(){
 
   // ── Рассчитываем сальдо конец ─────────────────────────────────
   const rows = Object.entries(ledger).map(([code, l])=>{
-    const acc = ACCOUNTS[code] || {name:code, type:'active'};
+    const acc = ACCOUNTS[code] || {name:code, type:'active', kz:code};
     const openNet  = l.openDt - l.openKt;
     const closeNet = openNet + l.dtOb - l.ktOb;
     return {
       code,
+      kz: acc.kz || code,
       name: acc.name,
       type: acc.type,
       openDt:  Math.max(0,  openNet),
@@ -21391,9 +21393,11 @@ function buildOSV(){
   }).filter(r=> r.openDt||r.openKt||r.dtOb||r.ktOb||r.closeDt||r.closeKt)
     .sort((a,b)=>a.code.localeCompare(b.code));
 
-  // ── Нераспределённая прибыль (Сч.84) — балансирующая статья ──
-  // Считаем разницу ΣДт − ΣКт по каждой колонке и добавляем Кт
-  const sub = rows.reduce((acc,r)=>({
+  // ── Нераспределённая прибыль (Сч.84) — на счёт уже могли попасть
+  // реальные проводки (например, дивиденды); сюда же доносим оставшуюся
+  // балансирующую часть (весь прочий результат, нигде больше не учтённый),
+  // а не создаём вторую строку с тем же кодом
+  const sub = rows.filter(r=>r.code!=='84').reduce((acc,r)=>({
     openDt:  acc.openDt  + r.openDt,  openKt:  acc.openKt  + r.openKt,
     closeDt: acc.closeDt + r.closeDt, closeKt: acc.closeKt + r.closeKt,
     dtOb:    acc.dtOb    + r.dtOb,    ktOb:    acc.ktOb    + r.ktOb,
@@ -21405,15 +21409,17 @@ function buildOSV(){
   const retKtOb  = Math.max(0, sub.ktOb    - sub.dtOb);     // оборот Кт (если Кт > Дт)
 
   if(retOpen>0 || retClose>0 || retDtOb>0 || retKtOb>0){
-    rows.push({
-      code:'84',
-      name:'Нераспределённая прибыль',
-      type:'passive',
-      openDt:  0,       openKt:  retOpen,
-      dtOb:    retDtOb, ktOb:    retKtOb,
-      closeDt: 0,       closeKt: retClose,
-    });
-    rows.sort((a,b)=>a.code.localeCompare(b.code));
+    let row84 = rows.find(r=>r.code==='84');
+    if(!row84){
+      row84 = {code:'84', kz:ACCOUNTS['84'].kz, name:ACCOUNTS['84'].name, type:'passive',
+        openDt:0, openKt:0, dtOb:0, ktOb:0, closeDt:0, closeKt:0};
+      rows.push(row84);
+      rows.sort((a,b)=>a.code.localeCompare(b.code));
+    }
+    row84.openKt  += retOpen;
+    row84.dtOb    += retDtOb;
+    row84.ktOb    += retKtOb;
+    row84.closeKt += retClose;
   }
 
   // Итоги — теперь должны быть Дт = Кт
@@ -21493,9 +21499,9 @@ function renderOSV(){
     <tbody>`;
 
   osv.rows.forEach(r=>{
-    const ddCall=`ddOSVAccount('${r.code}','${r.name}')`;
+    const ddCall=`ddOSVAccount('${r.code}','${r.name}','${r.kz||r.code}')`;
     html+=`<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="${ddCall}" title="Нажмите для детализации">
-      <td style="padding:7px 10px;color:var(--text3);font-size:11px;font-family:monospace">${r.code}</td>
+      <td style="padding:7px 10px;color:var(--text3);font-size:11px;font-family:monospace" title="Управленческий код: ${r.code}">${r.kz||r.code}</td>
       <td style="padding:7px 12px;font-weight:500">${r.name} <span style="font-size:10px;color:var(--accent)">🔍</span></td>
       <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--green)">${fmt(r.openDt)}</td>
       <td style="padding:7px 10px;text-align:right;font-family:monospace;color:var(--red)">${fmt(r.openKt)}</td>
@@ -28954,7 +28960,7 @@ function ddMarginItem(orderNum, itemIdx){
   ]);
 }
 
-function ddOSVAccount(acc, accName){
+function ddOSVAccount(acc, accName, kzCode){
   const from = financePeriod.from?.toISOString().slice(0,10)||'';
   const to   = financePeriod.to?.toISOString().slice(0,10)||'';
   const fmt  = n=>n>0?'₸'+Math.round(n).toLocaleString('ru-RU'):'—';
@@ -28981,7 +28987,7 @@ function ddOSVAccount(acc, accName){
   const totalKt = rows.reduce((s,r)=>s+r.credit,0);
 
   openDrilldown(
-    `ОСВ: Счёт ${acc} — ${accName}`,
+    `ОСВ: Счёт ${kzCode||acc} — ${accName}`,
     `${periodLabel()} · ${rows.length} проводок · Дт ${fmt(totalDt)} · Кт ${fmt(totalKt)}`,
     rows,
     [
