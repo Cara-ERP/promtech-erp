@@ -2975,12 +2975,19 @@ window.onerror = function(msg, src, line, col){
           <option value="CREATED">Создан</option>
           <option value="CANCELLED">Отменён</option>
         </select>
+        <select id="esf-type" onchange="renderEsfList()" style="font-size:13px">
+          <option value="">Все типы</option>
+          <option value="general">📋 Общее</option>
+          <option value="service">🔧 Услуги</option>
+          <option value="goods">📦 Товары</option>
+        </select>
         <input id="esf-from" type="date" onchange="renderEsfList()" style="font-size:13px">
         <input id="esf-to" type="date" onchange="renderEsfList()" style="font-size:13px">
       </div>
 
       <!-- KPI -->
-      <div id="esf-kpi" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px"></div>
+      <div id="esf-kpi" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px"></div>
+      <div id="esf-recon-summary" style="font-size:12px;margin-bottom:16px;padding:8px 12px;background:var(--bg3);border-radius:6px"></div>
 
       <!-- Список ЭСФ -->
       <div id="esf-list"></div>
@@ -11398,6 +11405,12 @@ async function initEsfPage(){
   ensureEsfLinksLoaded().then(renderEsfList);
 }
 
+let _esfShowOnlyUnreconciled = false;
+function filterEsfUnreconciled(){
+  _esfShowOnlyUnreconciled = !_esfShowOnlyUnreconciled;
+  renderEsfList();
+}
+
 function renderEsfList(){
   const list = document.getElementById('esf-list');
   const kpi  = document.getElementById('esf-kpi');
@@ -11405,22 +11418,39 @@ function renderEsfList(){
 
   const search  = (document.getElementById('esf-search')?.value||'').toLowerCase();
   const status  = document.getElementById('esf-status')?.value||'';
+  const typeFilter = document.getElementById('esf-type')?.value||'';
   const fromVal = document.getElementById('esf-from')?.value||'';
   const toVal   = document.getElementById('esf-to')?.value||'';
   const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
 
-  let invs = _esfData.invoices.filter(inv=>{
+  let invsBeforeReconToggle = _esfData.invoices.filter(inv=>{
     if(search && !inv.supplier_name?.toLowerCase().includes(search) &&
        !inv.num?.includes(search) && !inv.reg_num?.includes(search)) return false;
     if(status && inv.status !== status) return false;
+    if(typeFilter && (inv.invoice_type||'general') !== typeFilter) return false;
     if(fromVal && inv.date < fromVal) return false;
     if(toVal && inv.date > toVal) return false;
     return true;
   });
+  let invs = _esfShowOnlyUnreconciled && esfLinksLoaded
+    ? invsBeforeReconToggle.filter(inv=>esfLinkedAmount(inv.id)<=100)
+    : invsBeforeReconToggle;
 
   // KPI
   const totalNds = invs.reduce((s,i)=>s+i.total_nds,0);
   const totalWithNds = invs.reduce((s,i)=>s+i.total_with_nds,0);
+  // Сверка (сколько из показанных ЭСФ реально сели на расходы/оплаты) —
+  // считаем по той же таблице esf_payment_links, что и колонка "Сверка"
+  let reconciledCount=0, partialCount=0, notReconciledCount=0;
+  if(esfLinksLoaded){
+    invsBeforeReconToggle.forEach(inv=>{
+      const linked = esfLinkedAmount(inv.id);
+      const total = inv.total_with_nds||0;
+      if(linked<=0) notReconciledCount++;
+      else if(linked>=total-100) reconciledCount++;
+      else partialCount++;
+    });
+  }
   kpi.innerHTML = [
     ['📄 Счетов', invs.length, ''],
     ['💰 Без НДС', fmt(invs.reduce((s,i)=>s+i.total_amount,0)), 'var(--accent)'],
@@ -11430,6 +11460,16 @@ function renderEsfList(){
     <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${l}</div>
     <div style="font-size:18px;font-weight:700;${c?'color:'+c:''}">${v}</div>
   </div>`).join('');
+
+  const reconEl = document.getElementById('esf-recon-summary');
+  if(reconEl){
+    reconEl.innerHTML = esfLinksLoaded
+      ? `<span style="color:var(--green)">✓ Полностью сверено: <strong>${reconciledCount}</strong></span>
+         <span style="color:var(--amber);margin-left:14px">◐ Частично: <strong>${partialCount}</strong></span>
+         <span style="color:var(--red);margin-left:14px">✕ Не сверено: <strong>${notReconciledCount}</strong></span>
+         ${notReconciledCount>0||_esfShowOnlyUnreconciled?`<button class="btn btn-ghost btn-sm" style="margin-left:14px;font-size:11px" onclick="filterEsfUnreconciled()">${_esfShowOnlyUnreconciled?'Показать все':'Показать только несверенные'}</button>`:''}`
+      : '<span style="color:var(--text3)">Загрузка данных сверки...</span>';
+  }
 
   // Список
   const statusLabel = {DELIVERED:'✅ Доставлен', CREATED:'📝 Создан', CANCELLED:'❌ Отменён'};
@@ -23898,7 +23938,31 @@ function renderRevenueByChannel(){
   }
   const year = plBuildRevenueYearOptions('pl-rev-channel-year');
 
-  const orderEntries = ordersData.map(o=>({norm:plNormOrderNum(o.num), channel:o.channel}));
+  // Запасной вариант: если у заказа не заполнен явный канал, определяем его
+  // по названию клиента (так реально ведутся дилеры/салоны в вашей базе)
+  const CUSTOMER_NAME_TO_CHANNEL = {
+    'cara-армада': 'salon_armada',
+    'cara-назарбаева': 'salon_nazarbayeva',
+    'cara-астана': 'dealer_astana',
+    'cara-актау': 'dealer_aktau',
+    'cara-атырау': 'dealer_atyrau',
+    'нияз шымкент': 'dealer_shymkent',
+    'олжас-актобе': 'dealer_aktobe',
+    'частное лицо': 'office',
+  };
+  function channelByCustomerName(name){
+    const n = esfReconNorm(name||'');
+    if(!n) return null;
+    if(CUSTOMER_NAME_TO_CHANNEL[n]) return CUSTOMER_NAME_TO_CHANNEL[n];
+    const found = Object.entries(CUSTOMER_NAME_TO_CHANNEL).find(([key])=>n.includes(key) || key.includes(n));
+    return found ? found[1] : null;
+  }
+  function determineChannel(o){
+    if(o.channel && PL_CHANNEL_ORDER.includes(o.channel)) return o.channel;
+    return channelByCustomerName(o.customer) || o.channel || null;
+  }
+
+  const orderEntries = ordersData.map(o=>({norm:plNormOrderNum(o.num), channel:determineChannel(o)}));
   const chExact = {};
   orderEntries.forEach(o=>{ chExact[o.norm]=o.channel; });
   function findChannel(orderNum){
