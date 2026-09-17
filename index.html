@@ -23979,6 +23979,7 @@ function renderRevenueByChannel(){
   PL_CHANNEL_ORDER.forEach(c=>{ grid[c]=Array(12).fill(0); });
   const other = Array(12).fill(0);
   let matchedCount=0, otherCount=0;
+  const unmatchedSamples = []; // для диагностики — покажем, что именно не сопоставилось
 
   (realizationsData||[]).forEach(r=>{
     const d = r.doc_date||r.date||'';
@@ -23988,7 +23989,14 @@ function renderRevenueByChannel(){
     const channel = findChannel(r.order_num);
     const amount = r.revenue||0;
     if(channel && grid[channel]){ grid[channel][m]+=amount; matchedCount++; }
-    else { other[m]+=amount; otherCount++; }
+    else {
+      other[m]+=amount; otherCount++;
+      if(unmatchedSamples.length<8){
+        const n = plNormOrderNum(r.order_num);
+        const ord = ordersData.find(o=>plNormOrderNum(o.num)===n) || ordersData.find(o=>{const on=plNormOrderNum(o.num); return on && (on.endsWith(n)||n.endsWith(on));});
+        unmatchedSamples.push({orderNum:r.order_num||'(пусто)', customer: ord ? (ord.customer||'(без имени)') : (ord===undefined?'заказ не найден':'')});
+      }
+    }
   });
 
   const rows = PL_CHANNEL_ORDER
@@ -23998,7 +24006,10 @@ function renderRevenueByChannel(){
 
   const totalCount = matchedCount+otherCount;
   const hint = (totalCount>0 && otherCount>0)
-    ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Не удалось определить канал для ${otherCount} из ${totalCount} строк реализации — попали в «Без канала / прочее» (возможно, номер заказа записан иначе, чем в самом заказе).</div>`
+    ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">
+        Не удалось определить канал для ${otherCount} из ${totalCount} строк реализации.
+        Примеры (заказ → клиент): ${unmatchedSamples.map(s=>`«${s.orderNum}» → ${s.customer}`).join('; ')}
+       </div>`
     : '';
   el.innerHTML = hint + plRevenueTableHtml(rows);
   window._plChannelRows = rows; window._plChannelYear = year;
