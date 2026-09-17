@@ -13703,6 +13703,11 @@ function openAdvanceModal(id){
   showModal('advanceModal');
 }
 
+function advLineCatLabel(code){
+  if(!code) return '';
+  return (_expenseCats||[]).find(c=>c.code===code)?.name || code;
+}
+
 function renderAdvLines(){
   const tbody = document.getElementById('adv-lines-tbody');
   if(!tbody) return;
@@ -13718,6 +13723,7 @@ function renderAdvLines(){
     </td>
     <td>
       <div style="font-size:13px">${l.desc||'—'}</div>
+      ${l.type==='expense'&&(l.category||l.subcategory)?`<div style="font-size:11px;color:var(--amber)">🏷️ ${advLineCatLabel(l.category)}${l.subcategory?' — '+advLineCatLabel(l.subcategory):''}</div>`:''}
       ${l.supplier?`<div style="font-size:11px;color:var(--text3)">🤝 ${l.supplier}</div>`:''}
       ${l.materialId?`<div style="font-size:11px;color:var(--accent)">📦 ${warehouseData.find(w=>w.id===l.materialId)?.name||''}</div>`:''}
       ${l.esfInvoiceId?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;margin-top:2px;color:var(--accent)" onclick="event.stopPropagation();openEsfDetail('${l.esfInvoiceId}')">📄 Открыть ЭСФ</button>`:''}
@@ -22758,7 +22764,11 @@ async function renderDashboard(){
     (a.lines||[]).forEach(l=>{
       const label = l.type==='material' ? 'Материалы (аванс)'
                   : l.type==='supplier' ? 'Оплата поставщику (аванс)'
-                  : (TX_EXPENSE_CATS.find(c=>c.id===l.category)?.label || 'Прочее (аванс)');
+                  : (()=>{
+                      const catN = (_expenseCats||[]).find(c=>c.code===l.category)?.name || l.category || 'Прочее';
+                      const subN = l.subcategory ? ((_expenseCats||[]).find(c=>c.code===l.subcategory)?.name || l.subcategory) : null;
+                      return (subN ? `${catN} — ${subN}` : catN) + ' (аванс)';
+                    })();
       expCats[label] = (expCats[label]||0) + (l.amount||0);
     });
   });
@@ -24064,7 +24074,7 @@ function renderExpensesByMonth(){
     (a.lines||[]).forEach(l=>{
       if(l.type==='material') addToCat('adv_material','Материалы (аванс)', null, null, a.date, l.amount||0);
       else if(l.type==='supplier') addToCat('adv_supplier','Оплата поставщику (аванс)', null, null, a.date, l.amount||0);
-      else addToCat(l.category||'adv_other', catLabelFor(l.category)||'Прочее (аванс)', null, null, a.date, l.amount||0);
+      else addToCat(l.category||'other', catLabelFor(l.category||'other')||'Прочее (аванс)', l.subcategory||null, l.subcategory?catLabelFor(l.subcategory):null, a.date, l.amount||0);
     });
   });
 
