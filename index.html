@@ -21400,10 +21400,12 @@ function buildOSV(){
     .sort((a,b)=>a.code.localeCompare(b.code));
 
   // ── Нераспределённая прибыль (Сч.84) — на счёт уже могли попасть
-  // реальные проводки (например, дивиденды); сюда же доносим оставшуюся
-  // балансирующую часть (весь прочий результат, нигде больше не учтённый),
-  // а не создаём вторую строку с тем же кодом
-  const sub = rows.filter(r=>r.code!=='84').reduce((acc,r)=>({
+  // реальные проводки (например, дивиденды). Считаем баланс по ВСЕМ счетам
+  // включая их — иначе "вторая половина" такой проводки (например, кредит
+  // по кассе от выплаты дивидендов) осталась бы неучтённой и задваивала бы
+  // итог. Остаток (если он есть) — это и есть неучтённая нераспределённая
+  // прибыль, доносим её на этот же счёт, не создавая вторую строку.
+  const sub = rows.reduce((acc,r)=>({
     openDt:  acc.openDt  + r.openDt,  openKt:  acc.openKt  + r.openKt,
     closeDt: acc.closeDt + r.closeDt, closeKt: acc.closeKt + r.closeKt,
     dtOb:    acc.dtOb    + r.dtOb,    ktOb:    acc.ktOb    + r.ktOb,
@@ -23121,15 +23123,23 @@ function openSupplierReconciliation(supplierName, fromDate, toDate){
   const matchesSupplier = (name, bin) => {
     if(sBin && bin && bin.trim()===sBin) return true;
     const n = esfReconNorm(name);
-    return n===sNorm || n.includes(sNorm) || sNorm.includes(n);
+    if(!n) return false;
+    if(n===sNorm) return true;
+    // Частичное совпадение — только если оба названия достаточно длинные,
+    // иначе короткие аббревиатуры (типа "С.А.С.") случайно ловят чужие записи
+    if(sNorm.length>=6 && n.length>=6 && (n.includes(sNorm) || sNorm.includes(n))) return true;
+    return false;
   };
 
   // Кредит (увеличивает то, что мы должны поставщику): входящие ЭСФ
   const invoiceSource = esfReconInvoices.length ? esfReconInvoices : (_esfData?.invoices||[]);
   const allInvoices = invoiceSource.filter(i=>matchesSupplier(i.supplier_name, i.supplier_bin));
 
-  // Дебет (уменьшает долг): прямые оплаты по расчётному счёту/кассе
-  const directPayments = moneyTx.filter(t=>t.flow==='expense' && t.category==='supplier' && matchesSupplier(t.counterparty, t.bin));
+  // Дебет (уменьшает долг): прямые оплаты по расчётному счёту/кассе — по
+  // контрагенту, независимо от категории (реальные операции заведены под
+  // разными категориями — commercial/general/production и т.д., а не только
+  // "supplier")
+  const directPayments = moneyTx.filter(t=>t.flow==='expense' && matchesSupplier(t.counterparty, t.bin));
 
   // Дебет: оплаты этому поставщику, проведённые через авансовые отчёты сотрудников
   const advancePayments = [];
