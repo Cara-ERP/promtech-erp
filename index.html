@@ -16706,9 +16706,18 @@ async function importSuppliersCSV(event){
 }
 
 // ===== ПОИСК И ОБЪЕДИНЕНИЕ ДУБЛЕЙ ПОСТАВЩИКОВ =====
+// Похожие по начертанию/звучанию латинские и кириллические буквы (например,
+// латинская "a" и кириллическая "а" выглядят одинаково, а "r" часто печатают
+// вместо "р") — приводим к одному алфавиту (кириллице) перед сравнением
+const LATIN_CYRILLIC_HOMOGLYPHS = {a:'а',c:'с',e:'е',k:'к',m:'м',o:'о',p:'р',t:'т',x:'х',y:'у',r:'р'};
+function normHomoglyphs(s){
+  return s.replace(/[acekmoptxyr]/g, ch => LATIN_CYRILLIC_HOMOGLYPHS[ch] || ch);
+}
+
 function normSupNameMerge(name){
-  return (name||'')
-    .toLowerCase()
+  return normHomoglyphs((name||'')
+    .replace(/\([^)]*\)/g,'') // убираем пояснения в скобках (часто дублируют название)
+    .toLowerCase())
     .replace(/["'«»“”]/g,'')
     .replace(/\b(тоо|ип|ао|пк|чп|ооо|zhk|llp|ltd|kz)\b/gi,'')
     .replace(/[^a-zа-яё0-9]+/gi,' ')
