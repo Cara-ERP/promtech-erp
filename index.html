@@ -785,6 +785,8 @@ async function loadSuppliersFromDB(){
         comment:s.comment||'', status:s.status||'active',
         leadtime:s.leadtime||0, turnover:s.turnover||0,
         defect:s.defect||0, addr:s.addr||'',
+        expense_category:s.expense_category||'', expense_subcategory:s.expense_subcategory||'',
+        expense_source:s.expense_source||'payment',
       }));
       _cacheLoaded.suppliers = true;
       console.log('✅ Поставщики загружены из Supabase: '+data.length);
@@ -3296,6 +3298,41 @@ window.onerror = function(msg, src, line, col){
           </div>
         </div>
         <div id="sup-card-error" style="color:var(--red);font-size:12px;margin-top:8px;min-height:16px"></div>
+
+        <!-- Учёт расходов по этому поставщику (для отчёта "Расходы по категориям и статьям") -->
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="font-weight:600;font-size:13px;margin-bottom:8px">📊 Учёт расходов (для отчёта P&L)</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+            Если этот поставщик оказывает одну постоянную услугу (например, заточка,
+            аренда) — укажите статью расходов здесь, и все его ЭСФ/оплаты будут
+            попадать в P&L под этой статьёй, а не общей строкой "Поставщик".
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-row">
+              <label class="label">Категория расхода</label>
+              <select id="sup-card-exp-cat" onchange="updateSupCardExpSubcat()" style="font-size:13px">
+                <option value="">— не задано —</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label class="label">Статья расхода</label>
+              <select id="sup-card-exp-subcat" style="font-size:13px">
+                <option value="">— не задано —</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row" style="margin-top:8px">
+            <label class="label">Считать расходы по:</label>
+            <div style="display:flex;gap:16px;font-size:13px;margin-top:4px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="sup-card-exp-source" value="payment" checked style="width:auto"> Оплате (по умолчанию)
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="radio" name="sup-card-exp-source" value="esf" style="width:auto"> ЭСФ (счёт-фактуре)
+              </label>
+            </div>
+          </div>
+        </div>
 
         <!-- ЭСФ поставщика -->
         <div id="sup-card-esf-section" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
@@ -17302,6 +17339,32 @@ function renderSupHistory(){
   }).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Нет данных</td></tr>';
 }
 
+function populateSupCardExpCat(){
+  const sel = document.getElementById('sup-card-exp-cat');
+  if(!sel) return;
+  if(!_expenseCatsLoaded || !_expenseCats.length){
+    loadExpenseCategories().then(populateSupCardExpCat);
+    return;
+  }
+  const topLevel = _expenseCats.filter(c=>!c.parent_code);
+  const prevVal = sel.value;
+  sel.innerHTML = '<option value="">— не задано —</option>' +
+    topLevel.map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+  sel.value = prevVal;
+}
+
+function updateSupCardExpSubcat(){
+  const catSel = document.getElementById('sup-card-exp-cat');
+  const subSel = document.getElementById('sup-card-exp-subcat');
+  if(!catSel || !subSel) return;
+  const catCode = catSel.value;
+  const prevVal = subSel.value;
+  const subs = catCode ? (_expenseCats||[]).filter(c=>c.parent_code===catCode) : [];
+  subSel.innerHTML = '<option value="">— не задано —</option>' +
+    subs.map(c=>`<option value="${c.code}">${c.name}</option>`).join('');
+  subSel.value = prevVal;
+}
+
 function openSupplierCard(id){
   const sup=id?suppliersData.find(s=>s.id===id):null;
   const titleEl=document.getElementById('sup-card-title');
@@ -17322,6 +17385,14 @@ function openSupplierCard(id){
   document.getElementById('sup-card-comment').value=sup?.comment||'';
   document.getElementById('sup-card-name')._editId=id||null;
   document.getElementById('sup-card-error').textContent='';
+
+  // Учёт расходов: категория/статья + источник (ЭСФ/оплата)
+  populateSupCardExpCat();
+  document.getElementById('sup-card-exp-cat').value = sup?.expense_category||'';
+  updateSupCardExpSubcat();
+  document.getElementById('sup-card-exp-subcat').value = sup?.expense_subcategory||'';
+  const src = sup?.expense_source||'payment';
+  document.querySelectorAll('input[name="sup-card-exp-source"]').forEach(r=>{ r.checked = (r.value===src); });
 
   // ЭСФ поставщика
   const esfSection = document.getElementById('sup-card-esf-section');
@@ -17387,23 +17458,44 @@ async function saveSupplierCard(){
     email:document.getElementById('sup-card-email').value.trim(),
     bin:document.getElementById('sup-card-bin').value.trim(),
     comment:document.getElementById('sup-card-comment').value.trim(),
+    expense_category:document.getElementById('sup-card-exp-cat').value||null,
+    expense_subcategory:document.getElementById('sup-card-exp-subcat').value||null,
+    expense_source:document.querySelector('input[name="sup-card-exp-source"]:checked')?.value||'payment',
   };
   err.style.color='var(--text3)';
   err.textContent='Сохранение...';
+  const expenseFields = ['expense_category','expense_subcategory','expense_source'];
+  const trySave = async (obj)=>{
+    if(editId) return sbPatch('suppliers','id=eq.'+encodeURIComponent(editId), obj);
+    return sbInsert('suppliers', obj);
+  };
   try{
+    let created;
+    try{
+      created = await trySave(dbObj);
+    } catch(e){
+      // Если колонки учёта расходов ещё не добавлены в базу — сохраняем
+      // остальное без них, чтобы не блокировать сохранение карточки целиком
+      if(/expense_(category|subcategory|source)/i.test(e.message)){
+        const {expense_category, expense_subcategory, expense_source, ...rest} = dbObj;
+        created = await trySave(rest);
+        err.style.color='var(--amber)';
+        err.textContent='Сохранено, но без учёта расходов — выполните SQL для добавления полей (см. инструкцию)';
+      } else throw e;
+    }
     if(editId){
-      await sbPatch('suppliers','id=eq.'+encodeURIComponent(editId), dbObj);
       const idx=suppliersData.findIndex(s=>s.id===editId);
       if(idx>=0) suppliersData[idx]={...suppliersData[idx],...dbObj,...localExtra};
     } else {
-      const created=await sbInsert('suppliers', dbObj);
       suppliersData.push({...dbObj,...localExtra, id:created?.id});
     }
-    err.style.color='var(--green)';
-    err.textContent='✓ Сохранено!';
-    setTimeout(()=>{closeModal('supplierCardModal');renderSupplierList();renderSupplierKPIs();},700);
+    if(!err.textContent || err.textContent==='Сохранение...'){
+      err.style.color='var(--green)';
+      err.textContent='✓ Сохранено!';
+    }
+    setTimeout(()=>{closeModal('supplierCardModal');renderSupplierList();renderSupplierKPIs();},900);
     if(oldName && oldName!==name){
-      setTimeout(()=>renameSupplierInMoneyTx(oldName, name), 750);
+      setTimeout(()=>renameSupplierInMoneyTx(oldName, name), 950);
     }
   } catch(e){
     err.style.color='var(--red)';
@@ -24281,6 +24373,16 @@ function renderExpensesByMonth(){
     el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка справочника статей расходов...</div>';
     return;
   }
+  if(!_osvEsfLoaded && !esfReconInvoices.length){
+    sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{
+      esfReconInvoices = data||[];
+      _osvEsfLoaded = true;
+      renderExpensesByMonth();
+    });
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка входящих ЭСФ...</div>';
+    return;
+  }
+  _osvEsfLoaded = true;
   const year = plBuildRevenueYearOptions('pl-exp-year');
 
   // Название категории/статьи берём из справочника "expense_categories" (тот, что
@@ -24312,12 +24414,41 @@ function renderExpensesByMonth(){
     }
   }
 
+  // Ищем карточку поставщика по БИН (точно) или по названию (гибко) —
+  // нужно, чтобы применить статью расходов, заданную в самой карточке
+  function findSupplierForName(name, bin){
+    if(bin){
+      const byBin = suppliersData.find(s=>s.bin && s.bin.trim()===bin.trim());
+      if(byBin) return byBin;
+    }
+    if(!name) return null;
+    const n = normSupNameMerge(name);
+    if(!n) return null;
+    return suppliersData.find(s=>normSupNameMerge(s.name)===n)
+        || suppliersData.find(s=>{const sn=normSupNameMerge(s.name); return sn && (sn.includes(n)||n.includes(sn));})
+        || null;
+  }
+
   // Прямые операции по расчётному счёту/кассе. Исключены: переводы между своими
   // счетами, сама "Выдача аванса" (разбирается ниже по факту трат) и дивиденды
   // (это распределение прибыли собственникам, а не операционный расход)
   moneyTx.forEach(t=>{
     if(t.flow!=='expense') return;
     if(['transfer_in','transfer_out','transfer','advance_out','dividend'].includes(t.category)) return;
+    if(t.category==='supplier'){
+      // Если у поставщика в карточке задана статья расходов — используем её,
+      // а не общую строку "Поставщику". Если для него выбрано "считать по
+      // ЭСФ" — пропускаем оплату здесь, она будет учтена через саму ЭСФ ниже
+      // (чтобы не задваивать один и тот же расход)
+      const sup = findSupplierForName(t.counterparty, t.bin);
+      if(sup && sup.expense_category && sup.expense_source==='esf') return;
+      if(sup && sup.expense_category){
+        addToCat(sup.expense_category, catLabelFor(sup.expense_category), sup.expense_subcategory||null, sup.expense_subcategory?catLabelFor(sup.expense_subcategory):null, t.date, t.amount||0);
+      } else {
+        addToCat('supplier', 'Поставщику (статья не указана)', null, null, t.date, t.amount||0);
+      }
+      return;
+    }
     const catCode = t.category || 'other';
     addToCat(catCode, catLabelFor(catCode)||'Прочее', t.subcategory||null, t.subcategory?catLabelFor(t.subcategory):null, t.date, t.amount||0);
   });
@@ -24329,6 +24460,15 @@ function renderExpensesByMonth(){
       else if(l.type==='supplier') addToCat('adv_supplier','Оплата поставщику (аванс)', null, null, a.date, l.amount||0);
       else addToCat(l.category||'other', catLabelFor(l.category||'other')||'Прочее (аванс)', l.subcategory||null, l.subcategory?catLabelFor(l.subcategory):null, a.date, l.amount||0);
     });
+  });
+
+  // ЭСФ по услугам — только для тех поставщиков, у кого в карточке явно
+  // выбрано "считать расходы по ЭСФ" (иначе они уже учтены выше по оплате)
+  (esfReconInvoices||[]).forEach(inv=>{
+    if(inv.invoice_type!=='service') return;
+    const sup = findSupplierForName(inv.supplier_name, inv.supplier_bin);
+    if(!sup || sup.expense_source!=='esf' || !sup.expense_category) return;
+    addToCat(sup.expense_category, catLabelFor(sup.expense_category), sup.expense_subcategory||null, sup.expense_subcategory?catLabelFor(sup.expense_subcategory):null, inv.date, inv.total_with_nds||0);
   });
 
   const catRows = Object.entries(catTree).map(([code,c])=>({
