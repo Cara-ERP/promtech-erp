@@ -16762,6 +16762,38 @@ function normSupNameMerge(name){
     .replace(/\s+/g,' ');
 }
 
+// Ищем карточку поставщика по БИН (точно) или по названию (гибко) — нужно
+// везде, где надо применить статью расходов, заданную в карточке поставщика
+// (P&L, отчёт "Расходы по категориям и статьям")
+function findSupplierForName(name, bin){
+  if(bin){
+    const byBin = suppliersData.find(s=>s.bin && s.bin.trim()===bin.trim());
+    if(byBin) return byBin;
+  }
+  if(!name) return null;
+  const n = normSupNameMerge(name);
+  if(!n) return null;
+  return suppliersData.find(s=>normSupNameMerge(s.name)===n)
+      || suppliersData.find(s=>{const sn=normSupNameMerge(s.name); return sn && (sn.includes(n)||n.includes(sn));})
+      || null;
+}
+
+// Находит код ВЕРХНЕУРОВНЕВОЙ категории для любого кода статьи расхода
+// (например, "com_rent" → "commercial") — нужно, чтобы группировать P&L
+// по крупным разделам (Производственные/Коммерческие/Хозяйственные), а не
+// по отдельным статьям
+function topLevelCategoryOf(code){
+  if(!code) return code;
+  let cat = (_expenseCats||[]).find(c=>c.code===code);
+  let guard = 0;
+  while(cat && cat.parent_code && guard++<10){
+    const parent = (_expenseCats||[]).find(c=>c.code===cat.parent_code);
+    if(!parent) break;
+    cat = parent;
+  }
+  return cat ? cat.code : code;
+}
+
 function levenshteinDist(a,b){
   const m=a.length, n=b.length;
   if(!m) return n; if(!n) return m;
@@ -23855,16 +23887,33 @@ function buildPL(){
 
   // ── РАСХОДЫ ЧЕРЕЗ АВАНСОВЫЕ ОТЧЁТЫ (разбираем строки lines[] отдельно) ─────
   // "Выдача аванса" сама по себе в P&L не учитывается вообще (нет такой категории
-  // в списке ниже) — поэтому разбор строк отчёта не задваивает, а восполняет пробел
-  let advMaterialCost = 0, advOtherExpense = 0;
+  // в списке ниже) — поэтому разбор строк отчёта не задваивает, а восполняет пробел.
+  // Строки типа "Поставщик" распределяем по статье, заданной в карточке
+  // поставщика (Производственные/Коммерческие/иное) — а не всегда в материалы,
+  // как раньше по ошибке.
+  let advMaterialCost = 0, advOprCost = 0, advCommercialCost = 0, advOtherExpense = 0;
   advanceReports.forEach(a=>{
     const d = a.date || '';
     if(fromStr && d && d < fromStr) return;
     if(toStr   && d && d > toStr)   return;
     (a.lines||[]).forEach(l=>{
       const amt = l.amount||0;
-      if(l.type==='material' || l.type==='supplier') advMaterialCost += amt;
-      else if(l.type==='expense') advOtherExpense += amt;
+      if(!amt) return;
+      if(l.type==='material'){ advMaterialCost += amt; return; }
+      if(l.type==='supplier'){
+        const sup = findSupplierForName(l.supplier);
+        const top = sup?.expense_category ? topLevelCategoryOf(sup.expense_category) : null;
+        if(top==='production') advOprCost += amt;
+        else if(top==='commercial') advCommercialCost += amt;
+        else if(top) advOtherExpense += amt;
+        else advMaterialCost += amt; // по умолчанию — как и раньше (закупка материалов/товара)
+        return;
+      }
+      // type === 'expense' — своя выбранная статья
+      const top = topLevelCategoryOf(l.category);
+      if(top==='production') advOprCost += amt;
+      else if(top==='commercial') advCommercialCost += amt;
+      else advOtherExpense += amt;
     });
   });
 
@@ -23875,9 +23924,13 @@ function buildPL(){
   const wageActual = wageEmployees.reduce((s,e)=>s+(e.earned||0), 0);
   const wageCost   = wageActual > 0 ? wageActual : wageCostPlan;
 
-  // ── МАРЖИНАЛЬНАЯ ПРИБЫЛЬ ─────────────────────────────────────────
-  const grossMargin    = revenue - materialCost - wageCost;
-  const grossMarginPct = revenue > 0 ? grossMargin/revenue : 0;
+  // ── ОПР (общепроизводственные) ────────────────────────────────────
+  // Факт со склада (списания ОПР) + операции по расчётному счёту/кассе и
+  // авансовым отчётам, отнесённые к статье "Производственные расходы"
+  const oprFromWarehouse = whDocuments
+    .filter(d=>d.type==='writeoff'&&d.writeoffType==='opr'&&d.status==='done')
+    .flatMap(d=>d.items)
+    .reduce((s,it)=>s+it.qty*it.price, 0);
 
   // ── ПОСТОЯННЫЕ ЗАТРАТЫ ────────────────────────────────────────────
   // 1) Оклады АУП — из реальных транзакций за период
@@ -23893,22 +23946,48 @@ function buildPL(){
     .reduce((s,emp)=>{ const row=buildPayrollRow(emp); return s+row.so+row.sn; }, 0);
 
   // 3) Прочие постоянные затраты — по реальному справочнику статей расходов
-  // (expense_categories, отмеченные "постоянная"), а не по отдельному списку —
-  // это тот же самый набор кодов, что и в таблице "Точка безубыточности"
+  // (expense_categories, отмеченные "постоянная"), разбитые на три раздела по
+  // верхнеуровневой категории: Производственные (→ ОПР), Коммерческие
+  // (отдельная строка) и всё остальное (Хозяйственные и т.п.)
   const fixedCatCodes = new Set((_expenseCats||[]).filter(c=>c.is_fixed && c.code!=='salary').map(c=>c.code));
-  const fixedTxs = fixedCatCodes.size
-    ? plFilteredTx('expense').filter(t=>fixedCatCodes.has(t.category) || fixedCatCodes.has(t.subcategory))
-    : plFilteredTx('expense').filter(t=>['expense','rent','utility','transport','other_out'].includes(t.category));
-  const otherFixedBase = fixedTxs.length > 0
-    ? fixedTxs.reduce((s,t)=>s+t.amount, 0)
+  let oprFromTx = 0, commercialFromTx = 0, otherFromTx = 0;
+  if(fixedCatCodes.size){
+    plFilteredTx('expense').forEach(t=>{
+      let catCode = t.category;
+      if(catCode==='supplier'){
+        const sup = findSupplierForName(t.counterparty, t.bin);
+        catCode = sup?.expense_category || null;
+        if(!catCode) return; // поставщик без указанной статьи — как и раньше, не учитываем здесь
+      }
+      const matchCode = fixedCatCodes.has(catCode) ? catCode : (fixedCatCodes.has(t.subcategory) ? t.subcategory : null);
+      if(!matchCode) return;
+      const top = topLevelCategoryOf(matchCode);
+      if(top==='production') oprFromTx += t.amount;
+      else if(top==='commercial') commercialFromTx += t.amount;
+      else otherFromTx += t.amount;
+    });
+  } else {
+    otherFromTx = plFilteredTx('expense')
+      .filter(t=>['expense','rent','utility','transport','other_out'].includes(t.category))
+      .reduce((s,t)=>s+t.amount, 0);
+  }
+  const anyFixedTx = (oprFromTx+commercialFromTx+otherFromTx) > 0;
+  const otherFixedBase = anyFixedTx ? otherFromTx
     : (fcPlanData.filter(f=>f.category!=='payroll').reduce((s,f)=>s+(f.plan||0),0)
        || fixedCostsData.filter(f=>!['payroll'].includes(f.category)).reduce((s,f)=>s+fcToMonthly(f), 0));
-  const otherFixed = otherFixedBase + advOtherExpense;
+  const otherFixed      = otherFixedBase + advOtherExpense;
+  const commercialCost  = commercialFromTx + advCommercialCost;
+  const oprCost         = oprFromWarehouse + oprFromTx + advOprCost;
+
+  // ── МАРЖИНАЛЬНАЯ ПРИБЫЛЬ ─────────────────────────────────────────
+  // (раньше ОПР считался и показывался, но не вычитался здесь — исправлено)
+  const grossMargin    = revenue - materialCost - wageCost - oprCost;
+  const grossMarginPct = revenue > 0 ? grossMargin/revenue : 0;
 
   // 4) Закупки материалов за период
   const purchCost = purchasesData.reduce((s,p)=>s+purTotal(p), 0);
 
-  const fixedTotal = aupSalary + prodTaxes + otherFixed;
+  const fixedTotal = aupSalary + prodTaxes + commercialCost + otherFixed;
 
   // ── ОПЕРАЦИОННАЯ ПРИБЫЛЬ (EBIT) ───────────────────────────────────
   const ebit    = grossMargin - fixedTotal;
@@ -23918,18 +23997,12 @@ function buildPL(){
   const arOrders = ordersData.filter(o=>o.payment<100&&o.status!=='done');
   const ar = arOrders.reduce((s,o)=>s+orderTotal(o)*(1-o.payment/100), 0);
 
-  // ── ОПР (общепроизводственные) ────────────────────────────────────
-  const oprCost = whDocuments
-    .filter(d=>d.type==='writeoff'&&d.writeoffType==='opr'&&d.status==='done')
-    .flatMap(d=>d.items)
-    .reduce((s,it)=>s+it.qty*it.price, 0);
-
   return {
     revenue, paidRevenue, materialCost, materialCostPlan, whMaterialCost,
     wageCost, wageActual, wageCostPlan, oprCost,
     grossMargin, grossMarginPct,
-    aupSalary, prodTaxes, otherFixed, fixedTotal, purchCost,
-    ebit, ebitPct, ar, byCat, advMaterialCost, advOtherExpense,
+    aupSalary, prodTaxes, commercialCost, otherFixed, fixedTotal, purchCost,
+    ebit, ebitPct, ar, byCat, advMaterialCost, advOprCost, advCommercialCost, advOtherExpense,
     unmatchedItems:0, totalItems: orders.reduce((s,o)=>s+(o.items?.length||0),0)
   };
 }
@@ -24414,21 +24487,6 @@ function renderExpensesByMonth(){
     }
   }
 
-  // Ищем карточку поставщика по БИН (точно) или по названию (гибко) —
-  // нужно, чтобы применить статью расходов, заданную в самой карточке
-  function findSupplierForName(name, bin){
-    if(bin){
-      const byBin = suppliersData.find(s=>s.bin && s.bin.trim()===bin.trim());
-      if(byBin) return byBin;
-    }
-    if(!name) return null;
-    const n = normSupNameMerge(name);
-    if(!n) return null;
-    return suppliersData.find(s=>normSupNameMerge(s.name)===n)
-        || suppliersData.find(s=>{const sn=normSupNameMerge(s.name); return sn && (sn.includes(n)||n.includes(sn));})
-        || null;
-  }
-
   // Прямые операции по расчётному счёту/кассе. Исключены: переводы между своими
   // счетами, сама "Выдача аванса" (разбирается ниже по факту трат) и дивиденды
   // (это распределение прибыли собственникам, а не операционный расход)
@@ -24608,10 +24666,11 @@ function renderPL(){
     {label:'📦 Выручка от продаж',             value:pl.revenue,       bold:true, note:'из реализации (Продажи)'},
     {label:'  − Прямые материалы',             value:-pl.materialCost, note:(pl.whMaterialCost>0?'✅ факт (склад)':'⚠️ план (номенклатура)')+(pl.advMaterialCost>0?` + ${fmt(pl.advMaterialCost)} из авансовых отчётов`:'')},
     {label:'  − Зарплата сдельная',            value:-pl.wageCost,     note:'✅ факт (выработка)'},
-    {label:'  − ОПР',                          value:-pl.oprCost,      note:pl.oprCost>0?'✅ факт (акты ОПР)':'—'},
+    {label:'  − ОПР (Производственные расходы)', value:-pl.oprCost,    note:pl.oprCost>0?'акты ОПР / статья "Производственные"'+(pl.advOprCost>0?` (+ ${fmt(pl.advOprCost)} из авансовых отчётов)`:''):'—'},
     {label:'= Маржинальная прибыль',           value:pl.grossMargin,   bold:true, sep:true},
     {label:'  − Оклады АУП (с налогами)',      value:-pl.aupSalary,    note:'✅ факт (payroll)'},
     {label:'  − Налоги на сдельщиков (СО+СН)',  value:-pl.prodTaxes,   note:'✅ факт (payroll)'},
+    {label:'  − Коммерческие расходы',         value:-pl.commercialCost, note:pl.commercialCost>0?'статья "Коммерческие"'+(pl.advCommercialCost>0?` (+ ${fmt(pl.advCommercialCost)} из авансовых отчётов)`:''):'—'},
     {label:'  − Аренда, ком. услуги, прочее', value:-pl.otherFixed,   note:'из постоянных затрат'+(pl.advOtherExpense>0?` + ${fmt(pl.advOtherExpense)} из авансовых отчётов`:'')},
     {label:'= EBIT (операционная прибыль)',    value:pl.ebit,          bold:true, sep:true, big:true},
   ];
