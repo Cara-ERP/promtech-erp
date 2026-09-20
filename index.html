@@ -2958,6 +2958,8 @@ window.onerror = function(msg, src, line, col){
         </div>
         <button class="btn btn-ghost btn-sm" onclick="_esfData=null;initEsfPage()">🔄</button>
         <button class="btn btn-ghost btn-sm" onclick="exportEsfGoodsToExcel()">📥 Товары в Excel</button>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('esf-xml-input').click()">📤 Импорт ЭСФ (XML)</button>
+        <input type="file" id="esf-xml-input" accept=".xml" multiple style="display:none" onchange="handleEsfXmlFiles(this.files)">
       </div>
 
       <div class="tabs" style="margin-bottom:14px">
@@ -3350,6 +3352,22 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- MODAL: Осиротевшие названия поставщиков в операциях -->
+    <!-- MODAL: Импорт ЭСФ из XML — предпросмотр -->
+    <div class="modal-overlay" id="esfXmlImportModal">
+      <div class="modal" style="max-width:920px;max-height:88vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title">📤 Импорт ЭСФ из XML — предпросмотр</span>
+          <button class="modal-close" onclick="closeModal('esfXmlImportModal')">✕</button>
+        </div>
+        <div id="esf-xml-import-summary" style="font-size:12px;color:var(--text3);margin-bottom:10px"></div>
+        <div id="esf-xml-import-list"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-ghost" onclick="closeModal('esfXmlImportModal')">Отмена</button>
+          <button class="btn btn-primary" onclick="confirmEsfXmlImport()">Импортировать отмеченные</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="orphanSuppliersModal">
       <div class="modal" style="max-width:720px;max-height:85vh;overflow-y:auto">
         <div class="modal-header">
@@ -11456,6 +11474,237 @@ let _esfShowOnlyUnreconciled = false;
 function filterEsfUnreconciled(){
   _esfShowOnlyUnreconciled = !_esfShowOnlyUnreconciled;
   renderEsfList();
+}
+
+// ===== ИМПОРТ ЭСФ ИЗ XML =====
+
+// Сокращаем юридическую форму, если в файле она указана полностью
+const LEGAL_FORM_ABBREV = [
+  [/^Товарищество с ограниченной ответственностью\.?\s*/i, 'ТОО '],
+  [/^Индивидуальный предприниматель\.?\s*/i, 'ИП '],
+  [/^Некоммерческое акционерное общество\.?\s*/i, 'НАО '],
+  [/^Акционерное общество\.?\s*/i, 'АО '],
+  [/^Производственный кооператив\.?\s*/i, 'ПК '],
+  [/^Крестьянское\s*\(?фермерское\)?\s*хозяйство\.?\s*/i, 'КХ '],
+  [/^Государственное учреждение\.?\s*/i, 'ГУ '],
+  [/^Частное учреждение\.?\s*/i, 'ЧУ '],
+  [/^Общественное объединение\.?\s*/i, 'ОО '],
+  [/^Республиканское государственное предприятие\.?\s*/i, 'РГП '],
+];
+function abbreviateLegalForm(name){
+  let s = (name||'').trim();
+  for(const [re, abbr] of LEGAL_FORM_ABBREV){
+    if(re.test(s)){ s = s.replace(re, abbr); break; }
+  }
+  return s;
+}
+
+// Гибкий поиск текста узла по нескольким возможным именам тега (без учёта
+// регистра, без учёта namespace-префикса) — используется, потому что точная
+// схема XML ИС ЭСФ может отличаться между версиями
+function xmlFindText(root, tagNames){
+  if(!root) return '';
+  for(const tag of tagNames){
+    const els = root.getElementsByTagName ? Array.from(root.getElementsByTagName(tag)) : [];
+    for(const el of els){
+      const t = (el.textContent||'').trim();
+      if(t) return t;
+    }
+  }
+  // Резервный вариант — сравнение localName без учёта регистра
+  const all = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
+  for(const tag of tagNames){
+    const found = all.find(el => (el.localName||'').toLowerCase()===tag.toLowerCase() && (el.textContent||'').trim());
+    if(found) return found.textContent.trim();
+  }
+  return '';
+}
+function xmlFindContainer(root, tagNames){
+  for(const tag of tagNames){
+    const els = root.getElementsByTagName ? root.getElementsByTagName(tag) : [];
+    if(els.length) return els[0];
+  }
+  return null;
+}
+function xmlNum(s){
+  const n = parseFloat((s||'0').toString().replace(/\s+/g,'').replace(',','.'));
+  return isNaN(n) ? 0 : n;
+}
+function ddmmyyyyToIso(s){
+  const m = (s||'').match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+}
+
+// Формат реального экспорта ИС ЭСФ: <esf:invoiceInfoContainer><invoiceSet>
+// содержит один или несколько <invoiceInfo>, каждый — с полями снаружи
+// (registrationNumber, invoiceStatus) и самим счётом-фактурой внутри CDATA
+// в <invoiceBody> (это отдельный вложенный XML-документ v2:invoice)
+function parseEsfXmlText(xmlText, fileName){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  if(doc.querySelector('parsererror')){
+    return [{error:'Не удалось разобрать XML — файл повреждён или это не XML', fileName, ok:false}];
+  }
+  const infoEls = Array.from(doc.getElementsByTagName('invoiceInfo'));
+  if(!infoEls.length) return [{error:'Не найден блок invoiceInfo — формат файла не распознан', fileName, ok:false}];
+
+  return infoEls.map((info, idx)=>{
+    try{
+      const regNum = xmlFindText(info, ['registrationNumber']);
+      const status = xmlFindText(info, ['invoiceStatus']) || 'CREATED';
+      const bodyEl = info.getElementsByTagName('invoiceBody')[0];
+      const cdataText = bodyEl ? bodyEl.textContent : '';
+      if(!cdataText) return {error:'Пустой invoiceBody', fileName, ok:false};
+
+      const inner = new DOMParser().parseFromString(cdataText, 'text/xml');
+      if(inner.querySelector('parsererror')) return {error:'Не удалось разобрать вложенный XML внутри invoiceBody', fileName, ok:false};
+
+      const dateRaw = xmlFindText(inner, ['date']);
+      const turnoverDateRaw = xmlFindText(inner, ['turnoverDate']);
+      const date = ddmmyyyyToIso(turnoverDateRaw) || ddmmyyyyToIso(dateRaw);
+      const num = xmlFindText(inner, ['num']);
+
+      // Настоящий продавец — из <sellers><seller> (его БИН зашит в самом
+      // регистрационном номере ЭСФ), а не <consignor> — это грузоотправитель,
+      // может быть другим юрлицом (складом/филиалом)
+      const sellersBlock = xmlFindContainer(inner, ['sellers']);
+      const sellerEl = (sellersBlock && sellersBlock.getElementsByTagName('seller')[0]) || inner;
+      let supplierName = xmlFindText(sellerEl, ['name']);
+      const supplierBin = xmlFindText(sellerEl, ['tin']);
+      supplierName = abbreviateLegalForm(supplierName);
+
+      const productsBlock = xmlFindContainer(inner, ['products']) || inner;
+      const productEls = Array.from(productsBlock.getElementsByTagName('product'));
+      const items = productEls.map(el=>{
+        const description = xmlFindText(el, ['description']);
+        const qty = xmlNum(xmlFindText(el, ['quantity']));
+        const unit_price = xmlNum(xmlFindText(el, ['unitPrice']));
+        const amount = xmlNum(xmlFindText(el, ['priceWithoutTax','turnoverSize']));
+        const nds_rate = xmlNum(xmlFindText(el, ['ndsRate']));
+        const nds_amount = xmlNum(xmlFindText(el, ['ndsAmount']));
+        const total = xmlNum(xmlFindText(el, ['priceWithTax']));
+        return {description, qty, unit_price, amount, nds_rate, nds_amount, total};
+      }).filter(it=>it.description || it.total);
+
+      const total_amount   = items.reduce((s,it)=>s+it.amount,0);
+      const total_nds      = items.reduce((s,it)=>s+it.nds_amount,0);
+      const total_with_nds = items.reduce((s,it)=>s+it.total,0);
+
+      return {
+        fileName: fileName + (infoEls.length>1?` (#${idx+1})`:''),
+        date, num, regNum, status,
+        supplier_name: supplierName, supplier_bin: supplierBin,
+        total_amount, total_nds, total_with_nds, items,
+        ok: !!(date && supplierName && items.length),
+      };
+    } catch(e){
+      return {error:'Ошибка разбора: '+e.message, fileName, ok:false};
+    }
+  });
+}
+
+let _esfXmlParsed = [];
+function handleEsfXmlFiles(fileList){
+  const files = Array.from(fileList||[]);
+  if(!files.length) return;
+  Promise.all(files.map(f=>f.text().then(txt=>parseEsfXmlText(txt, f.name))))
+    .then(parsedArrays=>{
+      _esfXmlParsed = parsedArrays.flat();
+      renderEsfXmlImportPreview();
+      document.getElementById('esfXmlImportModal').classList.add('open');
+      document.getElementById('esf-xml-input').value = '';
+    });
+}
+
+function renderEsfXmlImportPreview(){
+  const fmt = n => '₸'+Math.round(n||0).toLocaleString('ru-RU');
+  const existingInvoices = _esfData?.invoices||[];
+  const existingRegNums = new Set(existingInvoices.map(i=>i.reg_num).filter(Boolean));
+
+  // Запасной признак дубля (когда рег.номер отсутствует или не совпал):
+  // дата + номер + поставщик (гибко, тем же способом, что и везде) + сумма
+  // с НДС в пределах округления
+  function findDupByFields(p){
+    return existingInvoices.find(inv=>{
+      if(inv.date!==p.date) return false;
+      if((inv.num||'').trim()!==(p.num||'').trim()) return false;
+      if(Math.abs((inv.total_with_nds||0)-(p.total_with_nds||0))>1) return false;
+      const a = normSupNameMerge(inv.supplier_name||'');
+      const b = normSupNameMerge(p.supplier_name||'');
+      return a && b && (a===b || a.includes(b) || b.includes(a));
+    });
+  }
+
+  const okCount = _esfXmlParsed.filter(p=>p.ok).length;
+  document.getElementById('esf-xml-import-summary').innerHTML =
+    `Файлов: ${_esfXmlParsed.length} · распознано корректно: ${okCount}` +
+    (okCount<_esfXmlParsed.length ? `<span style="color:var(--red)"> · не распознано: ${_esfXmlParsed.length-okCount} (проверьте формат ниже)</span>` : '');
+
+  document.getElementById('esf-xml-import-list').innerHTML = _esfXmlParsed.map((p,i)=>{
+    if(p.error || !p.ok){
+      return `<div class="card" style="padding:10px 14px;margin-bottom:8px;border:1px solid var(--red)">
+        <div style="font-size:12px;color:var(--red)">⚠️ ${p.fileName}: ${p.error||'не удалось найти обязательные поля (дата/поставщик/строки товаров) — формат тегов в файле отличается от ожидаемого'}</div>
+      </div>`;
+    }
+    const dupByReg = p.regNum && existingRegNums.has(p.regNum);
+    const dupByFields = !dupByReg ? findDupByFields(p) : null;
+    const isDup = dupByReg || !!dupByFields;
+    const dupReason = dupByReg ? 'совпал рег.номер' : (dupByFields ? 'совпали дата + номер + поставщик + сумма' : '');
+    return `<div class="card" style="padding:10px 14px;margin-bottom:8px;${isDup?'opacity:0.6':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input type="checkbox" id="esf-xml-chk-${i}" ${isDup?'':'checked'} style="width:auto">
+        <span style="font-weight:600;font-size:13px">${p.date} — №${p.num||'—'} — ${p.supplier_name}</span>
+        ${p.supplier_bin?`<span style="font-size:11px;color:var(--text3);font-family:monospace">БИН ${p.supplier_bin}</span>`:''}
+        ${isDup?`<span style="font-size:11px;color:var(--amber)">⚠️ похоже, уже есть в базе (${dupReason})</span>`:''}
+        <span style="margin-left:auto;font-family:monospace;font-weight:600">${fmt(p.total_with_nds)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3)">${p.fileName} · ${p.items.length} строк · без НДС ${fmt(p.total_amount)} · НДС ${fmt(p.total_nds)}</div>
+    </div>`;
+  }).join('');
+}
+
+async function confirmEsfXmlImport(){
+  const toImport = _esfXmlParsed
+    .map((p,i)=>({p,i}))
+    .filter(({p,i})=> p.ok && document.getElementById(`esf-xml-chk-${i}`)?.checked);
+
+  if(!toImport.length){ alert('Ничего не отмечено для импорта.'); return; }
+
+  let created=0, failed=0;
+  for(const {p} of toImport){
+    try{
+      // Сверка поставщика: сначала по БИН, потом по названию — чтобы не плодить дубли
+      let sup = findSupplierForName(p.supplier_name, p.supplier_bin);
+      if(!sup){
+        sup = await sbInsert('suppliers', {name:p.supplier_name, bin:p.supplier_bin||null, status:'active'});
+        suppliersData.push(sup);
+      } else if(p.supplier_bin && !sup.bin){
+        // Обогащаем БИН, если раньше его не было
+        await sbPatch('suppliers', `id=eq.${sup.id}`, {bin:p.supplier_bin});
+        sup.bin = p.supplier_bin;
+      }
+
+      const invRow = await sbInsert('incoming_invoices', {
+        num:p.num, date:p.date, reg_num:p.regNum||null,
+        supplier_name: sup.name, supplier_bin: sup.bin||p.supplier_bin||null,
+        status:p.status, total_amount:p.total_amount, total_nds:p.total_nds, total_with_nds:p.total_with_nds,
+      });
+
+      if(p.items.length){
+        await sbInsert('incoming_invoice_items', p.items.map(it=>({...it, invoice_id: invRow.id})));
+      }
+
+      esfReconInvoices.push(invRow);
+      if(_esfData?.invoices) _esfData.invoices.push(invRow);
+      created++;
+    } catch(e){
+      console.warn('⚠️ Не удалось импортировать ЭСФ', p.fileName, e.message);
+      failed++;
+    }
+  }
+
+  closeModal('esfXmlImportModal');
+  renderEsfList();
+  alert(`Импортировано: ${created}` + (failed?`, ошибок: ${failed} (см. консоль)`:''));
 }
 
 function renderEsfList(){
