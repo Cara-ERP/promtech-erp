@@ -11690,7 +11690,18 @@ async function confirmEsfXmlImport(){
       });
 
       if(p.items.length){
-        await sbInsert('incoming_invoice_items', p.items.map(it=>({...it, invoice_id: invRow.id})));
+        // sbInsert возвращает только первую строку при массовой вставке —
+        // делаем запрос напрямую, чтобы получить ВСЕ строки с их id и
+        // добавить их в локальный кэш (иначе карточка ЭСФ показывала бы
+        // пустой список позиций до перезагрузки страницы)
+        const itemsRes = await fetch(`${SUPABASE_URL}/rest/v1/incoming_invoice_items`, {
+          method: 'POST',
+          headers: {...sbHeaders, 'Prefer': 'return=representation'},
+          body: JSON.stringify(p.items.map(it=>({...it, invoice_id: invRow.id}))),
+        });
+        if(!itemsRes.ok) throw new Error(`${itemsRes.status} ${itemsRes.statusText} (позиции ЭСФ)`);
+        const insertedItems = await itemsRes.json();
+        if(_esfData?.items) _esfData.items.push(...insertedItems);
       }
 
       esfReconInvoices.push(invRow);
