@@ -3142,6 +3142,7 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost btn-sm" onclick="openOrphanSuppliersModal()">🕵️ Осиротевшие в операциях</button>
           <button class="btn btn-ghost btn-sm" onclick="openSpellingGroupsModal()">🔤 Разночтения написаний</button>
           <button class="btn btn-ghost btn-sm" onclick="openMergeSuppliersModal()">🔗 Объединить</button>
+          <button class="btn btn-ghost btn-sm" onclick="fixLegalFormsInDb()">🇰🇿 Сократить юрформы</button>
           <button class="btn btn-primary btn-sm" onclick="openSupplierCard(null)">+ Добавить</button>
         </div>
       </div>
@@ -11481,6 +11482,7 @@ function filterEsfUnreconciled(){
 // Сокращаем юридическую форму, если в файле она указана полностью
 const LEGAL_FORM_ABBREV = [
   [/^Товарищество с ограниченной ответственностью\.?\s*/i, 'ТОО '],
+  [/^Жауапкершілігі шектеулі серіктестік\.?\s*/i, 'ТОО '],
   [/^Индивидуальный предприниматель\.?\s*/i, 'ИП '],
   [/^Некоммерческое акционерное общество\.?\s*/i, 'НАО '],
   [/^Акционерное общество\.?\s*/i, 'АО '],
@@ -17796,6 +17798,56 @@ async function saveSupplierCard(){
 }
 
 // Перенос названия поставщика во всех уже существующих денежных операциях
+// Сокращает полные юридические формы (в том числе на казахском — например,
+// "Жауапкершілігі шектеулі серіктестік" → "ТОО") у того, что уже есть в базе:
+// в самих поставщиках, во входящих ЭСФ, и переносит переименование в
+// денежные операции (та же логика, что при обычном переименовании карточки)
+async function fixLegalFormsInDb(){
+  let invoiceSource = esfReconInvoices.length ? esfReconInvoices : (_esfData?.invoices||[]);
+  if(!invoiceSource.length){
+    invoiceSource = await sbFetchAllPages('incoming_invoices','select=id,supplier_name') || [];
+  }
+  function needsFix(name){
+    return LEGAL_FORM_ABBREV.some(([re])=>re.test(name||''));
+  }
+  const supFixes = suppliersData.filter(s=>needsFix(s.name));
+  const invFixes = invoiceSource.filter(i=>needsFix(i.supplier_name));
+
+  if(!supFixes.length && !invFixes.length){
+    alert('Полных юридических форм в базе не найдено — сокращать нечего.');
+    return;
+  }
+  const preview = [...supFixes.map(s=>s.name), ...invFixes.map(i=>i.supplier_name)]
+    .filter((v,idx,arr)=>arr.indexOf(v)===idx).slice(0,10);
+  if(!confirm(`Найдено для сокращения: ${supFixes.length} поставщиков, ${invFixes.length} ЭСФ.\n\nПримеры:\n${preview.join('\n')}\n\nПродолжить?`)) return;
+
+  let fixed=0, failed=0;
+  for(const s of supFixes){
+    const newName = abbreviateLegalForm(s.name);
+    if(newName===s.name) continue;
+    try{
+      await sbPatch('suppliers', `id=eq.${s.id}`, {name:newName});
+      const oldName = s.name;
+      s.name = newName;
+      await renameSupplierInMoneyTx(oldName, newName);
+      fixed++;
+    } catch(e){ console.warn('⚠️ Не удалось переименовать поставщика', s.name, e.message); failed++; }
+  }
+  for(const inv of invFixes){
+    const newName = abbreviateLegalForm(inv.supplier_name);
+    if(newName===inv.supplier_name) continue;
+    try{
+      await sbPatch('incoming_invoices', `id=eq.${inv.id}`, {supplier_name:newName});
+      inv.supplier_name = newName;
+      fixed++;
+    } catch(e){ console.warn('⚠️ Не удалось переименовать поставщика в ЭСФ', inv.supplier_name, e.message); failed++; }
+  }
+
+  renderSupplierList();
+  if(typeof renderEsfList==='function') renderEsfList();
+  alert(`Готово. Исправлено: ${fixed}` + (failed?`, ошибок: ${failed} (см. консоль)`:''));
+}
+
 async function renameSupplierInMoneyTx(oldName, newName){
   if(!oldName || !newName || oldName===newName) return;
   const affected = moneyTx.filter(t=>t.category==='supplier' && t.counterparty===oldName);
