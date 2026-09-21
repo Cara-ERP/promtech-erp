@@ -13452,6 +13452,9 @@ function handleBankStatementFile(event){
   const file=event.target.files[0];
   if(!file) return;
   if(typeof XLSX==='undefined'){ alert('Excel-библиотека ещё загружается, попробуйте через пару секунд.'); event.target.value=''; return; }
+  // На случай если список сотрудников ещё не загружен — иначе распознавание
+  // "это сотрудник, а не поставщик" при разборе ниже не сработает
+  if(!employeesData.length) loadStaffFromDB();
   const reader=new FileReader();
   reader.onload=function(e){
     try{
@@ -13517,6 +13520,11 @@ function handleBankStatementFile(event){
           name=(r[idx.ctrName]||'').toString().trim();
           bin=(r[idx.ctrBin]||'').toString().trim();
         }
+        // Если это на самом деле сотрудник компании (сверяем с тем же списком,
+        // что и в авансовых отчётах) — приводим написание имени к тому, что
+        // уже используется в программе, а не к тому, как его написал банк
+        const matchedEmployee = employeesData.find(e=>normSupNameMerge(e.name)===normSupNameMerge(name));
+        if(matchedEmployee) name = matchedEmployee.name;
 
         const date  = parseStatementDate(r[idx.date]);
         const flow  = debit>0 ? 'expense' : 'income';
@@ -13525,8 +13533,10 @@ function handleBankStatementFile(event){
         const knp   = idx.knp>-1 ? (r[idx.knp]||'').toString().trim() : '';
 
         // Автоматическое предположение категории
+        // Если плательщик/получатель по факту — сотрудник компании, это не
+        // поставщик — деньги проведены через него, а не куплены у него
         let matchedSupplier=null;
-        if(flow==='expense'){
+        if(flow==='expense' && !matchedEmployee){
           matchedSupplier = bin
             ? suppliersData.find(s=>s.bin && s.bin.trim()===bin)
             : suppliersData.find(s=>normSupNameMerge(s.name)===normSupNameMerge(name));
@@ -13536,7 +13546,9 @@ function handleBankStatementFile(event){
         // много разных заказов, разбивку по заказам банковская выписка не содержит
         const isAggregatePayout = flow==='income' &&
           /kaspi\.?kz|маркетплейс|marketplace|продажи с/i.test(desc);
-        if(isAggregatePayout){
+        if(matchedEmployee && flow==='expense'){
+          suggestedCategory='advance_out';
+        } else if(isAggregatePayout){
           suggestedCategory='order_payment';
         } else if(flow==='income'){
           suggestedCategory='other_in';
@@ -23517,28 +23529,41 @@ function renderPurchasesDash(){
 
   const allPaidTx = moneyTx.filter(t=>t.flow==='expense' && isLegalEntity(t.counterparty));
 
-  // Группируем по поставщику — все ЭСФ (с нормализацией названий)
+  // Группируем по поставщику — сначала по БИН/ИИН, если он есть (надёжнее
+  // всего: одно и то же лицо может быть записано и полным ФИО, и
+  // инициалами — текстовое сравнение это не различит, а БИН — точно тот же)
+  function groupKey(raw, bin){
+    return (bin && bin.trim()) ? 'bin:'+bin.trim() : 'name:'+normSupplier(raw);
+  }
+
   const debtBySupplier = {};
   allInvoices.forEach(inv=>{
     const raw  = inv.supplier_name||inv.supplier_bin||'—';
-    const key  = normSupplier(raw);
+    const key  = groupKey(raw, inv.supplier_bin);
     if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
+    // Если ранее отображаемое имя было короче/менее полным (например, только
+    // инициалы) — оставляем более полное написание для показа
+    if(raw.length > (debtBySupplier[key].display||'').length) debtBySupplier[key].display = raw;
     debtBySupplier[key].esf += inv.total_with_nds;
   });
   // Оплаты по контрагенту (через РС)
   allPaidTx.forEach(t=>{
     const raw  = t.counterparty||'—';
-    const key  = normSupplier(raw);
+    const key  = groupKey(raw, t.bin);
     if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
+    if(raw.length > (debtBySupplier[key].display||'').length) debtBySupplier[key].display = raw;
     debtBySupplier[key].paid += t.amount||0;
   });
 
-  // Оплаты через авансовые отчёты (строки типа supplier в lines)
+  // Оплаты через авансовые отчёты (строки типа supplier в lines) — своего
+  // поля БИН у строки нет, но можно найти его через карточку поставщика
   advanceReports.forEach(a=>{
     (a.lines||[]).forEach(l=>{
       if(l.type==='supplier' && l.supplier && l.amount>0){
-        const key = normSupplier(l.supplier);
+        const sup = findSupplierForName(l.supplier);
+        const key = groupKey(l.supplier, sup?.bin);
         if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: l.supplier};
+        if(l.supplier.length > (debtBySupplier[key].display||'').length) debtBySupplier[key].display = l.supplier;
         debtBySupplier[key].paid += l.amount;
       }
     });
