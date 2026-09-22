@@ -22115,8 +22115,14 @@ function buildCFS(){
     transport:    'Транспорт и доставка',
     other_in:     'Прочие поступления',
     other_out:    'Прочие выплаты',
-    transfer:     'Переводы между счетами',
+    dividend:     'Дивиденды',
   };
+  // Настоящие названия статей из справочника (production/commercial/general
+  // и т.п.) — чтобы вместо сырых кодов показывались читаемые названия, как
+  // и везде в остальных отчётах
+  function cfsLabel(code){
+    return allCats[code] || (_expenseCats||[]).find(c=>c.code===code)?.name || code;
+  }
 
   const sectionDef = [
     {key:'operating', label:'🏭 Операционная деятельность', color:'var(--accent)',
@@ -22137,11 +22143,12 @@ function buildCFS(){
   sectionDef.forEach(sec=>{
     const rows = {};
     periodTx.forEach(t=>{
+      if(['transfer','transfer_in','transfer_out'].includes(t.category)) return; // внутренние переводы — не движение денег компании
       const isIn  = t.flow==='income'  && sec.inCats.includes(t.category);
       const isOut = t.flow==='expense' && sec.outCats.includes(t.category);
       if(!isIn && !isOut) return;
       usedTxIds.add(t.id);
-      if(!rows[t.category]) rows[t.category]={label:allCats[t.category]||t.category, in:0, out:0};
+      if(!rows[t.category]) rows[t.category]={label:cfsLabel(t.category), in:0, out:0};
       if(isIn)  rows[t.category].in  += t.amount;
       if(isOut) rows[t.category].out += t.amount;
     });
@@ -22151,11 +22158,14 @@ function buildCFS(){
     sections[sec.key]={label:sec.label, color:sec.color, rows, secIn, secOut, secNet:secIn-secOut, inCats:sec.inCats, outCats:sec.outCats};
   });
 
-  // Некатегоризированные
-  periodTx.filter(t=>!usedTxIds.has(t.id)&&t.category!=='transfer').forEach(t=>{
+  // Некатегоризированные — переводы между своими счетами/кассами (transfer,
+  // transfer_in, transfer_out) сюда сознательно не включены: это не приход
+  // и не расход денег компании, а просто их перемещение внутри самой же
+  // компании, которое задваивало бы обороты и портило остаток на конец
+  periodTx.filter(t=>!usedTxIds.has(t.id) && !['transfer','transfer_in','transfer_out'].includes(t.category)).forEach(t=>{
     const sec=sections.other;
     const cat=t.category||'other';
-    if(!sec.rows[cat]) sec.rows[cat]={label:allCats[cat]||cat, in:0, out:0};
+    if(!sec.rows[cat]) sec.rows[cat]={label:cfsLabel(cat), in:0, out:0};
     if(t.flow==='income'){sec.rows[cat].in+=t.amount;sec.secIn+=t.amount;totalIn+=t.amount;}
     else{sec.rows[cat].out+=t.amount;sec.secOut+=t.amount;totalOut+=t.amount;}
     sec.secNet=sec.secIn-sec.secOut;
@@ -22168,6 +22178,10 @@ function buildCFS(){
 }
 
 function renderCFS(){
+  if(!_expenseCatsLoaded || !_expenseCats.length){
+    loadExpenseCategories().then(renderCFS);
+    return;
+  }
   const cfs = buildCFS();
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
 
