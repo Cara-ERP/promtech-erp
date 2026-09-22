@@ -5989,18 +5989,23 @@ window.onerror = function(msg, src, line, col){
         <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
           Этот лист не влияет на базу данных программы, пока строка не будет перенесена вручную кнопкой «Перенести».
         </div>
-        <div class="card" style="padding:0;overflow-x:auto">
-          <table class="data-table" style="font-size:12px;white-space:nowrap">
-            <thead><tr>
-              <th>Дата приёма</th><th>Заказ №</th><th>Менеджер</th>
-              <th>Сумма заказа (долг до)</th><th>Дата оплаты</th>
-              <th>Нал.</th><th>Безнал/Kaspi</th><th>Остаток по заказу</th>
-              <th>Примечание</th><th>Дата доставки</th><th>При получении</th>
-              <th>Расход салона</th><th>Передано в офис</th><th>Остаток в салоне</th>
-              <th>Получатель/описание</th><th></th>
-            </tr></thead>
-            <tbody id="swb-tbody"></tbody>
-          </table>
+        <div class="card" style="padding:0">
+          <div id="swb-table-wrap" style="overflow-x:auto" onscroll="syncStickyScroll('swb')">
+            <table class="data-table" style="font-size:12px;white-space:nowrap">
+              <thead><tr>
+                <th>Дата приёма</th><th>Заказ №</th><th>Менеджер</th>
+                <th>Сумма заказа (долг до)</th><th>Дата оплаты</th>
+                <th>Нал.</th><th>Безнал/Kaspi</th><th>Остаток по заказу</th>
+                <th>Примечание</th><th>Дата доставки</th><th>При получении</th>
+                <th>Расход салона</th><th>Передано в офис</th><th>Остаток в салоне</th>
+                <th>Получатель/описание</th><th></th>
+              </tr></thead>
+              <tbody id="swb-tbody"></tbody>
+            </table>
+          </div>
+          <div id="swb-scrollbar-sticky" style="position:sticky;bottom:0;overflow-x:auto;overflow-y:hidden;height:14px;background:var(--bg2);border-top:1px solid var(--border)" onscroll="syncStickyScroll('swb',true)">
+            <div id="swb-scrollbar-phantom" style="height:1px"></div>
+          </div>
         </div>
       </div>
 
@@ -8506,6 +8511,23 @@ function showSalonWbSalon(salon){
 
 let salonWbYearFilter = 'current';
 
+// Синхронизация "бегущей" полосы горизонтальной прокрутки с самой таблицей —
+// используется, когда таблица длинная и обычный скролл снизу неудобно искать
+function syncStickyScroll(prefix, fromBar){
+  const wrap = document.getElementById(prefix+'-table-wrap');
+  const bar  = document.getElementById(prefix+'-scrollbar-sticky');
+  if(!wrap || !bar) return;
+  if(fromBar) wrap.scrollLeft = bar.scrollLeft;
+  else        bar.scrollLeft  = wrap.scrollLeft;
+}
+function initStickyScroll(prefix){
+  const wrap = document.getElementById(prefix+'-table-wrap');
+  const phantom = document.getElementById(prefix+'-scrollbar-phantom');
+  if(!wrap || !phantom) return;
+  const table = wrap.querySelector('table');
+  if(table) phantom.style.width = table.scrollWidth + 'px';
+}
+
 function renderSalonWorksheet(){
   const salon = salonWbActiveSalon;
   const rows = salonWbData[salon]||[];
@@ -8517,7 +8539,7 @@ function renderSalonWorksheet(){
   // иначе итоговый остаток был бы неверным при просмотре одного года.
   let running=0;
   const withBalance = rows.map(r=>{
-    running += (Number(r.cash_amount)||0) + (Number(r.cod_amount)||0)
+    running += (Number(r.cash_amount)||0)
              - (Number(r.expense_amount)||0) - (Number(r.transferred_to_office)||0);
     return {...r, _salonBalance: running};
   });
@@ -8570,6 +8592,7 @@ function renderSalonWorksheet(){
            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="deleteSalonWbRow('${r.id}')">✕</button>`}
     </td>
   </tr>`).join('') || `<tr><td colspan="16" style="text-align:center;color:var(--text3);padding:20px">Строк за выбранный период нет</td></tr>`;
+  setTimeout(()=>initStickyScroll('swb'), 0);
 }
 
 function setSalonWbYearFilter(v){
