@@ -5213,14 +5213,6 @@ window.onerror = function(msg, src, line, col){
             </div>
             <div id="pl-statement"></div>
           </div>
-          <div class="card">
-            <div class="card-header"><span class="card-title">Структура затрат</span></div>
-            <div id="pl-cost-structure"></div>
-          </div>
-          <div class="card">
-            <div class="card-header"><span class="card-title">Маржинальность по категориям</span></div>
-            <div id="pl-by-category"></div>
-          </div>
           <div class="card" style="grid-column:1/3">
             <div class="card-header">
               <span class="card-title">Выручка по направлениям</span>
@@ -5420,12 +5412,18 @@ window.onerror = function(msg, src, line, col){
             <option value="production">В производстве</option>
             <option value="done">Завершённые</option>
           </select>
+          <select id="margin-channel-filter" onchange="renderMarginReport()" style="font-size:13px;width:auto">
+            <option value="all">Все направления</option>
+          </select>
+          <select id="margin-category-filter" onchange="renderMarginReport()" style="font-size:13px;width:auto">
+            <option value="all">Все категории</option>
+          </select>
         </div>
         <div id="margin-kpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
-        <div class="card" style="padding:0">
+        <div class="card" style="padding:0;overflow-x:auto">
           <table class="data-table">
             <thead><tr>
-              <th>Заказ</th><th>Товар</th><th>Кол-во</th>
+              <th>Заказ</th><th>Товар</th><th>Канал</th><th>Категория</th><th>Кол-во</th>
               <th style="text-align:right">Выручка</th>
               <th style="text-align:right">Материалы</th>
               <th style="text-align:right">Труд</th>
@@ -19136,12 +19134,37 @@ function renderMarginKpi(orders){
   </div>`).join('');
 }
 
+function marginChannelForOrder(order){
+  if(order.channel && PL_CHANNEL_ORDER.includes(order.channel)) return order.channel;
+  return plChannelByCustomerName(order.customer) || order.channel || null;
+}
+
+function populateMarginFilters(){
+  const chSel = document.getElementById('margin-channel-filter');
+  if(chSel && chSel.options.length<=1){
+    chSel.innerHTML = '<option value="all">Все направления</option>' +
+      PL_CHANNEL_ORDER.map(c=>`<option value="${c}">${PL_CHANNEL_LABELS[c]}</option>`).join('');
+  }
+  const catSel = document.getElementById('margin-category-filter');
+  if(catSel){
+    const cats = [...new Set(ordersData.flatMap(o=>o.items||[]).map(it=>it.category).filter(Boolean))].sort();
+    const prevVal = catSel.value;
+    catSel.innerHTML = '<option value="all">Все категории</option>' +
+      cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+    catSel.value = cats.includes(prevVal) ? prevVal : 'all';
+  }
+}
+
 function renderMarginReport(){
+  populateMarginFilters();
   const statusFilter=document.getElementById('margin-status-filter')?.value||'all';
+  const channelFilter=document.getElementById('margin-channel-filter')?.value||'all';
+  const categoryFilter=document.getElementById('margin-category-filter')?.value||'all';
   const search=(document.getElementById('margin-search')?.value||'').toLowerCase();
   // Применяем глобальный фильтр периода
   let orders=plFilteredOrders().filter(o=>{
     if(statusFilter!=='all' && o.status!==statusFilter) return false;
+    if(channelFilter!=='all' && marginChannelForOrder(o)!==channelFilter) return false;
     return true;
   });
   renderMarginKpi(orders);
@@ -19150,19 +19173,21 @@ function renderMarginReport(){
   if(!tbody) return;
   const rows=[];
   orders.forEach(order=>{
+    const channel = marginChannelForOrder(order);
     order.items.forEach((item,idx)=>{
       if(search && !item.name.toLowerCase().includes(search) && !order.num.toLowerCase().includes(search)) return;
+      if(categoryFilter!=='all' && item.category!==categoryFilter) return;
       const m=calcItemMargin(item,order);
-      rows.push({order,item,idx,m});
+      rows.push({order,item,idx,m,channel});
     });
   });
 
   if(rows.length===0){
-    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">Нет данных</td></tr>';
+    tbody.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:24px">Нет данных</td></tr>';
     return;
   }
 
-  tbody.innerHTML=rows.map(({order,item,idx,m})=>{
+  tbody.innerHTML=rows.map(({order,item,idx,m,channel})=>{
     const unmatchedWarn=m.unmatched>0
       ? `<span title="${m.unmatched} материал(а) не найдено на складе — цена не учтена" style="color:var(--amber);font-size:11px;cursor:help">⚠ ${m.unmatched} не найд.</span>`
       : '';
@@ -19171,9 +19196,10 @@ function renderMarginReport(){
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent);font-size:12px">${order.num}</td>
       <td>
         <div style="font-size:13px">${item.name} <span style="font-size:10px;color:var(--accent)">🔍</span></div>
-        ${item.category?`<div style="font-size:11px;color:var(--text3)">${item.category}</div>`:''}
         ${unmatchedWarn}
       </td>
+      <td style="font-size:11px;color:var(--text3)">${channel?PL_CHANNEL_LABELS[channel]||channel:'—'}</td>
+      <td style="font-size:11px;color:var(--text3)">${item.category||'—'}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${item.qty} ${item.unit}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${fmtCurrency(m.totalRevenue)}</td>
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--text2)">
@@ -25133,64 +25159,6 @@ function renderPLStatement(pl){
   </div>`;
 
   el.innerHTML = html;
-}
-
-function renderPLCostStructure(pl){
-  const el = document.getElementById('pl-cost-structure');
-  if(!el) return;
-  const totalCost = pl.materialCost + pl.wageCostPlan + pl.fixedTotal;
-  if(!totalCost){el.innerHTML='<div style="color:var(--text3)">Нет данных</div>';return;}
-
-  const items=[
-    {label:'Материалы (план)',     amount:pl.materialCost,   color:'#4f8ef7'},
-    {label:'Труд сдельный (план)', amount:pl.wageCostPlan,   color:'#a78bfa'},
-    {label:'Аренда',               amount:fixedCostsData.filter(f=>f.category==='rent').reduce((s,f)=>s+fcToMonthly(f),0), color:'#f5a623'},
-    {label:'ФОТ постоянный',       amount:fixedCostsData.filter(f=>f.category==='payroll').reduce((s,f)=>s+fcToMonthly(f),0), color:'#f43f5e'},
-    {label:'Коммунальные',         amount:fixedCostsData.filter(f=>f.category==='utility').reduce((s,f)=>s+fcToMonthly(f),0), color:'#38bdf8'},
-    {label:'Прочие пост. затраты', amount:fixedCostsData.filter(f=>!['rent','payroll','utility'].includes(f.category)).reduce((s,f)=>s+fcToMonthly(f),0), color:'#94a3b8'},
-  ].filter(i=>i.amount>0).sort((a,b)=>b.amount-a.amount);
-
-  el.innerHTML = items.map(it=>{
-    const pct=Math.round(it.amount/totalCost*100);
-    return `<div class="pl-cat-row">
-      <div style="width:10px;height:10px;border-radius:50%;background:${it.color};flex-shrink:0"></div>
-      <div style="font-size:12px;min-width:160px">${it.label}</div>
-      <div class="pl-bar-wrap"><div class="pl-bar" style="width:${pct}%;background:${it.color}"></div></div>
-      <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;min-width:90px;text-align:right">${fmtCurrency(Math.round(it.amount))}</div>
-      <div style="font-size:11px;color:var(--text3);min-width:34px;text-align:right">${pct}%</div>
-    </div>`;
-  }).join('');
-}
-
-function renderPLByCategory(pl){
-  const el = document.getElementById('pl-by-category');
-  if(!el) return;
-  const cats = Object.entries(pl.byCat)
-    .map(([cat,d])=>({
-      cat,
-      revenue:d.revenue,
-      varCost:d.mat+d.wage,
-      margin:d.revenue-d.mat-d.wage,
-      pct:d.revenue>0?(d.revenue-d.mat-d.wage)/d.revenue:0,
-      qty:d.qty,
-    }))
-    .sort((a,b)=>b.revenue-a.revenue);
-
-  if(!cats.length){el.innerHTML='<div style="color:var(--text3)">Нет данных</div>';return;}
-
-  const catColors=['#4f8ef7','#3dd68c','#a78bfa','#f5a623','#f43f5e','#38bdf8'];
-  el.innerHTML = cats.map((c,i)=>{
-    const color = catColors[i % catColors.length];
-    const pctClass = c.pct>=.3?'margin-pct-good':c.pct>=.15?'margin-pct-mid':'margin-pct-low';
-    return `<div class="pl-cat-row">
-      <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
-      <div style="font-size:12px;flex:1">${c.cat}<div style="font-size:11px;color:var(--text3)">${c.qty} шт · выручка ${fmtCurrency(c.revenue)}</div></div>
-      <div style="text-align:right">
-        <div style="font-size:12px;font-family:'IBM Plex Mono',monospace">${fmtCurrency(c.margin)}</div>
-        <div class="${pctClass}" style="font-size:11px">${Math.round(c.pct*100)}%</div>
-      </div>
-    </div>`;
-  }).join('');
 }
 
 function renderPLAR(pl){
