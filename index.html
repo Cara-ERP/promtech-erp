@@ -5386,6 +5386,7 @@ window.onerror = function(msg, src, line, col){
             <table class="data-table" style="font-size:12px">
               <thead><tr>
                 <th style="text-align:left">Поставщик</th>
+                <th style="text-align:left">БИН/ИИН</th>
                 <th style="text-align:right">ЭСФ (поставлено)</th>
                 <th style="text-align:right">Оплачено</th>
                 <th style="text-align:right">Долг</th>
@@ -23555,18 +23556,33 @@ function renderPurchasesDash(){
 
   const allPaidTx = moneyTx.filter(t=>t.flow==='expense' && isLegalEntity(t.counterparty));
 
+  // Собираем карту "нормализованное название → БИН" из ВСЕХ источников, где
+  // он указан (ЭСФ, оплаты, справочник поставщиков) — так БИН, найденный
+  // хотя бы у одной записи, "донашивается" на все остальные записи с тем же
+  // названием, даже если у них самих поле БИН пустое
+  const nameToBin = {};
+  function registerBin(raw, bin){
+    if(!bin || !bin.toString().trim()) return;
+    const n = normSupplier(raw);
+    if(n && !nameToBin[n]) nameToBin[n] = bin.toString().trim();
+  }
+  allInvoices.forEach(inv=>registerBin(inv.supplier_name, inv.supplier_bin));
+  allPaidTx.forEach(t=>registerBin(t.counterparty, t.bin));
+  suppliersData.forEach(s=>registerBin(s.name, s.bin));
+
   // Группируем по поставщику — сначала по БИН/ИИН, если он есть (надёжнее
   // всего: одно и то же лицо может быть записано и полным ФИО, и
   // инициалами — текстовое сравнение это не различит, а БИН — точно тот же)
   function groupKey(raw, bin){
-    return (bin && bin.trim()) ? 'bin:'+bin.trim() : 'name:'+normSupplier(raw);
+    const resolvedBin = (bin && bin.toString().trim()) || nameToBin[normSupplier(raw)];
+    return resolvedBin ? 'bin:'+resolvedBin : 'name:'+normSupplier(raw);
   }
 
   const debtBySupplier = {};
   allInvoices.forEach(inv=>{
     const raw  = inv.supplier_name||inv.supplier_bin||'—';
     const key  = groupKey(raw, inv.supplier_bin);
-    if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
+    if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw, bin: nameToBin[normSupplier(raw)]||inv.supplier_bin||''};
     // Если ранее отображаемое имя было короче/менее полным (например, только
     // инициалы) — оставляем более полное написание для показа
     if(raw.length > (debtBySupplier[key].display||'').length) debtBySupplier[key].display = raw;
@@ -23576,7 +23592,7 @@ function renderPurchasesDash(){
   allPaidTx.forEach(t=>{
     const raw  = t.counterparty||'—';
     const key  = groupKey(raw, t.bin);
-    if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw};
+    if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: raw, bin: nameToBin[normSupplier(raw)]||t.bin||''};
     if(raw.length > (debtBySupplier[key].display||'').length) debtBySupplier[key].display = raw;
     debtBySupplier[key].paid += t.amount||0;
   });
@@ -23588,7 +23604,7 @@ function renderPurchasesDash(){
       if(l.type==='supplier' && l.supplier && l.amount>0){
         const sup = findSupplierForName(l.supplier);
         const key = groupKey(l.supplier, sup?.bin);
-        if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: l.supplier};
+        if(!debtBySupplier[key]) debtBySupplier[key] = {esf:0, paid:0, display: l.supplier, bin: nameToBin[normSupplier(l.supplier)]||sup?.bin||''};
         if(l.supplier.length > (debtBySupplier[key].display||'').length) debtBySupplier[key].display = l.supplier;
         debtBySupplier[key].paid += l.amount;
       }
@@ -23596,7 +23612,7 @@ function renderPurchasesDash(){
   });
 
   const debtRows = Object.entries(debtBySupplier)
-    .map(([key, d])=>({name: d.display||key, esf:d.esf, paid:d.paid, debt:d.esf-d.paid}))
+    .map(([key, d])=>({name: d.display||key, bin: d.bin||'', esf:d.esf, paid:d.paid, debt:d.esf-d.paid}))
     .filter(r=>Math.abs(r.debt) >= 100) // пропускаем нулевые
     .sort((a,b)=>b.debt-a.debt);
 
@@ -23740,7 +23756,7 @@ function openSupplierReconciliation(supplierName, fromDate, toDate){
 function filterPurDebts(){
   const search = (document.getElementById('pur-debt-search')?.value||'').toLowerCase();
   const rows = (window._purDebtRows||[]).filter(r=>
-    !search || r.name.toLowerCase().includes(search)
+    !search || r.name.toLowerCase().includes(search) || (r.bin||'').includes(search)
   );
   renderPurDebtsTable(rows);
 }
@@ -23757,6 +23773,7 @@ function renderPurDebtsTable(debtRows){
       : `<span style="color:var(--green);font-size:11px">✅ Аванс</span>`;
     return `<tr>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.name}">${r.name}</td>
+      <td style="font-family:monospace;color:var(--text3);font-size:11px">${r.bin||'—'}</td>
       <td style="text-align:right;font-family:monospace">${fmt2(r.esf)}</td>
       <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt2(r.paid)}</td>
       <td style="text-align:right;font-family:monospace;color:${debt>0?'var(--red)':'var(--text3)'};font-weight:${debt>0?700:400}">${debt>0?fmt2(debt):'—'}</td>
@@ -23766,17 +23783,19 @@ function renderPurDebtsTable(debtRows){
         data-supplier="${r.name.replace(/"/g,'&quot;')}"
         onclick="openSupplierReconciliation(this.dataset.supplier)">👁</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--text3)">Нет данных</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:12px;color:var(--text3)">Нет данных</td></tr>';
 
   if(dtfoot){
     const totalDebt  = debtRows.filter(r=>r.debt>0).reduce((s,r)=>s+r.debt,0);
     const totalAvans = debtRows.filter(r=>r.debt<0).reduce((s,r)=>s+(-r.debt),0);
     dtfoot.innerHTML = `<tr style="font-weight:700;background:var(--bg3)">
       <td>ИТОГО (${debtRows.length} поставщиков)</td>
+      <td></td>
       <td style="text-align:right;font-family:monospace">${fmt2(debtRows.reduce((s,r)=>s+r.esf,0))}</td>
       <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt2(debtRows.reduce((s,r)=>s+r.paid,0))}</td>
       <td style="text-align:right;font-family:monospace;color:var(--red)">${fmt2(totalDebt)}</td>
       <td style="text-align:right;font-family:monospace;color:var(--accent)">${fmt2(totalAvans)}</td>
+      <td></td>
       <td></td>
     </tr>`;
   }
