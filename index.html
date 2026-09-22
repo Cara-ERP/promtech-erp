@@ -22212,7 +22212,7 @@ function renderCFS(){
   Object.values(cfs.sections).forEach(sec=>{
     if(sec.secIn===0&&sec.secOut===0) return;
     const nc=sec.secNet>=0?'var(--green)':'var(--red)';
-    const ddCall=`ddCFSSection(${JSON.stringify(sec.inCats)},${JSON.stringify(sec.outCats)},'${sec.label.replace(/'/g,"\\'")}')`;
+    const ddCall=`ddCFSSection(${JSON.stringify(sec.inCats)},${JSON.stringify(sec.outCats)},'${sec.label.replace(/'/g,"\\'")}')`.replace(/"/g,'&quot;');
     html+=`<tr style="background:var(--bg2);border-top:2px solid var(--border);cursor:pointer" onclick="${ddCall}" title="Нажмите для детализации">
       <td style="padding:10px 16px;font-weight:700;color:${sec.color}">${sec.label} <span style="font-size:10px;color:var(--accent)">🔍</span></td>
       <td style="padding:10px 16px;text-align:right;font-family:monospace;color:var(--green);font-weight:600">${sec.secIn?fmt(sec.secIn):''}</td>
@@ -22223,7 +22223,7 @@ function renderCFS(){
       if(row.in===0&&row.out===0) return;
       const cats = [...(row.inCats||[]),...(row.outCats||[])];
       const ddRow = cats.length
-        ? `ddCFSSection(${JSON.stringify(row.inCats||[])},${JSON.stringify(row.outCats||[])},'${row.label.replace(/'/g,"\\'")}')` : '';
+        ? `ddCFSSection(${JSON.stringify(row.inCats||[])},${JSON.stringify(row.outCats||[])},'${row.label.replace(/'/g,"\\'")}')`.replace(/"/g,'&quot;') : '';
       html+=`<tr style="border-top:1px solid var(--border);${ddRow?'cursor:pointer':''}" ${ddRow?`onclick="${ddRow}" title="Детализация"`:''}">
         <td style="padding:7px 16px 7px 32px;color:var(--text2)">${row.label}${ddRow?' <span style="font-size:10px;color:var(--accent)">🔍</span>':''}</td>
         <td style="padding:7px 16px;text-align:right;font-family:monospace;color:var(--green)">${row.in?fmt(row.in):'—'}</td>
