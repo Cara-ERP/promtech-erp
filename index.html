@@ -8792,10 +8792,13 @@ async function updateSalonWbField(id, field, value, type){
   const row = salonWbData[salon].find(r=>String(r.id)===String(id));
   if(!row) return;
   const parsed = type==='number' ? (parseFloat(value)||0) : (value||null);
+  const prevValue = row[field];
   row[field]=parsed;
   try{
     await sbPatch('salon_worksheet', `id=eq.${id}`, {[field]:parsed});
   } catch(e){
+    row[field]=prevValue; // откатываем локально — иначе на экране будет то, что реально не сохранилось
+    alert('Не удалось сохранить изменение поля "'+field+'": '+e.message);
     console.warn('⚠️ Не удалось сохранить изменение:', e.message);
   }
   renderSalonWorksheet();
