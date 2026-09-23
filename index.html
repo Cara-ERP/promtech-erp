@@ -8534,11 +8534,19 @@ function renderSalonWorksheet(){
   const tbody = document.getElementById('swb-tbody');
   if(!tbody) return;
 
-  // Бегущий остаток кассы салона считаем по ВСЕЙ истории (порядок важен),
-  // а фильтр по году применяем только к тому, что показываем на экране —
+  // Бегущий остаток кассы салона считаем по ВСЕЙ истории (порядок важен) —
+  // поэтому сначала сортируем по дате: новые строки добавляются в конец
+  // списка независимо от того, какую дату вы им поставили, и без сортировки
+  // остаток считался бы не там, где реально должен хронологически.
+  // Фильтр по году применяем только к тому, что показываем на экране —
   // иначе итоговый остаток был бы неверным при просмотре одного года.
+  const sortedRows = [...rows].sort((a,b)=>{
+    const da=a.order_date||a.payment_date||'';
+    const db=b.order_date||b.payment_date||'';
+    return da.localeCompare(db) || String(a.id).localeCompare(String(b.id));
+  });
   let running=0;
-  const withBalance = rows.map(r=>{
+  const withBalance = sortedRows.map(r=>{
     running += (Number(r.cash_amount)||0)
              - (Number(r.expense_amount)||0) - (Number(r.transferred_to_office)||0);
     return {...r, _salonBalance: running};
