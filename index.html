@@ -5215,6 +5215,16 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="card" style="grid-column:1/3">
             <div class="card-header">
+              <span class="card-title">Отчёт о прибылях и убытках — помесячно</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="pl-monthly-year" onchange="renderMonthlyPL()" style="font-size:12px;width:auto"></select>
+                <button class="btn btn-ghost btn-sm" onclick="exportMonthlyPLExcel()">📥 Excel</button>
+              </div>
+            </div>
+            <div id="pl-monthly" style="overflow-x:auto"></div>
+          </div>
+          <div class="card" style="grid-column:1/3">
+            <div class="card-header">
               <span class="card-title">Выручка по направлениям</span>
               <div style="display:flex;gap:6px;align-items:center">
                 <select id="pl-rev-channel-year" onchange="renderRevenueByChannel()" style="font-size:12px;width:auto"></select>
@@ -5252,6 +5262,16 @@ window.onerror = function(msg, src, line, col){
               </div>
             </div>
             <div id="pl-rev-tree" style="overflow-x:auto"></div>
+          </div>
+          <div class="card" style="grid-column:1/3">
+            <div class="card-header">
+              <span class="card-title">Оценка себестоимости по категориям (без техкарт)</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="pl-matcost-year" onchange="renderMaterialCostEstimate()" style="font-size:12px;width:auto"></select>
+                <button class="btn btn-ghost btn-sm" onclick="exportMatCostExcel()">📥 Excel</button>
+              </div>
+            </div>
+            <div id="pl-matcost" style="overflow-x:auto"></div>
           </div>
           <div class="card">
             <div class="card-header">
@@ -15743,6 +15763,16 @@ function showPage(id, el){
     if(!_expenseCatsLoaded || !_expenseCats.length) financeDeps.push(loadExpenseCategories());
     if(!ordersData.length && typeof loadOrdersFromDB==='function') financeDeps.push(loadOrdersFromDB());
     if(!advanceReports.length && typeof loadAdvancesFromDB==='function') financeDeps.push(loadAdvancesFromDB());
+    if(!warehouseData.length && typeof loadWarehouseFromDB==='function') financeDeps.push(loadWarehouseFromDB());
+    // ЭСФ — нужны, чтобы "Прямые материалы" в P&L могли посчитаться по
+    // реальным входящим ЭСФ, а не только по плану (если факта со склада нет)
+    if(!esfReconInvoices.length){
+      financeDeps.push(sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{
+        esfReconInvoices = data||[]; _osvEsfLoaded = true;
+      }));
+    }
+    if(!_esfData?.items?.length && typeof initEsfPage==='function') financeDeps.push(initEsfPage());
+    if(!_payrollData && typeof initSalaryLedgerPage==='function') financeDeps.push(initSalaryLedgerPage());
     if(financeDeps.length){
       Promise.all(financeDeps).then(()=>{ renderPL(); renderMoneyKPIs(); });
     } else {
@@ -24340,8 +24370,42 @@ function buildPL(){
       byCat[cat].qty     += item.qty||1;
     });
   });
+  // ── Разбивка категории "Производственные" на прямые материалы и ОПР, по
+  // конкретным статьям (временно, до нормального учёта производства) ────────
+  // Конкретные статьи материалов — плюсуются к прямым материалам; конкретные
+  // статьи расходов — идут в ОПР. Всё остальное, что раньше формировало ОПР
+  // (складские списания, прочие статьи через старый общий фильтр) — временно
+  // не используется, ОПР строится только из этой разбивки.
+  const PRODCAT_TO_MATERIALS_KEYWORDS = ['бук','лес','дуб','карагач','сосна','ясень','материалы производства','стекло','краска','матрас','сантехника','ткань'];
+  const PRODCAT_TO_OPR_KEYWORDS = ['станок','оборудован','производственные расходы','дополнительная работа','полировка','инструмент','запчаст','ремонт','обслуживан','разгрузка','погрузка','производство прочее','точен','реставрация'];
+  function classifyProdStatya(name){
+    const n=(name||'').toLowerCase();
+    if(PRODCAT_TO_MATERIALS_KEYWORDS.some(k=>n.includes(k))) return 'materials';
+    if(PRODCAT_TO_OPR_KEYWORDS.some(k=>n.includes(k))) return 'opr';
+    return null;
+  }
+  let prodToMaterials = 0, prodToOpr = 0, prodUnclassified = 0;
+
+  // "Прочее списание" и "Строительные работы" — не отражаются в P&L вовсе,
+  // фактически за счёт средств директора/собственника (аналогично дивидендам).
+  // Объявлено здесь (до первого использования ниже, в цикле по авансовым
+  // отчётам) — иначе временная зона ("before initialization")
+  const OWNER_EXPENSE_CATEGORIES = ['прочее списание','строительные работы'];
+  function isOwnerExpenseCategory(topCode){
+    const name = (_expenseCats||[]).find(c=>c.code===topCode)?.name || '';
+    const n = name.toLowerCase();
+    return OWNER_EXPENSE_CATEGORIES.some(k=>n.includes(k));
+  }
+
   // Берём факт если есть, иначе план
-  const materialCostBase = whMaterialCost > 0 ? whMaterialCost : materialCostPlan;
+  // Материалы: факт со склада → оценка по входящим ЭСФ (если факта нет) → план
+  // Прямые материалы: сейчас, пока не настроены техкарты, в первую очередь
+  // используем оценку по входящим ЭСФ (та же, что в таблице "Оценка
+  // себестоимости по категориям" ниже) — она сейчас надёжнее складского
+  // факта. Факт со склада и план — запасной вариант, если оценки по ЭСФ нет.
+  const esfMaterialEstimate = estimateMaterialCostForPeriod(fromStr, toStr);
+  const materialCostBaseRaw = esfMaterialEstimate > 0 ? esfMaterialEstimate
+    : (whMaterialCost > 0 ? whMaterialCost : materialCostPlan);
 
   // ── РАСХОДЫ ЧЕРЕЗ АВАНСОВЫЕ ОТЧЁТЫ (разбираем строки lines[] отдельно) ─────
   // "Выдача аванса" сама по себе в P&L не учитывается вообще (нет такой категории
@@ -24349,7 +24413,7 @@ function buildPL(){
   // Строки типа "Поставщик" распределяем по статье, заданной в карточке
   // поставщика (Производственные/Коммерческие/иное) — а не всегда в материалы,
   // как раньше по ошибке.
-  let advMaterialCost = 0, advOprCost = 0, advCommercialCost = 0, advOtherExpense = 0;
+  let advMaterialCost = 0, advOprCost = 0, advCommercialCost = 0, advOtherExpense = 0, advUndetermined = 0;
   advanceReports.forEach(a=>{
     const d = a.date || '';
     if(fromStr && d && d < fromStr) return;
@@ -24359,57 +24423,93 @@ function buildPL(){
       if(!amt) return;
       if(l.type==='material'){ advMaterialCost += amt; return; }
       if(l.type==='supplier'){
+        // Материал или услуга у строки "Поставщик" теперь определяется:
+        // 1) по привязанной ЭСФ (если есть) — её Тип "Товары"/"Услуги";
+        // 2) если ЭСФ нет — по статье, заданной в карточке поставщика;
+        // 3) если и этого нет — сама по себе строка "Поставщик" НИЧЕГО не
+        // определяет (ни материал, ни услугу) — раньше по умолчанию считали
+        // материалом, это было ошибкой
+        let invType = null;
+        if(l.esfInvoiceId){
+          const inv = esfReconInvoices.find(i=>i.id===l.esfInvoiceId) || (_esfData?.invoices||[]).find(i=>i.id===l.esfInvoiceId);
+          invType = inv?.invoice_type || null;
+        }
+        if(invType==='goods'){ advMaterialCost += amt; return; }
         const sup = findSupplierForName(l.supplier);
         const top = sup?.expense_category ? topLevelCategoryOf(sup.expense_category) : null;
-        if(top==='production') advOprCost += amt;
+        if(top==='production'){
+          const statyaName = (_expenseCats||[]).find(c=>c.code===sup.expense_subcategory)?.name || (_expenseCats||[]).find(c=>c.code===sup.expense_category)?.name;
+          const bucket = classifyProdStatya(statyaName);
+          if(bucket==='materials') prodToMaterials += amt;
+          else if(bucket==='opr') prodToOpr += amt;
+          else prodUnclassified += amt;
+        }
         else if(top==='commercial') advCommercialCost += amt;
-        else if(top) advOtherExpense += amt;
-        else advMaterialCost += amt; // по умолчанию — как и раньше (закупка материалов/товара)
+        else if(top && ((_expenseCats||[]).find(c=>c.code===top)?.name||'').toLowerCase()==='хозяйственные') advOtherExpense += amt;
+        else if(top){ /* Налоги и сборы и прочее — сюда сейчас не относится */ }
+        else advUndetermined += amt; // нет ни ЭСФ, ни статьи у поставщика — не относим никуда
         return;
       }
       // type === 'expense' — своя выбранная статья
       const top = topLevelCategoryOf(l.category);
-      if(top==='production') advOprCost += amt;
+      if(top==='production'){
+        const statyaName = (_expenseCats||[]).find(c=>c.code===l.subcategory)?.name || (_expenseCats||[]).find(c=>c.code===l.category)?.name;
+        const bucket = classifyProdStatya(statyaName);
+        if(bucket==='materials') prodToMaterials += amt;
+        else if(bucket==='opr') prodToOpr += amt;
+        else prodUnclassified += amt;
+      }
       else if(top==='commercial') advCommercialCost += amt;
-      else advOtherExpense += amt;
+      else if(((_expenseCats||[]).find(c=>c.code===top)?.name||'').toLowerCase()==='хозяйственные') advOtherExpense += amt;
+      // Налоги и сборы, "Прочее списание"/"Строительные работы" и любое другое — сюда сейчас не относится
     });
   });
 
+  const materialCostBase = materialCostBaseRaw + prodToMaterials;
   const materialCost = materialCostBase + advMaterialCost;
 
   // ── ПРЯМАЯ ЗАРПЛАТА (сдельные производственники) ─────────────────
-  // Факт из wageEmployees
+  // Временно: колонка "Сдельная" из Зарплатной ведомости — в первую очередь
+  const payrollLedgerSums = sumPayrollLedgerColumns(fromStr, toStr);
   const wageActual = wageEmployees.reduce((s,e)=>s+(e.earned||0), 0);
-  const wageCost   = wageActual > 0 ? wageActual : wageCostPlan;
+  const wageCost   = payrollLedgerSums.sdelnaya > 0 ? payrollLedgerSums.sdelnaya
+    : (wageActual > 0 ? wageActual : wageCostPlan);
 
   // ── ОПР (общепроизводственные) ────────────────────────────────────
-  // Факт со склада (списания ОПР) + операции по расчётному счёту/кассе и
-  // авансовым отчётам, отнесённые к статье "Производственные расходы"
-  const oprFromWarehouse = whDocuments
-    .filter(d=>d.type==='writeoff'&&d.writeoffType==='opr'&&d.status==='done')
-    .flatMap(d=>d.items)
-    .reduce((s,it)=>s+it.qty*it.price, 0);
+  // Факт со склада (списания ОПР) — временно НЕ используется (см. ниже,
+  // ОПР сейчас строится только из статей "Производственные" по вашему списку)
 
   // ── ПОСТОЯННЫЕ ЗАТРАТЫ ────────────────────────────────────────────
-  // 1) Оклады АУП — из реальных транзакций за период
+  // 1) Оклады АУП — временно: колонки Оклад+Премия+Отпускные+Займ нач.+
+  // Больничные из Зарплатной ведомости, в первую очередь
+  const payrollLedgerAup = payrollLedgerSums.oklad + payrollLedgerSums.premiya
+    + payrollLedgerSums.otpusk + payrollLedgerSums.zaim_nach + payrollLedgerSums.bolnichn;
   const salaryTxs = plFilteredTx('expense').filter(t=>t.category==='salary');
-  const aupSalary = salaryTxs.length > 0
-    ? salaryTxs.reduce((s,t)=>s+t.amount, 0)
-    : (fcPlanData.filter(f=>f.category==='payroll').reduce((s,f)=>s+(f.plan||0),0)
-       || payrollStaff.filter(s=>s.salary>0).reduce((s,emp)=>s+buildPayrollRow(emp).totalEmployer, 0));
+  const aupSalary = payrollLedgerAup > 0 ? payrollLedgerAup
+    : (salaryTxs.length > 0
+      ? salaryTxs.reduce((s,t)=>s+t.amount, 0)
+      : (fcPlanData.filter(f=>f.category==='payroll').reduce((s,f)=>s+(f.plan||0),0)
+         || payrollStaff.filter(s=>s.salary>0).reduce((s,emp)=>s+buildPayrollRow(emp).totalEmployer, 0)));
 
   // 2) Налоги на сдельщиков
   const prodTaxes = payrollStaff
     .filter(s=>s.salary===0)
     .reduce((s,emp)=>{ const row=buildPayrollRow(emp); return s+row.so+row.sn; }, 0);
 
-  // 3) Прочие постоянные затраты — по реальному справочнику статей расходов
-  // (expense_categories, отмеченные "постоянная"), разбитые на три раздела по
-  // верхнеуровневой категории: Производственные (→ ОПР), Коммерческие
-  // (отдельная строка) и всё остальное (Хозяйственные и т.п.)
-  const fixedCatCodes = new Set((_expenseCats||[]).filter(c=>c.is_fixed && c.code!=='salary').map(c=>c.code));
-  let oprFromTx = 0, commercialFromTx = 0, otherFromTx = 0;
-  if(fixedCatCodes.size){
+  // 3) Коммерческие и прочие (Хозяйственные, Налоги и сборы и т.п.) — по
+  // реальному справочнику статей расходов, разбитые по верхнеуровневой
+  // категории: Коммерческие (отдельная строка) и всё остальное (Хозяйственные,
+  // Налоги и сборы). "Производственные" сюда не входят — они разбираются
+  // отдельно, по конкретным статьям, ниже. "Прочее списание" и "Строительные
+  // работы" в P&L не отражаются вовсе — по вашим словам, это фактически за
+  // счёт средств директора/собственника, а не операционный расход бизнеса
+  // (аналогично дивидендам). "Аренда, ком. услуги, прочее" ниже — сейчас
+  // строго ТОЛЬКО категория "Хозяйственные", буквально и без добавления
+  // чего-либо ещё (по вашей явной просьбе) — то есть "Налоги и сборы" и любые
+  // прочие категории сюда сейчас не попадают вовсе.
+  const allCatCodes = new Set((_expenseCats||[]).map(c=>c.code));
+  let commercialFromTx = 0, otherFromTx = 0;
+  if(allCatCodes.size){
     plFilteredTx('expense').forEach(t=>{
       let catCode = t.category;
       if(catCode==='supplier'){
@@ -24417,25 +24517,53 @@ function buildPL(){
         catCode = sup?.expense_category || null;
         if(!catCode) return; // поставщик без указанной статьи — как и раньше, не учитываем здесь
       }
-      const matchCode = fixedCatCodes.has(catCode) ? catCode : (fixedCatCodes.has(t.subcategory) ? t.subcategory : null);
+      if(catCode==='salary') return; // зарплата считается отдельно выше
+      const matchCode = allCatCodes.has(catCode) ? catCode : (allCatCodes.has(t.subcategory) ? t.subcategory : null);
       if(!matchCode) return;
       const top = topLevelCategoryOf(matchCode);
-      if(top==='production') oprFromTx += t.amount;
-      else if(top==='commercial') commercialFromTx += t.amount;
-      else otherFromTx += t.amount;
+      if(top==='production') return; // разбирается отдельно ниже
+      if(top==='commercial'){ commercialFromTx += t.amount; return; }
+      const topName = ((_expenseCats||[]).find(c=>c.code===top)?.name||'').toLowerCase();
+      if(topName==='хозяйственные') otherFromTx += t.amount;
+      // любая другая категория (Налоги и сборы, Заработная плата и т.п.) —
+      // сюда сейчас не относится вовсе
     });
   } else {
     otherFromTx = plFilteredTx('expense')
       .filter(t=>['expense','rent','utility','transport','other_out'].includes(t.category))
       .reduce((s,t)=>s+t.amount, 0);
   }
-  const anyFixedTx = (oprFromTx+commercialFromTx+otherFromTx) > 0;
+  const anyFixedTx = (commercialFromTx+otherFromTx) > 0;
   const otherFixedBase = anyFixedTx ? otherFromTx
     : (fcPlanData.filter(f=>f.category!=='payroll').reduce((s,f)=>s+(f.plan||0),0)
        || fixedCostsData.filter(f=>!['payroll'].includes(f.category)).reduce((s,f)=>s+fcToMonthly(f), 0));
   const otherFixed      = otherFixedBase + advOtherExpense;
   const commercialCost  = commercialFromTx + advCommercialCost;
-  const oprCost         = oprFromWarehouse + oprFromTx + advOprCost;
+
+  // 4) Категория "Производственные" по расчётному счёту/кассе — разбираем
+  // по конкретным статьям на прямые материалы и ОПР
+  plFilteredTx('expense').forEach(t=>{
+    let catCode = t.category;
+    if(catCode==='supplier'){
+      const sup = findSupplierForName(t.counterparty, t.bin);
+      catCode = sup?.expense_category || null;
+      if(!catCode) return;
+    }
+    const subCode = t.subcategory;
+    const topOfSub = subCode ? topLevelCategoryOf(subCode) : null;
+    const topOfCat = topLevelCategoryOf(catCode);
+    if(topOfCat!=='production' && topOfSub!=='production') return;
+    const statyaCode = topOfSub==='production' ? subCode : catCode;
+    const statyaName = (_expenseCats||[]).find(c=>c.code===statyaCode)?.name || statyaCode;
+    const bucket = classifyProdStatya(statyaName);
+    if(bucket==='materials') prodToMaterials += t.amount;
+    else if(bucket==='opr') prodToOpr += t.amount;
+    else prodUnclassified += t.amount;
+  });
+
+  // ОПР — временно строится только из статей "Производственные", отнесённых
+  // к ОПР по списку (складские списания и старый общий расчёт не участвуют)
+  const oprCost = prodToOpr;
 
   // ── МАРЖИНАЛЬНАЯ ПРИБЫЛЬ ─────────────────────────────────────────
   // (раньше ОПР считался и показывался, но не вычитался здесь — исправлено)
@@ -24456,11 +24584,13 @@ function buildPL(){
   const ar = arOrders.reduce((s,o)=>s+orderTotal(o)*(1-o.payment/100), 0);
 
   return {
-    revenue, paidRevenue, materialCost, materialCostPlan, whMaterialCost,
+    revenue, paidRevenue, materialCost, materialCostPlan, whMaterialCost, esfMaterialEstimate,
     wageCost, wageActual, wageCostPlan, oprCost,
     grossMargin, grossMarginPct,
     aupSalary, prodTaxes, commercialCost, otherFixed, fixedTotal, purchCost,
-    ebit, ebitPct, ar, byCat, advMaterialCost, advOprCost, advCommercialCost, advOtherExpense,
+    ebit, ebitPct, ar, byCat, advMaterialCost, advOprCost, advCommercialCost, advOtherExpense, advUndetermined,
+    prodToMaterials, prodToOpr, prodUnclassified,
+    payrollLedgerSdelnaya: payrollLedgerSums.sdelnaya, payrollLedgerAup,
     unmatchedItems:0, totalItems: orders.reduce((s,o)=>s+(o.items?.length||0),0)
   };
 }
@@ -24866,6 +24996,365 @@ function exportRevenueTreeToExcel(){
   XLSX.writeFile(wb, `PromTech_Vyruchka_struktura_${year}.xlsx`);
 }
 
+// ===== ОЦЕНКА СЕБЕСТОИМОСТИ ПО КАТЕГОРИЯМ (за периоды без техкарт) =====
+// Метод: материалы приходят по входящим ЭСФ (тип "Товары") — берём их сумму
+// и дату; продукция считается "выпущенной" в месяц её РЕАЛИЗАЦИИ (условно,
+// т.к. производство под заказ — изготовление и продажа идут почти вплотную).
+// Для каждого месяца сумма прихода каждой категории материала распределяется
+// пропорционально выручке между категориями продукции, которые эту категорию
+// материала в принципе могут использовать (таблица ниже, согласована с
+// пользователем). Категории материалов без прямого отношения к конкретному
+// товару (инструмент, расходники, прочее) идут в ОПР, а не в себестоимость
+// конкретной категории.
+
+let _matCostConfig = null;
+function getMatCostConfig(){
+  if(_matCostConfig) return _matCostConfig;
+  const PROD_CATEGORIES_ALL = [...new Set(
+    (PHYSICAL_WAREHOUSES.find(w=>w.id==='wh_finished')?.cats)||[]
+  )];
+  const MATCOST_SOFT   = ['Диваны','Кресла','Пуфики','Мягкая мебель'];
+  const MATCOST_CORPUS = ['Шкафы','Комоды','Тумбы','Кухни','Шкаф AIR','Шкаф NEO','Шкаф ANY','Шкаф SKY','Шкаф АЖУР','Шкафы и ящики','Коллекция Вельвет','Коллекция НЕО БЕНТ'];
+  const MATCOST_GLASS  = ['Витрины','Зеркала','Консоли'];
+  // "Смешанные" коллекции — состав неизвестен, участвуют и в корпусной, и в
+  // мягкой мебели, пропорция внутри решится по факту выручки
+  const MATCOST_MIXED  = ['Коллекция ГРЕЙС','Коллекция ANY','Коллекция SKY','Коллекция AIR','Кабинет','Эксклюзив','Гостиные DECO','Гостиные эконом'];
+  const MATCOST_ALL_EXCEPT_CHAIRS = PROD_CATEGORIES_ALL.filter(c=>c!=='Стулья');
+
+  // Категория материала (как в справочнике складов) → какие категории продукции
+  // в принципе могут её использовать. null = не относится на продукцию (→ ОПР)
+  const MATCOST_ELIGIBILITY = {
+    'Ткань/Обивочные':    [...MATCOST_SOFT, ...MATCOST_MIXED],
+    'Поролон/Набивка':    [...MATCOST_SOFT, ...MATCOST_MIXED],
+    'Мягкая фурнитура':   [...MATCOST_SOFT, ...MATCOST_MIXED],
+    'ЛДСП/МДФ':           [...MATCOST_CORPUS, ...MATCOST_MIXED, 'Столы','Стулья'], // Стулья — только фанерные спинки
+    'Шпон':               [...MATCOST_CORPUS, ...MATCOST_MIXED, 'Столы','Стулья'],
+    'Пиломатериалы':      ['Столы','Стулья','Кровати', ...MATCOST_SOFT, ...MATCOST_MIXED], // каркасы
+    'Стекло':             MATCOST_GLASS,
+    'Фурнитура/Крепёж':   MATCOST_ALL_EXCEPT_CHAIRS,
+    'Крепёж Novus':       MATCOST_ALL_EXCEPT_CHAIRS,
+    'ЛКМ/Химия':          PROD_CATEGORIES_ALL,
+    'Металл/Профиль':     ['Шкафы','Кухни','Витрины'],
+    'Инструмент/Абразивы':null,
+    'Расходники':         null,
+    'Прочее':             null,
+  };
+  _matCostConfig = {PROD_CATEGORIES_ALL, MATCOST_ELIGIBILITY};
+  return _matCostConfig;
+}
+
+// Ищем категорию материала по названию строки ЭСФ — сверяем со складом
+// материалов (гибкое совпадение по названию, как и везде в этой программе)
+function materialCategoryForName(name){
+  const n = plNormProductName(name);
+  if(!n) return null;
+  const materialItems = warehouseData.filter(m=>{
+    const wh = PHYSICAL_WAREHOUSES.find(w=>w.id===m.warehouse_id);
+    return wh && wh.type==='material';
+  });
+  const exact = materialItems.find(m=>plNormProductName(m.name)===n);
+  if(exact) return exact.category;
+  const partial = materialItems.find(m=>{const mn=plNormProductName(m.name); return mn && (mn.includes(n)||n.includes(mn));});
+  return partial ? partial.category : null;
+}
+
+// Итоговая оценка материальной себестоимости за произвольный период (для
+// P&L, где нужна одна общая сумма, а не разбивка по категориям товара) —
+// сумма ЭСФ типа "Товары" за период, ЗА ИСКЛЮЧЕНИЕМ статей материалов,
+// отнесённых к ОПР (инструмент/расходники/прочее)
+// Суммы по колонкам "Зарплатной ведомости" (salary_accruals) за произвольный
+// период — та же логика, что строит саму ведомость на экране, просто без
+// привязки к тому, какой месяц сейчас выбран в самой ведомости
+function sumPayrollLedgerColumns(fromStr, toStr){
+  const empty = {sdelnaya:0, oklad:0, premiya:0, otpusk:0, zaim_nach:0, bolnichn:0};
+  if(!_payrollData?.accruals?.length) return empty;
+  const res = {...empty};
+  _payrollData.accruals.forEach(a=>{
+    const d = a.date||'';
+    if(fromStr && d && d<fromStr) return;
+    if(toStr && d && d>toStr) return;
+    const acc = (a.details && a.details.accruals) || [];
+    const hasDetails = acc.length>0;
+    const getAcc = (...keys) => acc.filter(x=>keys.some(k=>x.type?.includes(k))).reduce((s,x)=>s+x.amount,0);
+    const oklad_i = getAcc('Оклад');
+    const neraznesen = hasDetails ? 0 : (a.amount||0);
+    res.oklad     += (oklad_i||neraznesen);
+    res.sdelnaya  += hasDetails ? getAcc('Сдельная') : 0;
+    res.premiya   += getAcc('Премия');
+    res.otpusk    += getAcc('Отпускные');
+    res.bolnichn  += getAcc('Больничный');
+    res.zaim_nach += getAcc('Займ');
+  });
+  return res;
+}
+
+function estimateMaterialCostForPeriod(fromStr, toStr){
+  if(!_esfData?.items?.length || !esfReconInvoices.length) return 0;
+  const {MATCOST_ELIGIBILITY} = getMatCostConfig();
+  const invById = {};
+  esfReconInvoices.forEach(inv=>{ invById[inv.id]=inv; });
+  let total = 0;
+  (_esfData.items||[]).forEach(item=>{
+    const inv = invById[item.invoice_id];
+    if(!inv || inv.invoice_type!=='goods') return;
+    const d = inv.date||'';
+    if(fromStr && d && d<fromStr) return;
+    if(toStr && d && d>toStr) return;
+    const amt = item.total||item.amount||0;
+    if(!amt) return;
+    const matCat = materialCategoryForName(item.description);
+    const eligibility = matCat ? MATCOST_ELIGIBILITY[matCat] : undefined;
+    if(eligibility===null) return; // инструмент/расходники/прочее — это ОПР, не материалы
+    total += amt;
+  });
+  return total;
+}
+
+let _matCostExpanded = new Set();
+function toggleMatCostRow(key){
+  if(_matCostExpanded.has(key)) _matCostExpanded.delete(key); else _matCostExpanded.add(key);
+  renderMaterialCostEstimate();
+}
+
+// ===== ПОМЕСЯЧНЫЙ P&L (та же логика buildPL, просто по каждому месяцу) =====
+function renderMonthlyPL(){
+  const el = document.getElementById('pl-monthly');
+  if(!el) return;
+  const year = plBuildRevenueYearOptions('pl-monthly-year');
+  const fmt2 = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+
+  // Месяцы, которые ещё не наступили (относительно реальной сегодняшней даты) —
+  // не считаем вообще, чтобы не показывать план как будто это факт
+  const todayYM = new Date().toISOString().slice(0,7);
+
+  // Временно подменяем период на каждый месяц по очереди, считаем buildPL(),
+  // и восстанавливаем исходный период — чтобы не сломать остальной экран
+  const savedPeriod = financePeriod;
+  const monthlyPL = [];
+  for(let m=0; m<12; m++){
+    const ym = `${year}-${String(m+1).padStart(2,'0')}`;
+    if(ym > todayYM){ monthlyPL.push(null); continue; } // месяц ещё не наступил
+    const from = new Date(Date.UTC(+year, m, 1));
+    const to   = new Date(Date.UTC(+year, m+1, 0));
+    financePeriod = {from, to, mode:'month'};
+    monthlyPL.push(buildPL());
+  }
+  financePeriod = savedPeriod;
+
+  const lines = [
+    {key:'revenue',       label:'📦 Выручка от продаж',        sign:1,  bold:true},
+    {key:'materialCost',  label:'  − Прямые материалы',        sign:-1},
+    {key:'wageCost',      label:'  − Зарплата сдельная',       sign:-1},
+    {key:'oprCost',       label:'  − ОПР',                     sign:-1},
+    {key:'grossMargin',   label:'= Маржинальная прибыль',      sign:1,  bold:true, sep:true},
+    {key:'aupSalary',     label:'  − Оклады АУП (с налогами)', sign:-1},
+    {key:'prodTaxes',     label:'  − Налоги на сдельщиков',    sign:-1},
+    {key:'commercialCost',label:'  − Коммерческие расходы',    sign:-1},
+    {key:'otherFixed',    label:'  − Аренда, ком. услуги, прочее', sign:-1},
+    {key:'ebit',          label:'= EBIT (операционная прибыль)', sign:1, bold:true, sep:true},
+  ];
+
+  const rows = lines.map(ln=>({
+    label: ln.label, bold: ln.bold, sep: ln.sep,
+    monthly: monthlyPL.map(pl=>pl===null ? null : ln.sign*(pl[ln.key]||0)),
+  }));
+  const totals = rows.map(r=>r.monthly.reduce((s,v)=>s+(v||0),0));
+
+  el.innerHTML = `<table class="data-table" style="font-size:11px;white-space:nowrap">
+    <thead><tr>
+      <th>Статья</th>
+      ${PL_MONTH_LABELS.map(m=>`<th style="text-align:right">${m}</th>`).join('')}
+      <th style="text-align:right;color:var(--accent)">Итого за год</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map((r,i)=>`<tr style="${r.bold?'font-weight:700;':''}${r.sep?'border-top:2px solid var(--border);':''}">
+        <td>${r.label}</td>
+        ${r.monthly.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:${v<0?'var(--red)':r.bold?'var(--green)':'inherit'}">${fmt2(v)}</td>`).join('')}
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--accent)">${fmt2(totals[i])}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+
+  window._monthlyPLRows = rows; window._monthlyPLYear = year;
+}
+
+function exportMonthlyPLExcel(){
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
+  const rows = window._monthlyPLRows;
+  const year = window._monthlyPLYear;
+  if(!rows || !rows.length){alert('Нет данных для выгрузки.');return;}
+  const aoa = [
+    ['Отчёт о прибылях и убытках помесячно — '+year],
+    [],
+    ['Статья', ...PL_MONTH_LABELS, 'Итого за год'],
+    ...rows.map(r=>[r.label, ...r.monthly.map(v=>Math.round(v)), Math.round(r.monthly.reduce((s,v)=>s+v,0))]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:32}, ...Array(12).fill({wch:12}), {wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, String(year));
+  XLSX.writeFile(wb, `PromTech_PnL_pomesyachno_${year}.xlsx`);
+}
+
+function renderMaterialCostEstimate(){
+  const el = document.getElementById('pl-matcost');
+  if(!el) return;
+  if(!warehouseData.length && typeof loadWarehouseFromDB==='function'){
+    loadWarehouseFromDB().then(renderMaterialCostEstimate);
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка склада...</div>';
+    return;
+  }
+  if(!_osvEsfLoaded && !esfReconInvoices.length){
+    sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{
+      esfReconInvoices = data||[]; _osvEsfLoaded = true; renderMaterialCostEstimate();
+    });
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка входящих ЭСФ...</div>';
+    return;
+  }
+  if(!_esfData?.items?.length){
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка строк ЭСФ...</div>';
+    initEsfPage().then(renderMaterialCostEstimate);
+    return;
+  }
+  const year = plBuildRevenueYearOptions('pl-matcost-year');
+
+  // 1) Материалы, поступившие по ЭСФ (тип "Товары"), по месяцам и категориям
+  const invById = {};
+  esfReconInvoices.forEach(inv=>{ invById[inv.id]=inv; });
+  const materialByMonthCat = {}; // {monthIdx: {matCat: сумма}}
+  let unmatchedMatAmount = 0, unmatchedMatCount = 0;
+  (_esfData.items||[]).forEach(item=>{
+    const inv = invById[item.invoice_id];
+    if(!inv || inv.invoice_type!=='goods') return;
+    const d = inv.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m<0||m>11) return;
+    const amt = item.total||item.amount||0;
+    if(!amt) return;
+    const matCat = materialCategoryForName(item.description);
+    if(!matCat){ unmatchedMatAmount+=amt; unmatchedMatCount++; return; }
+    if(!materialByMonthCat[m]) materialByMonthCat[m]={};
+    materialByMonthCat[m][matCat] = (materialByMonthCat[m][matCat]||0) + amt;
+  });
+
+  // 2) Выручка по категориям продукции и месяцам (та же "Реализация" — дата
+  // продажи используется как приближённая замена дате выпуска)
+  const revByMonthCat = {}; // {monthIdx: {prodCat: выручка}}
+  (realizationsData||[]).forEach(r=>{
+    const d = r.doc_date||r.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m<0||m>11) return;
+    const cat = plCategoryForProductName(r.name);
+    if(!cat) return;
+    if(!revByMonthCat[m]) revByMonthCat[m]={};
+    revByMonthCat[m][cat] = (revByMonthCat[m][cat]||0) + (r.revenue||0);
+  });
+
+  // 3) Распределяем: для каждого месяца и категории материала — пропорционально
+  // выручке между ЕЁ допустимыми категориями продукции, у которых была
+  // выручка в этом месяце
+  const catTree = {}; // prodCat -> {label, monthly:[12], mats:{matCat:{label,monthly:[12]}}}
+  let oprFromMaterials = Array(12).fill(0); // категории без привязки (инструмент и т.п.)
+  let unallocated = Array(12).fill(0); // подходящей продукции с выручкой не нашлось в этом месяце
+  const {MATCOST_ELIGIBILITY} = getMatCostConfig();
+
+  Object.entries(materialByMonthCat).forEach(([mStr, cats])=>{
+    const m = +mStr;
+    Object.entries(cats).forEach(([matCat, amt])=>{
+      const eligibility = MATCOST_ELIGIBILITY[matCat];
+      if(eligibility===undefined){ unallocated[m]+=amt; return; } // категория материала нам вообще не известна
+      if(eligibility===null){ oprFromMaterials[m]+=amt; return; } // инструмент/расходники/прочее → ОПР
+      const revs = revByMonthCat[m]||{};
+      const eligibleWithRevenue = eligibility.filter(c=>(revs[c]||0)>0);
+      if(!eligibleWithRevenue.length){ unallocated[m]+=amt; return; }
+      const totalRev = eligibleWithRevenue.reduce((s,c)=>s+revs[c],0);
+      eligibleWithRevenue.forEach(prodCat=>{
+        const share = revs[prodCat]/totalRev;
+        const alloc = amt*share;
+        if(!catTree[prodCat]) catTree[prodCat]={label:prodCat, monthly:Array(12).fill(0), mats:{}};
+        catTree[prodCat].monthly[m]+=alloc;
+        if(!catTree[prodCat].mats[matCat]) catTree[prodCat].mats[matCat]={label:matCat, monthly:Array(12).fill(0)};
+        catTree[prodCat].mats[matCat].monthly[m]+=alloc;
+      });
+    });
+  });
+
+  const rows = Object.entries(catTree).map(([code,c])=>({
+    key:'cat:'+code, label:c.label, monthly:c.monthly,
+    mats: Object.entries(c.mats).map(([mc,d])=>({key:'cat:'+code+'|mat:'+mc, label:d.label, monthly:d.monthly}))
+      .sort((a,b)=>b.monthly.reduce((s,v)=>s+v,0)-a.monthly.reduce((s,v)=>s+v,0)),
+  })).sort((a,b)=>b.monthly.reduce((s,v)=>s+v,0)-a.monthly.reduce((s,v)=>s+v,0));
+
+  const hint = `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">
+    Оценочный расчёт (нет техкарт) — материалы взяты из ЭСФ (тип «Товары»), продукция — по дате реализации.
+    ${unmatchedMatCount?`Не удалось определить категорию у ${unmatchedMatCount} строк ЭСФ на сумму ${fmtCurrency(unmatchedMatAmount)} (не нашлось похожего названия на складе материалов).`:''}
+    ${oprFromMaterials.some(v=>v>0)?` В ОПР (инструмент/расходники/прочее): ${fmtCurrency(oprFromMaterials.reduce((s,v)=>s+v,0))}.`:''}
+    ${unallocated.some(v=>v>0)?` Не распределено (не было выручки по подходящим категориям в этом месяце): ${fmtCurrency(unallocated.reduce((s,v)=>s+v,0))}.`:''}
+  </div>`;
+
+  function rowHtml(r, level){
+    const hasChildren = level===0 && r.mats && r.mats.length>0;
+    const expanded = _matCostExpanded.has(r.key);
+    const rowTotal = r.monthly.reduce((s,v)=>s+v,0);
+    const colors=['var(--accent)','var(--green)'];
+    const bg = level===0 ? 'background:var(--bg3);font-weight:600' : '';
+    const fmt2 = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+    let html = `<tr style="${bg}${hasChildren?';cursor:pointer':''}" ${hasChildren?`onclick="toggleMatCostRow('${r.key}')"`:''}>
+      <td style="padding-left:${level*24}px;color:${colors[level]}">${hasChildren?(expanded?'▼ ':'▶ '):(level>0?'&nbsp;&nbsp;&nbsp;':'')}${r.label}</td>
+      ${r.monthly.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace">${fmt2(v)}</td>`).join('')}
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:${colors[level]}">${fmt2(rowTotal)}</td>
+    </tr>`;
+    if(hasChildren && expanded) r.mats.forEach(mrow=>{ html+=rowHtml(mrow,1); });
+    return html;
+  }
+  const fmt2 = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+  const totals = Array(12).fill(0);
+  rows.forEach(r=>r.monthly.forEach((v,i)=>totals[i]+=v));
+
+  el.innerHTML = hint + (rows.length ? `<table class="data-table" style="font-size:11px;white-space:nowrap">
+    <thead><tr>
+      <th>Категория продукции / материал</th>
+      ${PL_MONTH_LABELS.map(m=>`<th style="text-align:right">${m}</th>`).join('')}
+      <th style="text-align:right;color:var(--accent)">Итого за год</th>
+    </tr></thead>
+    <tbody>${rows.map(r=>rowHtml(r,0)).join('')}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border)">
+      <td style="font-weight:700">Итого (оценка материальной себестоимости)</td>
+      ${totals.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700">${fmt2(v)}</td>`).join('')}
+      <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--accent)">${fmt2(totals.reduce((s,v)=>s+v,0))}</td>
+    </tr></tfoot>
+  </table>` : '<div style="padding:16px;color:var(--text3);text-align:center">Нет данных за этот год</div>');
+
+  window._matCostRows = rows; window._matCostYear = year;
+}
+
+function exportMatCostExcel(){
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
+  const rows = window._matCostRows;
+  const year = window._matCostYear;
+  if(!rows || !rows.length){alert('Нет данных для выгрузки.');return;}
+  const totals = Array(12).fill(0);
+  const aoa = [
+    ['Оценка материальной себестоимости по категориям — '+year+' (без техкарт, приближённо)'],
+    [],
+    ['Категория продукции / материал', ...PL_MONTH_LABELS, 'Итого за год'],
+  ];
+  rows.forEach(r=>{
+    r.monthly.forEach((v,i)=>totals[i]+=v);
+    aoa.push([r.label, ...r.monthly.map(v=>Math.round(v)), Math.round(r.monthly.reduce((s,v)=>s+v,0))]);
+    r.mats.forEach(mr=>aoa.push(['   '+mr.label, ...mr.monthly.map(v=>Math.round(v)), Math.round(mr.monthly.reduce((s,v)=>s+v,0))]));
+  });
+  aoa.push(['Итого', ...totals.map(v=>Math.round(v)), Math.round(totals.reduce((s,v)=>s+v,0))]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:36}, ...Array(12).fill({wch:12}), {wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, String(year));
+  XLSX.writeFile(wb, `PromTech_Sebestoimost_ocenka_${year}.xlsx`);
+}
+
+
 function exportRevenueTableToExcel(rows, year, title, filenamePrefix){
   if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
   if(!rows || !rows.length){alert('Нет данных для выгрузки.');return;}
@@ -25122,11 +25611,11 @@ function renderPL(){
   // ── P&L таблица ──────────────────────────────────────────────────
   const plRows=[
     {label:'📦 Выручка от продаж',             value:pl.revenue,       bold:true, note:'из реализации (Продажи)'},
-    {label:'  − Прямые материалы',             value:-pl.materialCost, note:(pl.whMaterialCost>0?'✅ факт (склад)':'⚠️ план (номенклатура)')+(pl.advMaterialCost>0?` + ${fmt(pl.advMaterialCost)} из авансовых отчётов`:'')},
-    {label:'  − Зарплата сдельная',            value:-pl.wageCost,     note:'✅ факт (выработка)'},
-    {label:'  − ОПР (Производственные расходы)', value:-pl.oprCost,    note:pl.oprCost>0?'акты ОПР / статья "Производственные"'+(pl.advOprCost>0?` (+ ${fmt(pl.advOprCost)} из авансовых отчётов)`:''):'—'},
+    {label:'  − Прямые материалы',             value:-pl.materialCost, note:(pl.esfMaterialEstimate>0?'🟡 оценка по ЭСФ (нет техкарт)':pl.whMaterialCost>0?'✅ факт (склад)':'⚠️ план (номенклатура)')+(pl.advMaterialCost>0?` + ${fmt(pl.advMaterialCost)} из авансовых отчётов`:'')+(pl.prodToMaterials>0?` + ${fmt(pl.prodToMaterials)} из статей "Производственные" (Бук/лес/дуб/карагач/сосна/ясень, Стекло, Краска и т.п.)`:'')+(pl.advUndetermined>0?` · ⚠️ ${fmt(pl.advUndetermined)} из авансовых отчётов не определены (нет ни ЭСФ, ни статьи у поставщика) — не учтены никуда`:'')},
+    {label:'  − Зарплата сдельная',            value:-pl.wageCost,     note:pl.payrollLedgerSdelnaya>0?'🟡 временно: колонка "Сдельная" из Зарплатной ведомости':'✅ факт (выработка)'},
+    {label:'  − ОПР (Производственные расходы)', value:-pl.oprCost,    note:(pl.oprCost>0?'🟡 временно: только по статьям "Производственные" (Станок, Полировка, Ремонт и т.п.)':'—')+(pl.prodUnclassified>0?` · ⚠️ ${fmt(pl.prodUnclassified)} статей "Производственные" не входят ни в этот список, ни в список материалов — не учтены никуда`:'')},
     {label:'= Маржинальная прибыль',           value:pl.grossMargin,   bold:true, sep:true},
-    {label:'  − Оклады АУП (с налогами)',      value:-pl.aupSalary,    note:'✅ факт (payroll)'},
+    {label:'  − Оклады АУП (с налогами)',      value:-pl.aupSalary,    note:pl.payrollLedgerAup>0?'🟡 временно: Оклад+Премия+Отпускные+Займ нач.+Больничные из Зарплатной ведомости':'✅ факт (payroll)'},
     {label:'  − Налоги на сдельщиков (СО+СН)',  value:-pl.prodTaxes,   note:'✅ факт (payroll)'},
     {label:'  − Коммерческие расходы',         value:-pl.commercialCost, note:pl.commercialCost>0?'статья "Коммерческие"'+(pl.advCommercialCost>0?` (+ ${fmt(pl.advCommercialCost)} из авансовых отчётов)`:''):'—'},
     {label:'  − Аренда, ком. услуги, прочее', value:-pl.otherFixed,   note:'из постоянных затрат'+(pl.advOtherExpense>0?` + ${fmt(pl.advOtherExpense)} из авансовых отчётов`:'')},
@@ -25157,6 +25646,8 @@ function renderPL(){
   renderRevenueByCategory();
   renderExpensesByMonth();
   renderRevenueByChannelCategory();
+  renderMaterialCostEstimate();
+  renderMonthlyPL();
 
   // ── Постоянные затраты ────────────────────────────────────────────
   const fcEl=document.getElementById('pl-fc-summary');
