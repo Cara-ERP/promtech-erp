@@ -32005,6 +32005,19 @@ function itemKeyOf(orderNum, itemIdx){ return `${orderNum}|${itemIdx}`; }
 function itemOrderAmount(item){ return (item.qty||1) * (item.price||0); }
 
 async function initProdWorksheet(){
+  // Сначала загружаем то, что нужно для самих кнопок добавления заказов —
+  // независимо от того, удалось ли загрузить сам рабочий лист/прогресс.
+  // Раньше ошибка на этом шаге останавливала функцию целиком, и кнопки
+  // молчали, даже если проблема была только в самом рабочем листе.
+  try{
+    if(!ordersData.length && typeof loadOrdersFromDB==='function') await loadOrdersFromDB();
+    if(!warehouseData.length && typeof loadWarehouseFromDB==='function') await loadWarehouseFromDB();
+    if(!employeesData.length && typeof loadStaffFromDB==='function') await loadStaffFromDB();
+    if(!_payrollData && typeof initSalaryLedgerPage==='function') await initSalaryLedgerPage();
+  } catch(e){
+    console.warn('⚠️ Не удалось загрузить часть данных для рабочего листа производства:', e.message);
+  }
+
   if(!_prodWbLoaded){
     try{
       const [wb, pr] = await Promise.all([
@@ -32015,14 +32028,9 @@ async function initProdWorksheet(){
       prodWbRows = (wb||[]).map(r=>({orderNum:r.order_num, itemIdx:r.item_idx, itemKey:itemKeyOf(r.order_num,r.item_idx)}));
       _prodWbLoaded = true;
     } catch(e){
-      alert('Не удалось загрузить рабочий лист производства — проверьте, что созданы таблицы production_worksheet и production_progress (SQL был в предыдущем сообщении).\n\n'+e.message);
-      return;
+      alert('Не удалось загрузить сам рабочий лист (таблицы production_worksheet/production_progress) — проверьте, что SQL выполнен в нужном проекте Supabase.\n\nЗаказы при этом всё равно должны загрузиться, кнопки добавления должны работать.\n\n'+e.message);
     }
   }
-  if(!ordersData.length && typeof loadOrdersFromDB==='function') await loadOrdersFromDB();
-  if(!warehouseData.length && typeof loadWarehouseFromDB==='function') await loadWarehouseFromDB();
-  if(!employeesData.length && typeof loadStaffFromDB==='function') await loadStaffFromDB();
-  if(!_payrollData && typeof initSalaryLedgerPage==='function') await initSalaryLedgerPage();
   renderProdWorksheet();
 }
 
@@ -32059,28 +32067,67 @@ async function addOrderItemToWorksheet(orderNum, itemIdx){
   const itemKey = itemKeyOf(orderNum, itemIdx);
   if(prodWbRows.some(r=>r.itemKey===itemKey)) return;
   try{
-    await sbInsert('production_worksheet', {order_num:orderNum, item_idx:itemIdx});
-  } catch(e){ /* уже может существовать — не критично */ }
+    // upsert, а не insert — если пара заказ+позиция уже есть в базе (например,
+    // локальный список ещё не подгрузился), дубль не создастся
+    await sbUpsert('production_worksheet', {order_num:orderNum, item_idx:itemIdx}, 'order_num,item_idx');
+  } catch(e){ console.warn('⚠️ Не удалось добавить строку на рабочий лист:', e.message); }
   prodWbRows.push({orderNum, itemIdx, itemKey});
   await ensureProgressForItem(itemKey);
 }
 
+// Быстрое пакетное добавление — одним запросом на весь список, а не по
+// одной строке (иначе на большом количестве заказов это выполняется очень
+// долго и незаметно "зависает")
+async function addManyItemsToWorksheet(pairs){
+  const newPairs = pairs.filter(p=>!prodWbRows.some(r=>r.itemKey===itemKeyOf(p.orderNum,p.itemIdx)));
+  if(!newPairs.length) return;
+  try{
+    await sbUpsert('production_worksheet', newPairs.map(p=>({order_num:p.orderNum, item_idx:p.itemIdx})), 'order_num,item_idx');
+  } catch(e){
+    alert('Не удалось добавить строки на рабочий лист: '+e.message);
+    return;
+  }
+  newPairs.forEach(p=>{
+    prodWbRows.push({orderNum:p.orderNum, itemIdx:p.itemIdx, itemKey:itemKeyOf(p.orderNum,p.itemIdx)});
+  });
+  const needProgress = newPairs.filter(p=>!prodProgress[itemKeyOf(p.orderNum,p.itemIdx)]);
+  if(needProgress.length){
+    try{
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/production_progress`, {
+        method:'POST',
+        headers:{...sbHeaders, 'Prefer':'return=representation'},
+        body: JSON.stringify(needProgress.map(p=>({
+          item_key:itemKeyOf(p.orderNum,p.itemIdx), order_num:p.orderNum, item_idx:p.itemIdx,
+          stages:[], materials:[], completed:false,
+        }))),
+      });
+      if(res.ok){
+        const rows = await res.json();
+        rows.forEach(r=>{ prodProgress[r.item_key] = {id:r.id, version:1, stages:r.stages||[], materials:r.materials||[], completed:r.completed||false}; });
+      }
+    } catch(e){ /* прогресс создастся лениво при следующем открытии строки, не критично */ }
+  }
+}
+
 async function addOrdersToWorksheetByPeriod(days){
+  if(!ordersData.length){ alert('Заказы ещё не загружены — подождите пару секунд после открытия вкладки и попробуйте снова.'); return; }
   const since = new Date(); since.setDate(since.getDate()-days);
   const sinceStr = since.toISOString().slice(0,10);
   const matching = ordersData.filter(o=>(o.date||'')>=sinceStr);
-  if(!matching.length){ alert('Заказов за этот период не найдено.'); return; }
-  for(const o of matching){
-    for(let i=0;i<(o.items||[]).length;i++) await addOrderItemToWorksheet(o.num, i);
-  }
+  if(!matching.length){ alert(`Заказов за этот период не найдено (от ${sinceStr}).`); return; }
+  const pairs = matching.flatMap(o=>(o.items||[]).map((it,i)=>({orderNum:o.num, itemIdx:i})));
+  if(!confirm(`Будет добавлено заказов: ${matching.length} (позиций: ${pairs.length}), с датой от ${sinceStr} до сегодня.\n\nПродолжить?`)) return;
+  await addManyItemsToWorksheet(pairs);
   renderProdWorksheet();
 }
 async function addOrderToWorksheetByNum(){
+  if(!ordersData.length){ alert('Заказы ещё не загружены — подождите пару секунд после открытия вкладки и попробуйте снова.'); return; }
   const num = document.getElementById('pwb-add-order')?.value?.trim();
   if(!num) return;
   const order = ordersData.find(o=>o.num===num);
   if(!order){ alert('Заказ №'+num+' не найден.'); return; }
-  for(let i=0;i<(order.items||[]).length;i++) await addOrderItemToWorksheet(order.num, i);
+  const pairs = (order.items||[]).map((it,i)=>({orderNum:order.num, itemIdx:i}));
+  await addManyItemsToWorksheet(pairs);
   document.getElementById('pwb-add-order').value='';
   renderProdWorksheet();
 }
@@ -32108,14 +32155,16 @@ async function deleteSelectedProdWbRows(){
   for(const key of [...pwbSelected]) await deleteProdWbRow(key);
 }
 async function clearProdWorksheet(){
-  if(!prodWbRows.length){ alert('Лист уже пуст.'); return; }
-  if(!confirm(`Стереть весь рабочий лист (${prodWbRows.length} строк)?\n\nПрогресс по этапам НЕ удаляется.`)) return;
+  if(!confirm(`Полностью стереть рабочий лист производства (все строки, включая те, что могли остаться в базе, но не отображаются)?`)) return;
   try{
-    const ids = prodWbRows.map(r=>`(order_num.eq.${encodeURIComponent(r.orderNum)},item_idx.eq.${r.itemIdx})`);
-    // Проще и надёжнее — удаляем пачками по order_num
-    const orderNums = [...new Set(prodWbRows.map(r=>r.orderNum))];
-    for(const num of orderNums) await sbDelete('production_worksheet', `order_num=eq.${encodeURIComponent(num)}`);
-  } catch(e){}
+    // Удаляем ВСЕ строки таблицы целиком (а не только то, что загружено в
+    // память локально) — иначе, если в базе накопились строки, которых нет
+    // в текущем списке на экране, они бы так и оставались там незамеченными
+    await sbDelete('production_worksheet', 'id=gt.0');
+  } catch(e){
+    alert('Не удалось очистить рабочий лист: '+e.message);
+    return;
+  }
   prodWbRows = [];
   pwbSelected.clear();
   renderProdWorksheet();
@@ -32501,14 +32550,16 @@ function handleProdWorksheetImport(file){
     rows.forEach((r,i)=>{ if(String(r[0]).includes('Ключ')) hIdx=i; });
     if(hIdx<0){ alert('Не найден заголовок — используйте файл из кнопки "Экспорт Excel".'); return; }
     let added=0;
+    const pairs=[];
     for(const row of rows.slice(hIdx+1)){
       const key = String(row[0]||'').trim();
       if(!key.includes('|')) continue;
       const [orderNum, itemIdxStr] = key.split('|');
       if(!ordersData.find(o=>o.num===orderNum)) continue;
-      await addOrderItemToWorksheet(orderNum, +itemIdxStr);
+      pairs.push({orderNum, itemIdx:+itemIdxStr});
       added++;
     }
+    await addManyItemsToWorksheet(pairs);
     renderProdWorksheet();
     alert(`Добавлено на рабочий лист: ${added} строк.`);
   };
