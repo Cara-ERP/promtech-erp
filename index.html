@@ -5424,6 +5424,16 @@ window.onerror = function(msg, src, line, col){
 
       <!-- TAB: Маржинальность -->
       <div id="finance-margin" style="display:none">
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-header">
+            <span class="card-title">Маржинальность по категориям (оценка — без техкарт)</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="margin-category-year" onchange="renderCategoryMargin()" style="font-size:12px;width:auto"></select>
+              <button class="btn btn-ghost btn-sm" onclick="exportCategoryMarginExcel()">📥 Excel</button>
+            </div>
+          </div>
+          <div id="margin-category-table" style="overflow-x:auto"></div>
+        </div>
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
           <input id="margin-search" type="search" placeholder="🔍 Поиск по товару или номеру заказа..."
             style="flex:1;min-width:220px;font-size:13px" oninput="renderMarginReport()">
@@ -21357,7 +21367,7 @@ function showFinanceTab(tab, el){
       renderPurchasesDash();
     }
   }
-  if(tab==='margin')    renderMarginReport();
+  if(tab==='margin'){ renderMarginReport(); renderCategoryMargin(); }
   if(tab==='bep'){
     initFCMonthSelect();
     loadMoneyFromDB().then(()=>loadFixedCostsPeriod());
@@ -24466,7 +24476,11 @@ function buildPL(){
   });
 
   const materialCostBase = materialCostBaseRaw + prodToMaterials;
-  const materialCost = materialCostBase + advMaterialCost;
+  // Сумму из авансовых отчётов (advMaterialCost) сюда сознательно НЕ добавляем:
+  // авансовый отчёт — это способ оплаты, а не сам расход. Если оплата шла за
+  // ЭСФ типа "Товары" — она уже учтена через саму ЭСФ в materialCostBase выше;
+  // добавление ещё и суммы из авансового отчёта задваивало бы эти материалы.
+  const materialCost = materialCostBase;
 
   // ── ПРЯМАЯ ЗАРПЛАТА (сдельные производственники) ─────────────────
   // Временно: колонка "Сдельная" из Зарплатной ведомости — в первую очередь
@@ -25354,6 +25368,156 @@ function exportMatCostExcel(){
   XLSX.writeFile(wb, `PromTech_Sebestoimost_ocenka_${year}.xlsx`);
 }
 
+// ===== МАРЖИНАЛЬНОСТЬ ПО КАТЕГОРИЯМ (усреднённо, на основе тех же данных,
+// что и P&L: ЭСФ для материалов, зарплатная ведомость и категория
+// "Производственные" для труда/ОПР, распределённые по выручке) =====
+function renderCategoryMargin(){
+  const el = document.getElementById('margin-category-table');
+  if(!el) return;
+  if(!warehouseData.length || !_esfData?.items?.length || !esfReconInvoices.length){
+    el.innerHTML = '<div style="padding:16px;color:var(--text3);text-align:center">Загрузка данных для расчёта...</div>';
+    if(!warehouseData.length && typeof loadWarehouseFromDB==='function') loadWarehouseFromDB().then(renderCategoryMargin);
+    if(!esfReconInvoices.length) sbFetchAllPages('incoming_invoices','select=*&order=date.desc').then(data=>{ esfReconInvoices=data||[]; _osvEsfLoaded=true; renderCategoryMargin(); });
+    if(!_esfData?.items?.length && typeof initEsfPage==='function') initEsfPage().then(renderCategoryMargin);
+    return;
+  }
+  const year = plBuildRevenueYearOptions('margin-category-year');
+  const fmt2 = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+
+  // 1) Выручка по категориям и месяцам (Реализация)
+  const revByMonthCat = {};
+  (realizationsData||[]).forEach(r=>{
+    const d = r.doc_date||r.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m<0||m>11) return;
+    const cat = plCategoryForProductName(r.name);
+    if(!cat) return;
+    if(!revByMonthCat[m]) revByMonthCat[m]={};
+    revByMonthCat[m][cat] = (revByMonthCat[m][cat]||0) + (r.revenue||0);
+  });
+
+  // 2) Материалы по категориям и месяцам — та же логика, что в "Оценке
+  // себестоимости по категориям" (ЭСФ типа "Товары", распределённые по
+  // выручке между подходящими категориями)
+  const invById = {};
+  esfReconInvoices.forEach(inv=>{ invById[inv.id]=inv; });
+  const materialByMonthCat = {};
+  (_esfData.items||[]).forEach(item=>{
+    const inv = invById[item.invoice_id];
+    if(!inv || inv.invoice_type!=='goods') return;
+    const d = inv.date||'';
+    if(d.slice(0,4)!==year) return;
+    const m = parseInt(d.slice(5,7),10)-1;
+    if(m<0||m>11) return;
+    const amt = item.total||item.amount||0;
+    if(!amt) return;
+    const matCat = materialCategoryForName(item.description);
+    if(!matCat) return;
+    if(!materialByMonthCat[m]) materialByMonthCat[m]={};
+    materialByMonthCat[m][matCat] = (materialByMonthCat[m][matCat]||0) + amt;
+  });
+  const {MATCOST_ELIGIBILITY} = getMatCostConfig();
+  const matByMonthCat = {}; // {monthIdx: {prodCat: сумма материалов}}
+  Object.entries(materialByMonthCat).forEach(([mStr, cats])=>{
+    const m = +mStr;
+    Object.entries(cats).forEach(([matCat, amt])=>{
+      const eligibility = MATCOST_ELIGIBILITY[matCat];
+      if(!eligibility) return; // не известна или ОПР — сюда не относится
+      const revs = revByMonthCat[m]||{};
+      const eligibleWithRevenue = eligibility.filter(c=>(revs[c]||0)>0);
+      if(!eligibleWithRevenue.length) return;
+      const totalRev = eligibleWithRevenue.reduce((s,c)=>s+revs[c],0);
+      eligibleWithRevenue.forEach(prodCat=>{
+        if(!matByMonthCat[m]) matByMonthCat[m]={};
+        matByMonthCat[m][prodCat] = (matByMonthCat[m][prodCat]||0) + amt*(revs[prodCat]/totalRev);
+      });
+    });
+  });
+
+  // 3) Труд + ОПР по месяцам (итого, без разбивки по категориям) — берём из
+  // того же расчёта, что и в самом P&L, и распределяем между категориями
+  // пропорционально их доле в выручке месяца (усреднённо, косвенно)
+  const savedPeriod = financePeriod;
+  const monthlyTotals = [];
+  for(let m=0; m<12; m++){
+    const from = new Date(Date.UTC(+year, m, 1));
+    const to   = new Date(Date.UTC(+year, m+1, 0));
+    financePeriod = {from, to, mode:'month'};
+    const pl = buildPL();
+    monthlyTotals.push({wageCost:pl.wageCost||0, oprCost:pl.oprCost||0});
+  }
+  financePeriod = savedPeriod;
+
+  // 4) Собираем итог по категориям
+  const allCats = new Set();
+  Object.values(revByMonthCat).forEach(cats=>Object.keys(cats).forEach(c=>allCats.add(c)));
+  const catRows = [...allCats].map(cat=>{
+    const revenue = Array(12).fill(0), materials = Array(12).fill(0), labor = Array(12).fill(0), margin = Array(12).fill(0);
+    for(let m=0;m<12;m++){
+      const rev = (revByMonthCat[m]||{})[cat]||0;
+      revenue[m] = rev;
+      materials[m] = (matByMonthCat[m]||{})[cat]||0;
+      const totalRevM = Object.values(revByMonthCat[m]||{}).reduce((s,v)=>s+v,0);
+      const laborOprMonth = monthlyTotals[m].wageCost + monthlyTotals[m].oprCost;
+      labor[m] = totalRevM>0 ? laborOprMonth*(rev/totalRevM) : 0;
+      margin[m] = rev - materials[m] - labor[m];
+    }
+    return {label:cat, revenue, materials, labor, margin};
+  }).sort((a,b)=>b.revenue.reduce((s,v)=>s+v,0)-a.revenue.reduce((s,v)=>s+v,0));
+
+  const totalRevenue = catRows.reduce((s,r)=>s+r.revenue.reduce((ss,v)=>ss+v,0),0);
+  const totalMargin  = catRows.reduce((s,r)=>s+r.margin.reduce((ss,v)=>ss+v,0),0);
+
+  el.innerHTML = `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">
+    Оценочный расчёт (нет техкарт): материалы — по ЭСФ, труд+ОПР — из P&L за месяц, распределены между категориями пропорционально их доле в выручке. Маржа по компании за год: ${totalRevenue>0?Math.round(totalMargin/totalRevenue*100):0}%.
+  </div>
+  <table class="data-table" style="font-size:11px;white-space:nowrap">
+    <thead><tr>
+      <th>Категория</th>
+      ${PL_MONTH_LABELS.map(m=>`<th style="text-align:right">${m} маржа</th>`).join('')}
+      <th style="text-align:right;color:var(--accent)">Маржа за год</th>
+      <th style="text-align:right;color:var(--accent)">Маржа % за год</th>
+    </tr></thead>
+    <tbody>${catRows.map(r=>{
+      const yearMargin = r.margin.reduce((s,v)=>s+v,0);
+      const yearRevenue = r.revenue.reduce((s,v)=>s+v,0);
+      const pct = yearRevenue>0 ? Math.round(yearMargin/yearRevenue*100) : 0;
+      return `<tr>
+        <td>${r.label}</td>
+        ${r.margin.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:${v<0?'var(--red)':'inherit'}">${fmt2(v)}</td>`).join('')}
+        <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:${yearMargin<0?'var(--red)':'var(--accent)'}">${fmt2(yearMargin)}</td>
+        <td style="text-align:right;font-weight:700"><span class="${marginPctClass(pct)}">${pct}%</span></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+
+  window._categoryMarginRows = catRows; window._categoryMarginYear = year;
+}
+
+function exportCategoryMarginExcel(){
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
+  const rows = window._categoryMarginRows;
+  const year = window._categoryMarginYear;
+  if(!rows || !rows.length){alert('Нет данных для выгрузки.');return;}
+  const aoa = [
+    ['Маржинальность по категориям (оценка) — '+year],
+    [],
+    ['Категория', ...PL_MONTH_LABELS.map(m=>m+' маржа'), 'Маржа за год', 'Маржа % за год'],
+    ...rows.map(r=>{
+      const yearMargin = r.margin.reduce((s,v)=>s+v,0);
+      const yearRevenue = r.revenue.reduce((s,v)=>s+v,0);
+      const pct = yearRevenue>0 ? Math.round(yearMargin/yearRevenue*100) : 0;
+      return [r.label, ...r.margin.map(v=>Math.round(v)), Math.round(yearMargin), pct+'%'];
+    }),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:26}, ...Array(12).fill({wch:12}), {wch:14}, {wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, String(year));
+  XLSX.writeFile(wb, `PromTech_Marzha_kategorii_${year}.xlsx`);
+}
+
 
 function exportRevenueTableToExcel(rows, year, title, filenamePrefix){
   if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
@@ -25611,7 +25775,7 @@ function renderPL(){
   // ── P&L таблица ──────────────────────────────────────────────────
   const plRows=[
     {label:'📦 Выручка от продаж',             value:pl.revenue,       bold:true, note:'из реализации (Продажи)'},
-    {label:'  − Прямые материалы',             value:-pl.materialCost, note:(pl.esfMaterialEstimate>0?'🟡 оценка по ЭСФ (нет техкарт)':pl.whMaterialCost>0?'✅ факт (склад)':'⚠️ план (номенклатура)')+(pl.advMaterialCost>0?` + ${fmt(pl.advMaterialCost)} из авансовых отчётов`:'')+(pl.prodToMaterials>0?` + ${fmt(pl.prodToMaterials)} из статей "Производственные" (Бук/лес/дуб/карагач/сосна/ясень, Стекло, Краска и т.п.)`:'')+(pl.advUndetermined>0?` · ⚠️ ${fmt(pl.advUndetermined)} из авансовых отчётов не определены (нет ни ЭСФ, ни статьи у поставщика) — не учтены никуда`:'')},
+    {label:'  − Прямые материалы',             value:-pl.materialCost, note:(pl.esfMaterialEstimate>0?'🟡 оценка по ЭСФ (нет техкарт)':pl.whMaterialCost>0?'✅ факт (склад)':'⚠️ план (номенклатура)')+(pl.prodToMaterials>0?` + ${fmt(pl.prodToMaterials)} из статей "Производственные" (Бук/лес/дуб/карагач/сосна/ясень, Стекло, Краска и т.п.)`:'')+(pl.advUndetermined>0?` · ⚠️ ${fmt(pl.advUndetermined)} из авансовых отчётов не определены (нет ни ЭСФ, ни статьи у поставщика) — не учтены никуда`:'')},
     {label:'  − Зарплата сдельная',            value:-pl.wageCost,     note:pl.payrollLedgerSdelnaya>0?'🟡 временно: колонка "Сдельная" из Зарплатной ведомости':'✅ факт (выработка)'},
     {label:'  − ОПР (Производственные расходы)', value:-pl.oprCost,    note:(pl.oprCost>0?'🟡 временно: только по статьям "Производственные" (Станок, Полировка, Ремонт и т.п.)':'—')+(pl.prodUnclassified>0?` · ⚠️ ${fmt(pl.prodUnclassified)} статей "Производственные" не входят ни в этот список, ни в список материалов — не учтены никуда`:'')},
     {label:'= Маржинальная прибыль',           value:pl.grossMargin,   bold:true, sep:true},
