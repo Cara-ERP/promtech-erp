@@ -2246,6 +2246,7 @@ window.onerror = function(msg, src, line, col){
       <div class="tabs">
         <div class="tab active" onclick="showMrpTab('orders',this)">Производственные заказы</div>
         <div class="tab" onclick="showMrpTab('shopfloor',this)">🏭 Производство</div>
+        <div class="tab" onclick="showMrpTab('worksheet',this)">📋 Рабочий лист производства</div>
       </div>
 
       <!-- TAB: real production summary journal (built from ordersData) -->
@@ -2296,6 +2297,52 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Период — по дате фактического завершения этапа. По умолчанию показаны последние 30 дней.</div>
           <div id="sf-report-content"></div>
+        </div>
+      </div>
+
+      <!-- TAB: Рабочий лист производства -->
+      <div class="mrp-tab" id="mrp-worksheet" style="display:none">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <button class="btn btn-ghost btn-sm" onclick="addOrdersToWorksheetByPeriod(3)">+ За 3 дня</button>
+          <button class="btn btn-ghost btn-sm" onclick="addOrdersToWorksheetByPeriod(7)">+ За неделю</button>
+          <button class="btn btn-ghost btn-sm" onclick="addOrdersToWorksheetByPeriod(30)">+ За месяц</button>
+          <button class="btn btn-ghost btn-sm" onclick="addOrdersToWorksheetByPeriod(365)">+ За год</button>
+          <input id="pwb-add-order" type="text" placeholder="№ заказа..." style="width:120px;font-size:12px">
+          <button class="btn btn-ghost btn-sm" onclick="addOrderToWorksheetByNum()">+ Заказ</button>
+          <span style="flex:1"></span>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pwb-import-file').click()">📤 Импорт Excel</button>
+          <input type="file" id="pwb-import-file" accept=".xlsx,.xls" style="display:none" onchange="handleProdWorksheetImport(this.files[0])">
+          <button class="btn btn-ghost btn-sm" onclick="exportProdWorksheetExcel()">📥 Экспорт Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteSelectedProdWbRows()">✕ Удалить отмеченные</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearProdWorksheet()">🗑 Очистить лист</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+          <input id="pwb-f-search" type="search" placeholder="🔍 Товар..." style="width:160px;font-size:12px" oninput="renderProdWorksheet()">
+          <input id="pwb-f-order" type="text" placeholder="№ заказа..." style="width:110px;font-size:12px" oninput="renderProdWorksheet()">
+          <select id="pwb-f-category" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все категории</option></select>
+          <select id="pwb-f-stage" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все этапы</option></select>
+          <select id="pwb-f-exec" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все исполнители</option></select>
+          <span style="font-size:11px;color:var(--text3)">Заказ:</span>
+          <input id="pwb-f-order-from" type="date" style="font-size:12px;width:auto" onchange="renderProdWorksheet()">
+          <input id="pwb-f-order-to" type="date" style="font-size:12px;width:auto" onchange="renderProdWorksheet()">
+          <span style="font-size:11px;color:var(--text3)">Отправка:</span>
+          <input id="pwb-f-ship-from" type="date" style="font-size:12px;width:auto" onchange="renderProdWorksheet()">
+          <input id="pwb-f-ship-to" type="date" style="font-size:12px;width:auto" onchange="renderProdWorksheet()">
+        </div>
+        <div class="card" style="padding:0">
+          <div id="pwb-table-wrap" style="overflow-x:auto" onscroll="syncStickyScroll('pwb')">
+            <table class="data-table" style="font-size:12px;white-space:nowrap">
+              <thead><tr>
+                <th><input type="checkbox" onchange="togglePwbSelectAll(this)"></th>
+                <th>Заказ</th><th>Канал</th><th>Дата заказа</th><th>Дата отправки</th>
+                <th>Товар</th><th>Техкарта</th><th>Этапы</th><th>Материалы</th><th>Статус</th><th></th>
+              </tr></thead>
+              <tbody id="pwb-tbody"></tbody>
+            </table>
+          </div>
+          <div id="pwb-scrollbar-sticky" style="position:sticky;bottom:0;overflow-x:auto;overflow-y:hidden;height:14px;background:var(--bg2);border-top:1px solid var(--border)" onscroll="syncStickyScroll('pwb',true)">
+            <div id="pwb-scrollbar-phantom" style="height:1px"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -3365,6 +3412,36 @@ window.onerror = function(msg, src, line, col){
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost" onclick="closeModal('esfXmlImportModal')">Отмена</button>
           <button class="btn btn-primary" onclick="confirmEsfXmlImport()">Импортировать отмеченные</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Рабочий лист производства — этапы и материалы одной строки -->
+    <div class="modal-overlay" id="pwbStageModal">
+      <div class="modal" style="max-width:760px;max-height:88vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title" id="pwb-modal-title">Этапы и материалы</span>
+          <button class="modal-close" onclick="closeModal('pwbStageModal')">✕</button>
+        </div>
+        <div id="pwb-modal-meta" style="font-size:12px;color:var(--text3);margin-bottom:12px"></div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-weight:600;font-size:13px">Этапы</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="addPwbStage()">+ Добавить этап</button>
+            <button class="btn btn-primary btn-sm" onclick="completeWithoutStages()">✅ Завершить без этапов</button>
+          </div>
+        </div>
+        <div id="pwb-stages-list"></div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px">
+          <span style="font-weight:600;font-size:13px">Материалы</span>
+          <button class="btn btn-ghost btn-sm" onclick="addPwbMaterialRow()">+ Добавить материал</button>
+        </div>
+        <div id="pwb-materials-list"></div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+          <button class="btn btn-ghost" onclick="closeModal('pwbStageModal')">Закрыть</button>
         </div>
       </div>
     </div>
@@ -18297,6 +18374,7 @@ function showMrpTab(tab, el){
   document.getElementById('mrp-'+tab).style.display='block';
   if(tab==='shopfloor') renderShopFloor();
   if(tab==='orders') renderMrpOrdersJournal();
+  if(tab==='worksheet') initProdWorksheet();
 }
 
 // Switch to a given Покупатели sub-tab by its data key ('persons'|'clients'|'dealers'|'salons')
@@ -31905,6 +31983,538 @@ function buildTaskRows(){
 }
 
 // ---- Выгрузка в Excel ----
+// ================================================================
+// РАБОЧИЙ ЛИСТ ПРОИЗВОДСТВА — черновик, даёт проводки только по желанию.
+// Использует: справочник этапов (названия операций из tariffData),
+// реальных сотрудников (employeesData), реальный склад (warehouseData),
+// реальную зарплатную ведомость (salary_accruals). Прогресс по этапам
+// хранится отдельно от строк листа (production_progress) — удаление
+// строки с листа не стирает прогресс; повторное добавление подтягивает
+// его автоматически.
+// ================================================================
+let prodWbRows = [];      // [{orderNum,itemIdx,itemKey,order,item}]
+let prodProgress = {};    // itemKey -> {id,version,stages:[],materials:[],completed}
+let _prodWbLoaded = false;
+let _pwbCurrentItemKey = null;
+let pwbSelected = new Set();
+
+function PROD_STAGE_NAMES(){
+  return [...new Set((tariffData||[]).map(t=>t.op))];
+}
+function itemKeyOf(orderNum, itemIdx){ return `${orderNum}|${itemIdx}`; }
+function itemOrderAmount(item){ return (item.qty||1) * (item.price||0); }
+
+async function initProdWorksheet(){
+  if(!_prodWbLoaded){
+    try{
+      const [wb, pr] = await Promise.all([
+        sbFetchAllPages('production_worksheet','select=*'),
+        sbFetchAllPages('production_progress','select=*'),
+      ]);
+      (pr||[]).forEach(p=>{ prodProgress[p.item_key] = {id:p.id, version:1, stages:p.stages||[], materials:p.materials||[], completed:p.completed||false}; });
+      prodWbRows = (wb||[]).map(r=>({orderNum:r.order_num, itemIdx:r.item_idx, itemKey:itemKeyOf(r.order_num,r.item_idx)}));
+      _prodWbLoaded = true;
+    } catch(e){
+      alert('Не удалось загрузить рабочий лист производства — проверьте, что созданы таблицы production_worksheet и production_progress (SQL был в предыдущем сообщении).\n\n'+e.message);
+      return;
+    }
+  }
+  if(!ordersData.length && typeof loadOrdersFromDB==='function') await loadOrdersFromDB();
+  if(!warehouseData.length && typeof loadWarehouseFromDB==='function') await loadWarehouseFromDB();
+  if(!employeesData.length && typeof loadStaffFromDB==='function') await loadStaffFromDB();
+  if(!_payrollData && typeof initSalaryLedgerPage==='function') await initSalaryLedgerPage();
+  renderProdWorksheet();
+}
+
+async function ensureProgressForItem(itemKey){
+  if(prodProgress[itemKey]) return prodProgress[itemKey];
+  const [orderNum, itemIdxStr] = itemKey.split('|');
+  const rec = {item_key:itemKey, order_num:orderNum, item_idx:+itemIdxStr, stages:[], materials:[], completed:false};
+  try{
+    const res = await sbInsert('production_progress', rec);
+    prodProgress[itemKey] = {id:res.id, version:1, stages:[], materials:[], completed:false};
+  } catch(e){
+    prodProgress[itemKey] = {id:null, version:1, stages:[], materials:[], completed:false};
+  }
+  return prodProgress[itemKey];
+}
+
+async function saveProdProgress(itemKey){
+  const p = prodProgress[itemKey];
+  if(!p) return;
+  const [orderNum, itemIdxStr] = itemKey.split('|');
+  try{
+    if(p.id){
+      await sbPatch('production_progress', `id=eq.${p.id}`, {stages:p.stages, materials:p.materials, completed:p.completed, updated_at:new Date().toISOString()});
+    } else {
+      const res = await sbInsert('production_progress', {item_key:itemKey, order_num:orderNum, item_idx:+itemIdxStr, stages:p.stages, materials:p.materials, completed:p.completed});
+      p.id = res.id;
+    }
+  } catch(e){
+    alert('Не удалось сохранить прогресс: '+e.message);
+  }
+}
+
+async function addOrderItemToWorksheet(orderNum, itemIdx){
+  const itemKey = itemKeyOf(orderNum, itemIdx);
+  if(prodWbRows.some(r=>r.itemKey===itemKey)) return;
+  try{
+    await sbInsert('production_worksheet', {order_num:orderNum, item_idx:itemIdx});
+  } catch(e){ /* уже может существовать — не критично */ }
+  prodWbRows.push({orderNum, itemIdx, itemKey});
+  await ensureProgressForItem(itemKey);
+}
+
+async function addOrdersToWorksheetByPeriod(days){
+  const since = new Date(); since.setDate(since.getDate()-days);
+  const sinceStr = since.toISOString().slice(0,10);
+  const matching = ordersData.filter(o=>(o.date||'')>=sinceStr);
+  if(!matching.length){ alert('Заказов за этот период не найдено.'); return; }
+  for(const o of matching){
+    for(let i=0;i<(o.items||[]).length;i++) await addOrderItemToWorksheet(o.num, i);
+  }
+  renderProdWorksheet();
+}
+async function addOrderToWorksheetByNum(){
+  const num = document.getElementById('pwb-add-order')?.value?.trim();
+  if(!num) return;
+  const order = ordersData.find(o=>o.num===num);
+  if(!order){ alert('Заказ №'+num+' не найден.'); return; }
+  for(let i=0;i<(order.items||[]).length;i++) await addOrderItemToWorksheet(order.num, i);
+  document.getElementById('pwb-add-order').value='';
+  renderProdWorksheet();
+}
+
+function togglePwbSelectAll(cb){
+  document.querySelectorAll('.pwb-row-check').forEach(el=>{
+    el.checked = cb.checked;
+    if(cb.checked) pwbSelected.add(el.dataset.key); else pwbSelected.delete(el.dataset.key);
+  });
+}
+function togglePwbRow(cb, key){
+  if(cb.checked) pwbSelected.add(key); else pwbSelected.delete(key);
+}
+
+async function deleteProdWbRow(itemKey){
+  const [orderNum, itemIdxStr] = itemKey.split('|');
+  try{ await sbDelete('production_worksheet', `order_num=eq.${encodeURIComponent(orderNum)}&item_idx=eq.${itemIdxStr}`); }catch(e){}
+  prodWbRows = prodWbRows.filter(r=>r.itemKey!==itemKey);
+  pwbSelected.delete(itemKey);
+  renderProdWorksheet();
+}
+async function deleteSelectedProdWbRows(){
+  if(!pwbSelected.size){ alert('Ничего не отмечено.'); return; }
+  if(!confirm(`Удалить ${pwbSelected.size} строк(и) с рабочего листа?\n\nПрогресс по этапам НЕ удаляется — при повторном добавлении он подтянется снова.`)) return;
+  for(const key of [...pwbSelected]) await deleteProdWbRow(key);
+}
+async function clearProdWorksheet(){
+  if(!prodWbRows.length){ alert('Лист уже пуст.'); return; }
+  if(!confirm(`Стереть весь рабочий лист (${prodWbRows.length} строк)?\n\nПрогресс по этапам НЕ удаляется.`)) return;
+  try{
+    const ids = prodWbRows.map(r=>`(order_num.eq.${encodeURIComponent(r.orderNum)},item_idx.eq.${r.itemIdx})`);
+    // Проще и надёжнее — удаляем пачками по order_num
+    const orderNums = [...new Set(prodWbRows.map(r=>r.orderNum))];
+    for(const num of orderNums) await sbDelete('production_worksheet', `order_num=eq.${encodeURIComponent(num)}`);
+  } catch(e){}
+  prodWbRows = [];
+  pwbSelected.clear();
+  renderProdWorksheet();
+}
+
+function pwbPopulateFilters(){
+  const catSel = document.getElementById('pwb-f-category');
+  if(catSel && catSel.options.length<=1){
+    const cats = [...new Set(prodWbRows.map(r=>{const o=ordersData.find(o=>o.num===r.orderNum); return o?.items[r.itemIdx]?.category;}).filter(Boolean))].sort();
+    catSel.innerHTML='<option value="">Все категории</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  }
+  const stSel = document.getElementById('pwb-f-stage');
+  if(stSel && stSel.options.length<=1){
+    stSel.innerHTML='<option value="">Все этапы</option>'+PROD_STAGE_NAMES().map(s=>`<option value="${s}">${s}</option>`).join('');
+  }
+  const exSel = document.getElementById('pwb-f-exec');
+  if(exSel && exSel.options.length<=1){
+    exSel.innerHTML='<option value="">Все исполнители</option>'+employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('');
+  }
+}
+
+function renderProdWorksheet(){
+  pwbPopulateFilters();
+  const search = (document.getElementById('pwb-f-search')?.value||'').toLowerCase();
+  const orderF  = (document.getElementById('pwb-f-order')?.value||'').toLowerCase();
+  const catF    = document.getElementById('pwb-f-category')?.value||'';
+  const stageF  = document.getElementById('pwb-f-stage')?.value||'';
+  const execF   = document.getElementById('pwb-f-exec')?.value||'';
+  const ordFrom = document.getElementById('pwb-f-order-from')?.value||'';
+  const ordTo   = document.getElementById('pwb-f-order-to')?.value||'';
+  const shipFrom= document.getElementById('pwb-f-ship-from')?.value||'';
+  const shipTo  = document.getElementById('pwb-f-ship-to')?.value||'';
+
+  const rows = prodWbRows.map(r=>{
+    const order = ordersData.find(o=>o.num===r.orderNum);
+    const item = order?.items?.[r.itemIdx];
+    return {...r, order, item, progress: prodProgress[r.itemKey]||{stages:[],materials:[],completed:false}};
+  }).filter(r=>r.order && r.item);
+
+  const filtered = rows.filter(r=>{
+    if(search && !r.item.name.toLowerCase().includes(search)) return false;
+    if(orderF && !r.orderNum.toLowerCase().includes(orderF)) return false;
+    if(catF && r.item.category!==catF) return false;
+    if(ordFrom && (r.order.date||'')<ordFrom) return false;
+    if(ordTo && (r.order.date||'')>ordTo) return false;
+    if(shipFrom && (r.order.deliveryDate||'')<shipFrom) return false;
+    if(shipTo && (r.order.deliveryDate||'')>shipTo) return false;
+    if(stageF && !r.progress.stages.some(s=>s.stage===stageF)) return false;
+    if(execF && !r.progress.stages.some(s=>(s.assignees||[]).some(a=>a.name===execF))) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('pwb-tbody');
+  if(!tbody) return;
+  if(!filtered.length){
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">Лист пуст — добавьте заказы кнопками выше</td></tr>';
+    setTimeout(()=>initStickyScroll('pwb'),0);
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(r=>{
+    const channel = marginChannelForOrder(r.order);
+    const stagesHtml = r.progress.stages.length
+      ? r.progress.stages.map(s=>`<span class="badge ${s.posted?'badge-green':'badge-blue'}" style="font-size:10px;margin:1px">${s.stage}${s.posted?' ✓':''}</span>`).join(' ')
+      : (r.progress.completed?'<span class="badge badge-green" style="font-size:10px">Завершено без этапов</span>':'<span style="color:var(--text3)">—</span>');
+    const matCount = r.progress.materials.length;
+    return `<tr>
+      <td><input type="checkbox" class="pwb-row-check" data-key="${r.itemKey}" onchange="togglePwbRow(this,'${r.itemKey}')" ${pwbSelected.has(r.itemKey)?'checked':''}></td>
+      <td style="font-family:monospace;color:var(--accent)">${r.orderNum}</td>
+      <td style="font-size:11px;color:var(--text3)">${channel?PL_CHANNEL_LABELS[channel]||channel:'—'}</td>
+      <td style="font-size:11px">${r.order.date||'—'}</td>
+      <td style="font-size:11px">${r.order.deliveryDate||'—'}</td>
+      <td style="font-weight:500">${r.item.name}</td>
+      <td>${r.item.techCard&&r.item.techCard.length?`<span title="${r.item.techCard.map(t=>t.name).join(', ')}">📋 ${r.item.techCard.length} эт.</span>`:'<span style="color:var(--text3)">без техкарты</span>'}</td>
+      <td style="max-width:220px;white-space:normal">${stagesHtml}</td>
+      <td>${matCount?`📦 ${matCount}`:'<span style="color:var(--text3)">—</span>'}</td>
+      <td>${r.progress.completed||r.progress.stages.some(s=>s.posted)?'<span class="badge badge-green" style="font-size:10px">Есть проводки</span>':'<span style="color:var(--text3);font-size:11px">черновик</span>'}</td>
+      <td style="display:flex;gap:4px">
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPwbStageEditor('${r.itemKey}')">✏️</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="deleteProdWbRow('${r.itemKey}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+  setTimeout(()=>initStickyScroll('pwb'),0);
+}
+
+// ---------- Модалка этапов/материалов ----------
+function openPwbStageEditor(itemKey){
+  _pwbCurrentItemKey = itemKey;
+  const row = prodWbRows.find(r=>r.itemKey===itemKey);
+  const order = ordersData.find(o=>o.num===row.orderNum);
+  const item = order.items[row.itemIdx];
+  document.getElementById('pwb-modal-title').textContent = item.name;
+  document.getElementById('pwb-modal-meta').textContent = `Заказ ${order.num} · ${resolveCustomerName(order)} · Кол-во: ${item.qty} ${item.unit||'шт'} · Сумма по товару: ${fmtCurrency(itemOrderAmount(item))}`;
+  renderPwbStagesList();
+  renderPwbMaterialsList();
+  showModal('pwbStageModal');
+}
+
+function renderPwbStagesList(){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const el = document.getElementById('pwb-stages-list');
+  if(!p.stages.length){ el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0">Этапов пока нет</div>'; return; }
+  el.innerHTML = p.stages.map((s,idx)=>{
+    const ktuSum = (s.assignees||[]).reduce((sum,a)=>sum+(a.ktu||1),0)||1;
+    return `<div class="card" style="padding:10px 12px;margin-bottom:8px;${s.posted?'border:1px solid var(--green)':''}">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input list="pwb-stage-names" value="${(s.stage||'').replace(/"/g,'&quot;')}" placeholder="Название этапа (или свободный текст)"
+          style="flex:1;min-width:160px;font-size:12px" ${s.posted?'disabled':''}
+          onchange="updatePwbStageField(${idx},'stage',this.value)">
+        <select style="font-size:12px;width:auto" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'payMethod',this.value)">
+          <option value="rate" ${s.payMethod==='rate'?'selected':''}>По расценке</option>
+          <option value="percent" ${s.payMethod==='percent'?'selected':''}>% от суммы заказа по товару</option>
+        </select>
+        ${s.payMethod==='percent'
+          ? `<input type="number" step="0.001" value="${s.percent||0}" placeholder="%" style="width:80px;font-size:12px" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'percent',this.value)"> %`
+          : `<input type="number" value="${s.rate||0}" placeholder="₸/шт" style="width:80px;font-size:12px" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'rate',this.value)"> ₸
+             <input type="number" value="${s.qty||1}" placeholder="кол-во" style="width:70px;font-size:12px" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'qty',this.value)">`}
+        <span style="font-weight:600;font-family:monospace">${fmtCurrency(computePwbStageAmount(s))}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Исполнители (КТУ: 1 — обычная доля, 0.5 — вдвое меньше, 1.5 — на 50% больше)</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        ${(s.assignees||[]).map((a,ai)=>`<span class="badge badge-blue" style="font-size:11px;display:flex;align-items:center;gap:4px">
+          ${a.name} · КТУ
+          <input type="number" step="0.1" value="${a.ktu}" style="width:44px;font-size:11px" ${s.posted?'disabled':''} onchange="updatePwbAssigneeKtu(${idx},${ai},this.value)">
+          ${!s.posted?`<span style="cursor:pointer" onclick="removePwbAssignee(${idx},${ai})">✕</span>`:''}
+        </span>`).join('')}
+      </div>
+      ${!s.posted?`<div style="display:flex;gap:6px;align-items:center">
+        <select id="pwb-new-assignee-${idx}" style="font-size:12px;width:auto">${employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('')}</select>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="addPwbAssignee(${idx})">+ Исполнитель</button>
+      </div>`:''}
+      <div style="display:flex;gap:8px;margin-top:8px">
+        ${s.posted
+          ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbStage(${idx})">↩ Снять с проведения</button>`
+          : `<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="postPwbStage(${idx})">✅ Провести</button>
+             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removePwbStage(${idx})">🗑 Удалить этап</button>`}
+      </div>
+    </div>`;
+  }).join('') + `<datalist id="pwb-stage-names">${PROD_STAGE_NAMES().map(s=>`<option value="${s}">`).join('')}</datalist>`;
+}
+
+function computePwbStageAmount(s){
+  if(s.payMethod==='percent'){
+    const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
+    const order = ordersData.find(o=>o.num===row.orderNum);
+    const item = order.items[row.itemIdx];
+    return itemOrderAmount(item) * ((s.percent||0)/100);
+  }
+  return (s.rate||0) * (s.qty||1);
+}
+
+function addPwbStage(){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
+  const item = ordersData.find(o=>o.num===row.orderNum).items[row.itemIdx];
+  p.stages.push({stage:'', assignees:[], payMethod:'rate', rate:0, percent:0, qty:item.qty||1, posted:false, accrualIds:[]});
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbStagesList();
+  renderProdWorksheet();
+}
+function updatePwbStageField(idx, field, val){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const s = p.stages[idx];
+  if(['rate','qty','percent'].includes(field)) s[field] = parseFloat(val)||0;
+  else s[field] = val;
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbStagesList();
+}
+function addPwbAssignee(idx){
+  const sel = document.getElementById('pwb-new-assignee-'+idx);
+  const name = sel.value;
+  if(!name) return;
+  const p = prodProgress[_pwbCurrentItemKey];
+  const s = p.stages[idx];
+  if((s.assignees||[]).some(a=>a.name===name)) return;
+  s.assignees = [...(s.assignees||[]), {name, ktu:1}];
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbStagesList();
+}
+function removePwbAssignee(idx, ai){
+  const p = prodProgress[_pwbCurrentItemKey];
+  p.stages[idx].assignees.splice(ai,1);
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbStagesList();
+}
+function updatePwbAssigneeKtu(idx, ai, val){
+  const p = prodProgress[_pwbCurrentItemKey];
+  p.stages[idx].assignees[ai].ktu = parseFloat(val)||1;
+  saveProdProgress(_pwbCurrentItemKey);
+}
+function removePwbStage(idx){
+  const p = prodProgress[_pwbCurrentItemKey];
+  if(p.stages[idx].posted){ alert('Сначала снимите этап с проведения.'); return; }
+  p.stages.splice(idx,1);
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbStagesList();
+  renderProdWorksheet();
+}
+
+// Провести этап — создаёт начисления в Зарплатной ведомости (salary_accruals),
+// разделяя сумму этапа между исполнителями пропорционально их КТУ
+async function postPwbStage(idx){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const s = p.stages[idx];
+  if(!s.stage){ alert('Укажите название этапа.'); return; }
+  if(!s.assignees || !s.assignees.length){ alert('Назначьте хотя бы одного исполнителя.'); return; }
+  const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
+  const order = ordersData.find(o=>o.num===row.orderNum);
+  const item = order.items[row.itemIdx];
+  const total = computePwbStageAmount(s);
+  const ktuSum = s.assignees.reduce((sum,a)=>sum+(a.ktu||1),0)||1;
+  const today = new Date().toISOString().slice(0,10);
+  const accrualIds = [];
+  try{
+    for(const a of s.assignees){
+      const share = total * ((a.ktu||1)/ktuSum);
+      const res = await sbInsert('salary_accruals', {
+        emp_name: a.name, date: today, amount: share, deducted: 0, net: share, type:'salary',
+        comment: `Сдельная — ${s.stage} (заказ ${order.num}, ${item.name})`,
+        details: {accruals:[{type:'Сдельная', amount:share}], deductions:[]},
+      });
+      accrualIds.push(res.id);
+      if(_payrollData) _payrollData.accruals.push(res);
+    }
+    s.posted = true;
+    s.accrualIds = accrualIds;
+    await saveProdProgress(_pwbCurrentItemKey);
+    renderPwbStagesList();
+    renderProdWorksheet();
+  } catch(e){
+    alert('Не удалось провести этап: '+e.message);
+  }
+}
+async function unpostPwbStage(idx){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const s = p.stages[idx];
+  if(!confirm('Снять этап с проведения? Начисления зарплаты по этому этапу будут удалены из Зарплатной ведомости.')) return;
+  try{
+    for(const id of (s.accrualIds||[])){
+      await sbDelete('salary_accruals', `id=eq.${id}`);
+      if(_payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>a.id!==id);
+    }
+    s.posted = false;
+    s.accrualIds = [];
+    await saveProdProgress(_pwbCurrentItemKey);
+    renderPwbStagesList();
+    renderProdWorksheet();
+  } catch(e){
+    alert('Не удалось снять этап с проведения: '+e.message);
+  }
+}
+
+function completeWithoutStages(){
+  const p = prodProgress[_pwbCurrentItemKey];
+  p.completed = true;
+  saveProdProgress(_pwbCurrentItemKey);
+  renderProdWorksheet();
+  alert('Отмечено как завершённое (без создания начислений — если нужна зарплата, добавьте этап через "+ Добавить этап").');
+}
+
+// ---------- Материалы ----------
+function renderPwbMaterialsList(){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const el = document.getElementById('pwb-materials-list');
+  if(!p.materials.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px 0">Материалы не добавлены</div>'; return; }
+  el.innerHTML = p.materials.map((m,idx)=>{
+    const whItem = warehouseData.find(w=>String(w.id)===String(m.warehouseItemId));
+    return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <input list="pwb-material-names" value="${(m.name||'').replace(/"/g,'&quot;')}" placeholder="Материал (поиск по складу)"
+        style="flex:1;font-size:12px" ${m.posted?'disabled':''} onchange="updatePwbMaterialField(${idx},'name',this.value)">
+      <span style="font-size:11px;color:var(--text3);min-width:70px">${whItem?'Остаток: '+whItem.qty+' '+(whItem.unit||''):'не найден на складе'}</span>
+      <input type="number" step="0.01" value="${m.qty||0}" style="width:80px;font-size:12px" ${m.posted?'disabled':''} onchange="updatePwbMaterialField(${idx},'qty',this.value)">
+      ${m.posted
+        ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbMaterial(${idx})">↩ Снять</button>`
+        : `<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="postPwbMaterial(${idx})">✅ Списать</button>
+           <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="removePwbMaterialRow(${idx})">✕</button>`}
+    </div>`;
+  }).join('') + `<datalist id="pwb-material-names">${warehouseData.map(w=>`<option value="${w.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>`;
+}
+function addPwbMaterialRow(){
+  const p = prodProgress[_pwbCurrentItemKey];
+  p.materials.push({name:'', qty:0, unit:'', warehouseItemId:null, posted:false, prevQty:null});
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbMaterialsList();
+}
+function updatePwbMaterialField(idx, field, val){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const m = p.materials[idx];
+  if(field==='qty'){ m.qty = parseFloat(val)||0; }
+  else {
+    m.name = val;
+    const found = warehouseData.find(w=>w.name===val);
+    m.warehouseItemId = found ? found.id : null;
+    m.unit = found ? found.unit : m.unit;
+  }
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbMaterialsList();
+}
+function removePwbMaterialRow(idx){
+  const p = prodProgress[_pwbCurrentItemKey];
+  if(p.materials[idx].posted){ alert('Сначала снимите материал с проведения.'); return; }
+  p.materials.splice(idx,1);
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbMaterialsList();
+}
+// Списывает материал с реального склада (уменьшает остаток)
+async function postPwbMaterial(idx){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const m = p.materials[idx];
+  const whItem = warehouseData.find(w=>String(w.id)===String(m.warehouseItemId));
+  if(!whItem){ alert('Материал не найден на складе — выберите название из списка (поиск по остаткам).'); return; }
+  if(!m.qty || m.qty<=0){ alert('Укажите количество.'); return; }
+  const newQty = whItem.qty - m.qty;
+  try{
+    await sbPatch('warehouse', `id=eq.${whItem.id}`, {qty:newQty});
+    m.prevQty = whItem.qty;
+    whItem.qty = newQty;
+    m.posted = true;
+    await saveProdProgress(_pwbCurrentItemKey);
+    renderPwbMaterialsList();
+    renderProdWorksheet();
+  } catch(e){
+    alert('Не удалось списать материал: '+e.message);
+  }
+}
+async function unpostPwbMaterial(idx){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const m = p.materials[idx];
+  const whItem = warehouseData.find(w=>String(w.id)===String(m.warehouseItemId));
+  try{
+    if(whItem && m.prevQty!=null){
+      await sbPatch('warehouse', `id=eq.${whItem.id}`, {qty:m.prevQty});
+      whItem.qty = m.prevQty;
+    }
+    m.posted = false;
+    m.prevQty = null;
+    await saveProdProgress(_pwbCurrentItemKey);
+    renderPwbMaterialsList();
+    renderProdWorksheet();
+  } catch(e){
+    alert('Не удалось вернуть материал на склад: '+e.message);
+  }
+}
+
+// ---------- Excel экспорт/импорт ----------
+function exportProdWorksheetExcel(){
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд.');return;}
+  const rows = prodWbRows.map(r=>{
+    const order = ordersData.find(o=>o.num===r.orderNum);
+    const item = order?.items?.[r.itemIdx];
+    const p = prodProgress[r.itemKey]||{stages:[],materials:[]};
+    return {r, order, item, p};
+  }).filter(x=>x.order && x.item);
+  const aoa = [
+    ['Рабочий лист производства — '+new Date().toLocaleDateString('ru-RU')],
+    [],
+    ['Ключ (не менять)','Заказ','Дата заказа','Дата отправки','Товар','Кол-во','Этапы (текущие)','Исполнители','Статус'],
+    ...rows.map(({r,order,item,p})=>[
+      r.itemKey, order.num, order.date||'', order.deliveryDate||'', item.name, item.qty,
+      p.stages.map(s=>s.stage).join('; '),
+      [...new Set(p.stages.flatMap(s=>(s.assignees||[]).map(a=>a.name)))].join('; '),
+      p.completed||p.stages.some(s=>s.posted) ? 'есть проводки' : 'черновик',
+    ]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:14},{wch:10},{wch:12},{wch:12},{wch:26},{wch:8},{wch:30},{wch:24},{wch:16}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Рабочий лист');
+  XLSX.writeFile(wb, `PromTech_Proizvodstvo_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+function handleProdWorksheetImport(file){
+  if(!file) return;
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд.');return;}
+  const reader = new FileReader();
+  reader.onload = async e=>{
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data,{type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    let hIdx=-1;
+    rows.forEach((r,i)=>{ if(String(r[0]).includes('Ключ')) hIdx=i; });
+    if(hIdx<0){ alert('Не найден заголовок — используйте файл из кнопки "Экспорт Excel".'); return; }
+    let added=0;
+    for(const row of rows.slice(hIdx+1)){
+      const key = String(row[0]||'').trim();
+      if(!key.includes('|')) continue;
+      const [orderNum, itemIdxStr] = key.split('|');
+      if(!ordersData.find(o=>o.num===orderNum)) continue;
+      await addOrderItemToWorksheet(orderNum, +itemIdxStr);
+      added++;
+    }
+    renderProdWorksheet();
+    alert(`Добавлено на рабочий лист: ${added} строк.`);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function exportDailyTasks(){
   if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
   // Инициализируем stageQty для всех позиций
