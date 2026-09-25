@@ -32588,23 +32588,78 @@ function completeWithoutStages(){
 }
 
 // ---------- Материалы ----------
+let _pwbMatCatFilter = {}; // idx -> категория материала (временный UI-фильтр, не сохраняется)
 function renderPwbMaterialsList(){
   const p = prodProgress[_pwbCurrentItemKey];
   const el = document.getElementById('pwb-materials-list');
   if(!p.materials.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px 0">Материалы не добавлены</div>'; return; }
+  const matCats = [...new Set(warehouseData.filter(w=>{
+    const wh = PHYSICAL_WAREHOUSES.find(x=>x.id===w.warehouse_id);
+    return wh && wh.type==='material';
+  }).map(w=>w.category).filter(Boolean))].sort();
   el.innerHTML = p.materials.map((m,idx)=>{
     const whItem = warehouseData.find(w=>String(w.id)===String(m.warehouseItemId));
-    return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-      <input list="pwb-material-names" value="${(m.name||'').replace(/"/g,'&quot;')}" placeholder="Материал (поиск по складу)"
-        style="flex:1;font-size:12px" ${m.posted?'disabled':''} onchange="updatePwbMaterialField(${idx},'name',this.value)">
-      <span style="font-size:11px;color:var(--text3);min-width:70px">${whItem?'Остаток: '+whItem.qty+' '+(whItem.unit||''):'не найден на складе'}</span>
-      <input type="number" step="0.01" value="${m.qty||0}" style="width:80px;font-size:12px" ${m.posted?'disabled':''} onchange="updatePwbMaterialField(${idx},'qty',this.value)">
-      ${m.posted
-        ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbMaterial(${idx})">↩ Снять</button>`
-        : `<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="postPwbMaterial(${idx})">✅ Списать</button>
-           <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="removePwbMaterialRow(${idx})">✕</button>`}
+    return `<div style="margin-bottom:8px;position:relative">
+      <div style="display:flex;gap:6px;align-items:center">
+        <select onchange="_pwbMatCatFilter[${idx}]=this.value" style="font-size:11px;width:auto" ${m.posted?'disabled':''}>
+          <option value="">Все категории</option>
+          ${matCats.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        </select>
+        <input type="text" id="pwb-mat-input-${idx}" value="${(m.name||'').replace(/"/g,'&quot;')}" placeholder="Материал (поиск по остатку)" autocomplete="off"
+          style="flex:1;font-size:12px" ${m.posted?'disabled':''}
+          oninput="renderPwbMaterialSuggestions(${idx}, this.value)"
+          onfocus="renderPwbMaterialSuggestions(${idx}, this.value)"
+          onblur="setTimeout(()=>hidePwbMaterialSuggestions(${idx}),150)">
+        <span style="font-size:11px;color:${whItem?'var(--text3)':'var(--amber)'};min-width:80px;white-space:nowrap">${whItem?'Остаток: '+whItem.qty+' '+(whItem.unit||''):'не найден на складе'}</span>
+        <input type="number" step="0.01" value="${m.qty||0}" style="width:80px;font-size:12px" ${m.posted?'disabled':''} onchange="updatePwbMaterialField(${idx},'qty',this.value)">
+        ${m.posted
+          ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbMaterial(${idx})">↩ Снять</button>`
+          : `<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="postPwbMaterial(${idx})">✅ Списать</button>
+             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="removePwbMaterialRow(${idx})">✕</button>`}
+      </div>
+      <div id="pwb-mat-suggest-${idx}" style="display:none;position:absolute;z-index:20;top:100%;left:0;right:120px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.2)"></div>
     </div>`;
-  }).join('') + `<datalist id="pwb-material-names">${warehouseData.map(w=>`<option value="${w.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>`;
+  }).join('');
+}
+// Показывает список подходящих материалов ПРЯМО с остатком у каждого — не
+// нужно сначала выбрать, чтобы увидеть, сколько есть на складе
+function renderPwbMaterialSuggestions(idx, query){
+  const box = document.getElementById('pwb-mat-suggest-'+idx);
+  if(!box) return;
+  const q = (query||'').toLowerCase().trim();
+  const catFilter = _pwbMatCatFilter[idx]||'';
+  const materialItems = warehouseData.filter(w=>{
+    const wh = PHYSICAL_WAREHOUSES.find(x=>x.id===w.warehouse_id);
+    if(!wh || wh.type!=='material') return false;
+    if(catFilter && w.category!==catFilter) return false;
+    if(q && !w.name.toLowerCase().includes(q)) return false;
+    return true;
+  }).slice(0,30);
+  if(!materialItems.length){
+    box.innerHTML = '<div style="padding:8px;font-size:11px;color:var(--text3)">Ничего не найдено</div>';
+  } else {
+    box.innerHTML = materialItems.map(w=>`<div class="pwb-mat-suggest-row" style="padding:6px 10px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;gap:8px"
+        onmousedown="event.preventDefault();selectPwbMaterialSuggestion(${idx},'${w.id}')">
+      <span>${w.name}</span>
+      <span style="color:${w.qty>0?'var(--text3)':'var(--red)'};white-space:nowrap">${w.qty} ${w.unit||''}</span>
+    </div>`).join('');
+    // подсветка при наведении — через делегирование, без inline hover-стилей
+    box.querySelectorAll('.pwb-mat-suggest-row').forEach(row=>{
+      row.addEventListener('mouseenter', ()=>row.style.background='var(--bg3)');
+      row.addEventListener('mouseleave', ()=>row.style.background='');
+    });
+  }
+  box.style.display='block';
+}
+function hidePwbMaterialSuggestions(idx){
+  const box = document.getElementById('pwb-mat-suggest-'+idx);
+  if(box) box.style.display='none';
+}
+function selectPwbMaterialSuggestion(idx, warehouseItemId){
+  const w = warehouseData.find(x=>String(x.id)===String(warehouseItemId));
+  if(!w) return;
+  updatePwbMaterialField(idx, 'name', w.name);
+  hidePwbMaterialSuggestions(idx);
 }
 function addPwbMaterialRow(){
   const p = prodProgress[_pwbCurrentItemKey];
