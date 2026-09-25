@@ -25563,7 +25563,13 @@ function renderCategoryMargin(){
       const pct = yearRevenue>0 ? Math.round(yearMargin/yearRevenue*100) : 0;
       return `<tr>
         <td>${r.label}</td>
-        ${r.margin.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:${v<0?'var(--red)':'inherit'}">${fmt2(v)}</td>`).join('')}
+        ${r.margin.map((v,m)=>{
+          const mPct = r.revenue[m]>0 ? Math.round(v/r.revenue[m]*100) : null;
+          return `<td style="text-align:right">
+            <div style="font-family:'IBM Plex Mono',monospace;color:${v<0?'var(--red)':'inherit'}">${fmt2(v)}</div>
+            ${mPct!==null?`<div class="${marginPctClass(mPct)}" style="font-size:10px">${mPct}%</div>`:''}
+          </td>`;
+        }).join('')}
         <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:${yearMargin<0?'var(--red)':'var(--accent)'}">${fmt2(yearMargin)}</td>
         <td style="text-align:right;font-weight:700"><span class="${marginPctClass(pct)}">${pct}%</span></td>
       </tr>`;
@@ -25578,19 +25584,28 @@ function exportCategoryMarginExcel(){
   const rows = window._categoryMarginRows;
   const year = window._categoryMarginYear;
   if(!rows || !rows.length){alert('Нет данных для выгрузки.');return;}
+  const header = ['Категория'];
+  PL_MONTH_LABELS.forEach(m=>{ header.push(m+' маржа'); header.push(m+' %'); });
+  header.push('Маржа за год', 'Маржа % за год');
   const aoa = [
     ['Маржинальность по категориям (оценка) — '+year],
     [],
-    ['Категория', ...PL_MONTH_LABELS.map(m=>m+' маржа'), 'Маржа за год', 'Маржа % за год'],
+    header,
     ...rows.map(r=>{
       const yearMargin = r.margin.reduce((s,v)=>s+v,0);
       const yearRevenue = r.revenue.reduce((s,v)=>s+v,0);
       const pct = yearRevenue>0 ? Math.round(yearMargin/yearRevenue*100) : 0;
-      return [r.label, ...r.margin.map(v=>Math.round(v)), Math.round(yearMargin), pct+'%'];
+      const monthCells = [];
+      r.margin.forEach((v,m)=>{
+        monthCells.push(Math.round(v));
+        const mPct = r.revenue[m]>0 ? Math.round(v/r.revenue[m]*100) : '';
+        monthCells.push(mPct===''?'':mPct+'%');
+      });
+      return [r.label, ...monthCells, Math.round(yearMargin), pct+'%'];
     }),
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:26}, ...Array(12).fill({wch:12}), {wch:14}, {wch:12}];
+  ws['!cols'] = [{wch:26}, ...Array(24).fill({wch:10}), {wch:14}, {wch:12}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, String(year));
   XLSX.writeFile(wb, `PromTech_Marzha_kategorii_${year}.xlsx`);
