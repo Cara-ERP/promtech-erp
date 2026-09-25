@@ -32075,14 +32075,40 @@ async function addOrderItemToWorksheet(orderNum, itemIdx){
   await ensureProgressForItem(itemKey);
 }
 
-// Быстрое пакетное добавление — одним запросом на весь список, а не по
-// одной строке (иначе на большом количестве заказов это выполняется очень
-// долго и незаметно "зависает")
+// Ищем заказ по номеру гибко — как и в поиске документа прихода/расхода в РС:
+// можно ввести только цифры ("185"), без учёта префикса и ведущих нулей ("НФНФ-00185")
+function findOrderBySearchNum(query){
+  const q = (query||'').trim();
+  if(!q) return null;
+  const exact = ordersData.find(o=>o.num===q);
+  if(exact) return exact;
+  const qLower = q.toLowerCase();
+  const contains = ordersData.find(o=>o.num.toLowerCase().includes(qLower));
+  if(contains) return contains;
+  if(/^\d+$/.test(q)){
+    const qNum = parseInt(q,10);
+    return ordersData.find(o=>{
+      const digits = o.num.match(/\d+/g);
+      if(!digits) return false;
+      return parseInt(digits[digits.length-1],10)===qNum;
+    }) || null;
+  }
+  return null;
+}
+
+// Быстрое пакетное добавление — одним запросом на весь список (разбитым на
+// части по 300 строк, чтобы не упереться в ошибку сервера на огромном
+// пакете), а не по одной строке (иначе на большом количестве заказов это
+// выполняется очень долго и незаметно "зависает")
 async function addManyItemsToWorksheet(pairs){
   const newPairs = pairs.filter(p=>!prodWbRows.some(r=>r.itemKey===itemKeyOf(p.orderNum,p.itemIdx)));
   if(!newPairs.length) return;
+  const CHUNK=300;
   try{
-    await sbUpsert('production_worksheet', newPairs.map(p=>({order_num:p.orderNum, item_idx:p.itemIdx})), 'order_num,item_idx');
+    for(let i=0;i<newPairs.length;i+=CHUNK){
+      const chunk=newPairs.slice(i,i+CHUNK);
+      await sbUpsert('production_worksheet', chunk.map(p=>({order_num:p.orderNum, item_idx:p.itemIdx})), 'order_num,item_idx');
+    }
   } catch(e){
     alert('Не удалось добавить строки на рабочий лист: '+e.message);
     return;
@@ -32091,12 +32117,13 @@ async function addManyItemsToWorksheet(pairs){
     prodWbRows.push({orderNum:p.orderNum, itemIdx:p.itemIdx, itemKey:itemKeyOf(p.orderNum,p.itemIdx)});
   });
   const needProgress = newPairs.filter(p=>!prodProgress[itemKeyOf(p.orderNum,p.itemIdx)]);
-  if(needProgress.length){
+  for(let i=0;i<needProgress.length;i+=CHUNK){
+    const chunk=needProgress.slice(i,i+CHUNK);
     try{
       const res = await fetch(`${SUPABASE_URL}/rest/v1/production_progress`, {
         method:'POST',
         headers:{...sbHeaders, 'Prefer':'return=representation'},
-        body: JSON.stringify(needProgress.map(p=>({
+        body: JSON.stringify(chunk.map(p=>({
           item_key:itemKeyOf(p.orderNum,p.itemIdx), order_num:p.orderNum, item_idx:p.itemIdx,
           stages:[], materials:[], completed:false,
         }))),
@@ -32113,7 +32140,12 @@ async function addOrdersToWorksheetByPeriod(days){
   if(!ordersData.length){ alert('Заказы ещё не загружены — подождите пару секунд после открытия вкладки и попробуйте снова.'); return; }
   const since = new Date(); since.setDate(since.getDate()-days);
   const sinceStr = since.toISOString().slice(0,10);
-  const matching = ordersData.filter(o=>(o.date||'')>=sinceStr);
+  // order.date хранится в формате ДД.ММ.ГГГГ — переводим в ISO той же функцией,
+  // что и весь остальной P&L, прежде чем сравнивать с датой периода
+  const matching = ordersData.filter(o=>{
+    const iso = parseDMY(o.date||o.createdDate||'');
+    return iso && iso>=sinceStr;
+  });
   if(!matching.length){ alert(`Заказов за этот период не найдено (от ${sinceStr}).`); return; }
   const pairs = matching.flatMap(o=>(o.items||[]).map((it,i)=>({orderNum:o.num, itemIdx:i})));
   if(!confirm(`Будет добавлено заказов: ${matching.length} (позиций: ${pairs.length}), с датой от ${sinceStr} до сегодня.\n\nПродолжить?`)) return;
@@ -32124,7 +32156,7 @@ async function addOrderToWorksheetByNum(){
   if(!ordersData.length){ alert('Заказы ещё не загружены — подождите пару секунд после открытия вкладки и попробуйте снова.'); return; }
   const num = document.getElementById('pwb-add-order')?.value?.trim();
   if(!num) return;
-  const order = ordersData.find(o=>o.num===num);
+  const order = findOrderBySearchNum(num);
   if(!order){ alert('Заказ №'+num+' не найден.'); return; }
   const pairs = (order.items||[]).map((it,i)=>({orderNum:order.num, itemIdx:i}));
   await addManyItemsToWorksheet(pairs);
@@ -32206,12 +32238,14 @@ function renderProdWorksheet(){
 
   const filtered = rows.filter(r=>{
     if(search && !r.item.name.toLowerCase().includes(search)) return false;
-    if(orderF && !r.orderNum.toLowerCase().includes(orderF)) return false;
+    if(orderF && !r.orderNum.toLowerCase().includes(orderF) && !(/^\d+$/.test(orderF) && (r.orderNum.match(/\d+/g)||[]).some(d=>parseInt(d,10)===parseInt(orderF,10)))) return false;
     if(catF && r.item.category!==catF) return false;
-    if(ordFrom && (r.order.date||'')<ordFrom) return false;
-    if(ordTo && (r.order.date||'')>ordTo) return false;
-    if(shipFrom && (r.order.deliveryDate||'')<shipFrom) return false;
-    if(shipTo && (r.order.deliveryDate||'')>shipTo) return false;
+    const orderIso = parseDMY(r.order.date||'')||'';
+    const shipIso  = parseDMY(r.order.deliveryDate||'')||'';
+    if(ordFrom && orderIso<ordFrom) return false;
+    if(ordTo && orderIso && orderIso>ordTo) return false;
+    if(shipFrom && shipIso<shipFrom) return false;
+    if(shipTo && shipIso && shipIso>shipTo) return false;
     if(stageF && !r.progress.stages.some(s=>s.stage===stageF)) return false;
     if(execF && !r.progress.stages.some(s=>(s.assignees||[]).some(a=>a.name===execF))) return false;
     return true;
