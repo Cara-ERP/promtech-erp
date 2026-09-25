@@ -2332,8 +2332,8 @@ window.onerror = function(msg, src, line, col){
         </div>
         <div class="card" style="padding:0">
           <div id="pwb-table-wrap" style="overflow-x:auto" onscroll="syncStickyScroll('pwb')">
-            <table class="data-table" style="font-size:12px;white-space:nowrap">
-              <colgroup>
+            <table class="data-table" id="pwb-table" style="font-size:12px;white-space:nowrap;table-layout:fixed">
+              <colgroup id="pwb-colgroup">
                 <col style="width:28px">
                 <col style="width:100px"><col style="width:90px">
                 <col style="width:70px"><col style="width:70px">
@@ -2344,16 +2344,16 @@ window.onerror = function(msg, src, line, col){
               </colgroup>
               <thead><tr>
                 <th><input type="checkbox" onchange="togglePwbSelectAll(this)"></th>
-                <th>Заказ / Канал</th>
-                <th>Дата заказа / отправки</th>
-                <th>Товар</th>
-                <th>Характеристики</th>
-                <th>Цех</th>
-                <th style="background:var(--bg3)">Этапы</th>
-                <th style="background:var(--bg3)">Исполнители</th>
-                <th style="background:var(--bg3)">Материалы</th>
-                <th>Техкарта</th>
-                <th>Статус</th><th></th>
+                <th class="pwb-resizable">Заказ / Канал</th>
+                <th class="pwb-resizable">Дата заказа / отправки</th>
+                <th class="pwb-resizable">Товар</th>
+                <th class="pwb-resizable">Характеристики</th>
+                <th class="pwb-resizable">Цех</th>
+                <th class="pwb-resizable" style="background:var(--bg3)">Этапы</th>
+                <th class="pwb-resizable" style="background:var(--bg3)">Исполнители</th>
+                <th class="pwb-resizable" style="background:var(--bg3)">Материалы</th>
+                <th class="pwb-resizable">Техкарта</th>
+                <th class="pwb-resizable">Статус</th><th></th>
               </tr></thead>
               <tbody id="pwb-tbody"></tbody>
             </table>
@@ -32037,6 +32037,59 @@ function PROD_STAGE_NAMES(){
 function itemKeyOf(orderNum, itemIdx){ return `${orderNum}|${itemIdx}`; }
 function itemOrderAmount(item){ return (item.qty||1) * (item.price||0); }
 
+// ---------- Перетаскивание ширины колонок мышью, с запоминанием в браузере ----------
+// Сохраняется в localStorage — переживает обновление файла программы, ПОКА
+// вы открываете программу по тому же пути/имени файла (для браузера каждый
+// отдельный файл file:// — это отдельное "происхождение", поэтому если
+// каждый раз сохранять новую скачанную копию под другим именем/номером,
+// ширина будет сбрасываться — сохраняйте поверх одного и того же файла).
+const PWB_COL_STORAGE_KEY = 'promtech_pwb_col_widths_v1';
+function initPwbColumnResize(){
+  const table = document.getElementById('pwb-table');
+  const colgroup = document.getElementById('pwb-colgroup');
+  if(!table || !colgroup || table.dataset.resizeInit) return;
+  table.dataset.resizeInit = '1';
+
+  try{
+    const saved = JSON.parse(localStorage.getItem(PWB_COL_STORAGE_KEY)||'null');
+    if(saved && Array.isArray(saved)){
+      const cols = colgroup.querySelectorAll('col');
+      saved.forEach((w,i)=>{ if(cols[i] && w) cols[i].style.width = w+'px'; });
+    }
+  } catch(e){}
+
+  const ths = table.querySelectorAll('th.pwb-resizable');
+  ths.forEach((th, idx)=>{
+    const handle = document.createElement('div');
+    handle.style.cssText = 'position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none;z-index:2';
+    th.style.position = 'relative';
+    th.appendChild(handle);
+    const colIndex = idx + 1; // первая колонка (чекбокс) не регулируется
+    handle.addEventListener('mousedown', e=>{
+      e.preventDefault();
+      const startX = e.clientX;
+      const col = colgroup.querySelectorAll('col')[colIndex];
+      const startWidth = col.getBoundingClientRect().width;
+      function onMove(ev){
+        col.style.width = Math.max(30, startWidth + (ev.clientX - startX)) + 'px';
+      }
+      function onUp(){
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        savePwbColumnWidths();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+function savePwbColumnWidths(){
+  const colgroup = document.getElementById('pwb-colgroup');
+  if(!colgroup) return;
+  const widths = [...colgroup.querySelectorAll('col')].map(c=>parseInt(c.style.width)||null);
+  try{ localStorage.setItem(PWB_COL_STORAGE_KEY, JSON.stringify(widths)); }catch(e){}
+}
+
 async function initProdWorksheet(){
   // Сначала загружаем то, что нужно для самих кнопок добавления заказов —
   // независимо от того, удалось ли загрузить сам рабочий лист/прогресс.
@@ -32065,6 +32118,7 @@ async function initProdWorksheet(){
     }
   }
   renderProdWorksheet();
+  initPwbColumnResize();
 }
 
 async function ensureProgressForItem(itemKey){
