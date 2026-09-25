@@ -2320,6 +2320,7 @@ window.onerror = function(msg, src, line, col){
           <input id="pwb-f-search" type="search" placeholder="🔍 Товар..." style="width:160px;font-size:12px" oninput="renderProdWorksheet()">
           <input id="pwb-f-order" type="text" placeholder="№ заказа..." style="width:110px;font-size:12px" oninput="renderProdWorksheet()">
           <select id="pwb-f-category" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все категории</option></select>
+          <select id="pwb-f-workshop" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
           <select id="pwb-f-stage" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все этапы</option></select>
           <select id="pwb-f-exec" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все исполнители</option></select>
           <span style="font-size:11px;color:var(--text3)">Заказ:</span>
@@ -2332,10 +2333,27 @@ window.onerror = function(msg, src, line, col){
         <div class="card" style="padding:0">
           <div id="pwb-table-wrap" style="overflow-x:auto" onscroll="syncStickyScroll('pwb')">
             <table class="data-table" style="font-size:12px;white-space:nowrap">
+              <colgroup>
+                <col style="width:28px">
+                <col style="width:100px"><col style="width:90px">
+                <col style="width:70px"><col style="width:70px">
+                <col style="width:60px">
+                <col style="width:170px"><col style="width:170px">
+                <col style="width:170px"><col style="width:60px">
+                <col style="width:90px"><col style="width:40px">
+              </colgroup>
               <thead><tr>
                 <th><input type="checkbox" onchange="togglePwbSelectAll(this)"></th>
-                <th>Заказ</th><th>Канал</th><th>Дата заказа</th><th>Дата отправки</th>
-                <th>Товар</th><th>Техкарта</th><th>Этапы</th><th>Материалы</th><th>Статус</th><th></th>
+                <th>Заказ / Канал</th>
+                <th>Дата заказа / отправки</th>
+                <th>Товар</th>
+                <th>Характеристики</th>
+                <th>Цех</th>
+                <th style="background:var(--bg3)">Этапы</th>
+                <th style="background:var(--bg3)">Исполнители</th>
+                <th style="background:var(--bg3)">Материалы</th>
+                <th>Техкарта</th>
+                <th>Статус</th><th></th>
               </tr></thead>
               <tbody id="pwb-tbody"></tbody>
             </table>
@@ -32231,6 +32249,10 @@ function pwbPopulateFilters(){
   if(exSel && exSel.options.length<=1){
     exSel.innerHTML='<option value="">Все исполнители</option>'+employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('');
   }
+  const wsSel = document.getElementById('pwb-f-workshop');
+  if(wsSel && wsSel.options.length<=1){
+    wsSel.innerHTML='<option value="">Все цеха</option>'+PIECE_WORKSHOPS.map(w=>`<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
+  }
 }
 
 function renderProdWorksheet(){
@@ -32238,6 +32260,7 @@ function renderProdWorksheet(){
   const search = (document.getElementById('pwb-f-search')?.value||'').toLowerCase();
   const orderF  = (document.getElementById('pwb-f-order')?.value||'').toLowerCase();
   const catF    = document.getElementById('pwb-f-category')?.value||'';
+  const wsF     = document.getElementById('pwb-f-workshop')?.value||'';
   const stageF  = document.getElementById('pwb-f-stage')?.value||'';
   const execF   = document.getElementById('pwb-f-exec')?.value||'';
   const ordFrom = document.getElementById('pwb-f-order-from')?.value||'';
@@ -32261,6 +32284,9 @@ function renderProdWorksheet(){
     if(ordTo && orderIso && orderIso>ordTo) return false;
     if(shipFrom && shipIso<shipFrom) return false;
     if(shipTo && shipIso && shipIso>shipTo) return false;
+    // Один товар может проходить через несколько цехов — фильтр смотрит,
+    // есть ли выбранный цех хоть у одного из этапов позиции
+    if(wsF && !r.progress.stages.some(s=>s.workshop===wsF)) return false;
     if(stageF && !r.progress.stages.some(s=>s.stage===stageF)) return false;
     if(execF && !r.progress.stages.some(s=>(s.assignees||[]).some(a=>a.name===execF))) return false;
     return true;
@@ -32269,27 +32295,46 @@ function renderProdWorksheet(){
   const tbody = document.getElementById('pwb-tbody');
   if(!tbody) return;
   if(!filtered.length){
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">Лист пуст — добавьте заказы кнопками выше</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:24px">Лист пуст — добавьте заказы кнопками выше</td></tr>';
     setTimeout(()=>initStickyScroll('pwb'),0);
     return;
   }
 
   tbody.innerHTML = filtered.map(r=>{
     const channel = marginChannelForOrder(r.order);
+    const workshopIds = [...new Set(r.progress.stages.map(s=>s.workshop).filter(Boolean))];
+    const workshopHtml = workshopIds.length
+      ? workshopIds.map(wid=>{ const w=PIECE_WORKSHOPS.find(x=>x.id===wid); return `<span class="badge badge-blue" style="font-size:10px;margin:1px">${w?w.icon+' '+w.name:wid}</span>`; }).join(' ')
+      : '<span style="color:var(--text3)">—</span>';
     const stagesHtml = r.progress.stages.length
-      ? r.progress.stages.map(s=>`<span class="badge ${s.posted?'badge-green':'badge-blue'}" style="font-size:10px;margin:1px">${s.stage}${s.posted?' ✓':''}</span>`).join(' ')
-      : (r.progress.completed?'<span class="badge badge-green" style="font-size:10px">Завершено без этапов</span>':'<span style="color:var(--text3)">—</span>');
+      ? r.progress.stages.map(s=>`<span class="badge ${s.posted?'badge-green':'badge-blue'}" style="font-size:11px;font-weight:600;margin:1px">${s.stage||'(без названия)'}${s.posted?' ✓':''}</span>`).join(' ')
+      : (r.progress.completed?'<span class="badge badge-green" style="font-size:11px">Завершено без этапов</span>':'<span style="color:var(--text3)">—</span>');
+    const execNames = [...new Set(r.progress.stages.flatMap(s=>(s.assignees||[]).map(a=>a.name)))];
+    const execHtml = execNames.length
+      ? execNames.map(n=>`<span class="badge badge-purple" style="font-size:11px;font-weight:600;margin:1px">${n}</span>`).join(' ')
+      : '<span style="color:var(--text3)">—</span>';
     const matCount = r.progress.materials.length;
+    const matsHtml = matCount
+      ? `<span style="font-weight:600">📦 ${r.progress.materials.map(m=>m.name||'?').join(', ')}</span>`
+      : '<span style="color:var(--text3)">—</span>';
+    const charText = itemCharacteristicsText(r.item);
     return `<tr>
       <td><input type="checkbox" class="pwb-row-check" data-key="${r.itemKey}" onchange="togglePwbRow(this,'${r.itemKey}')" ${pwbSelected.has(r.itemKey)?'checked':''}></td>
-      <td style="font-family:monospace;color:var(--accent)">${r.orderNum}</td>
-      <td style="font-size:11px;color:var(--text3)">${channel?PL_CHANNEL_LABELS[channel]||channel:'—'}</td>
-      <td style="font-size:11px">${r.order.date||'—'}</td>
-      <td style="font-size:11px">${r.order.deliveryDate||'—'}</td>
-      <td style="font-weight:500">${r.item.name}</td>
-      <td>${r.item.techCard&&r.item.techCard.length?`<span title="${r.item.techCard.map(t=>t.name).join(', ')}">📋 ${r.item.techCard.length} эт.</span>`:'<span style="color:var(--text3)">без техкарты</span>'}</td>
-      <td style="max-width:220px;white-space:normal">${stagesHtml}</td>
-      <td>${matCount?`📦 ${matCount}`:'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="font-size:11px">
+        <div style="font-family:monospace;color:var(--accent)">${r.orderNum}</div>
+        <div style="color:var(--text3)">${channel?PL_CHANNEL_LABELS[channel]||channel:'—'}</div>
+      </td>
+      <td style="font-size:11px">
+        <div>${r.order.date||'—'}</div>
+        <div style="color:var(--text3)">${r.order.deliveryDate||'—'}</div>
+      </td>
+      <td style="max-width:70px;white-space:normal;font-weight:500">${r.item.name}</td>
+      <td style="max-width:70px;white-space:normal;font-size:11px;color:var(--text3)">${charText||'—'}</td>
+      <td style="max-width:60px;white-space:normal">${workshopHtml}</td>
+      <td style="max-width:170px;white-space:normal;background:var(--bg3)">${stagesHtml}</td>
+      <td style="max-width:170px;white-space:normal;background:var(--bg3)">${execHtml}</td>
+      <td style="max-width:170px;white-space:normal;background:var(--bg3)">${matsHtml}</td>
+      <td>${r.item.techCard&&r.item.techCard.length?`<span title="${r.item.techCard.map(t=>t.name).join(', ')}">📋 ${r.item.techCard.length}</span>`:'<span style="color:var(--text3)">—</span>'}</td>
       <td>${r.progress.completed||r.progress.stages.some(s=>s.posted)?'<span class="badge badge-green" style="font-size:10px">Есть проводки</span>':'<span style="color:var(--text3);font-size:11px">черновик</span>'}</td>
       <td style="display:flex;gap:4px">
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPwbStageEditor('${r.itemKey}')">✏️</button>
@@ -32298,6 +32343,15 @@ function renderProdWorksheet(){
     </tr>`;
   }).join('');
   setTimeout(()=>initStickyScroll('pwb'),0);
+}
+
+// Характеристики товара одним текстом (та же логика, что и в остальных
+// печатных формах — все выбранные атрибуты + примечание к позиции)
+function itemCharacteristicsText(item){
+  const attrs = item.attributes||{};
+  const parts = Object.values(attrs).filter(Boolean);
+  if(item.note) parts.push(item.note);
+  return parts.join(', ');
 }
 
 // ---------- Модалка этапов/материалов ----------
@@ -32324,6 +32378,10 @@ function renderPwbStagesList(){
         <input list="pwb-stage-names" value="${(s.stage||'').replace(/"/g,'&quot;')}" placeholder="Название этапа (или свободный текст)"
           style="flex:1;min-width:160px;font-size:12px" ${s.posted?'disabled':''}
           onchange="updatePwbStageField(${idx},'stage',this.value)">
+        <select style="font-size:12px;width:auto" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'workshop',this.value)">
+          <option value="">Цех — не указан</option>
+          ${PIECE_WORKSHOPS.map(w=>`<option value="${w.id}" ${s.workshop===w.id?'selected':''}>${w.icon} ${w.name}</option>`).join('')}
+        </select>
         <select style="font-size:12px;width:auto" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'payMethod',this.value)">
           <option value="rate" ${s.payMethod==='rate'?'selected':''}>По расценке</option>
           <option value="percent" ${s.payMethod==='percent'?'selected':''}>% от суммы заказа по товару</option>
@@ -32370,7 +32428,7 @@ function addPwbStage(){
   const p = prodProgress[_pwbCurrentItemKey];
   const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
   const item = ordersData.find(o=>o.num===row.orderNum).items[row.itemIdx];
-  p.stages.push({stage:'', assignees:[], payMethod:'rate', rate:0, percent:0, qty:item.qty||1, posted:false, accrualIds:[]});
+  p.stages.push({stage:'', workshop:'', assignees:[], payMethod:'rate', rate:0, percent:0, qty:item.qty||1, posted:false, accrualIds:[]});
   saveProdProgress(_pwbCurrentItemKey);
   renderPwbStagesList();
   renderProdWorksheet();
@@ -32571,16 +32629,18 @@ function exportProdWorksheetExcel(){
   const aoa = [
     ['Рабочий лист производства — '+new Date().toLocaleDateString('ru-RU')],
     [],
-    ['Ключ (не менять)','Заказ','Дата заказа','Дата отправки','Товар','Кол-во','Этапы (текущие)','Исполнители','Статус'],
+    ['Ключ (не менять)','Заказ','Дата заказа','Дата отправки','Товар','Характеристики','Кол-во','Цех','Этапы (текущие)','Исполнители','Материалы','Статус'],
     ...rows.map(({r,order,item,p})=>[
-      r.itemKey, order.num, order.date||'', order.deliveryDate||'', item.name, item.qty,
+      r.itemKey, order.num, order.date||'', order.deliveryDate||'', item.name, itemCharacteristicsText(item), item.qty,
+      [...new Set(p.stages.map(s=>s.workshop).filter(Boolean))].map(id=>PIECE_WORKSHOPS.find(w=>w.id===id)?.name||id).join('; '),
       p.stages.map(s=>s.stage).join('; '),
       [...new Set(p.stages.flatMap(s=>(s.assignees||[]).map(a=>a.name)))].join('; '),
+      p.materials.map(m=>m.name).join('; '),
       p.completed||p.stages.some(s=>s.posted) ? 'есть проводки' : 'черновик',
     ]),
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:14},{wch:10},{wch:12},{wch:12},{wch:26},{wch:8},{wch:30},{wch:24},{wch:16}];
+  ws['!cols'] = [{wch:14},{wch:10},{wch:12},{wch:12},{wch:26},{wch:26},{wch:8},{wch:16},{wch:30},{wch:24},{wch:24},{wch:16}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Рабочий лист');
   XLSX.writeFile(wb, `PromTech_Proizvodstvo_${new Date().toISOString().slice(0,10)}.xlsx`);
