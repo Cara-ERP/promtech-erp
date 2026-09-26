@@ -15880,11 +15880,25 @@ function showPage(id, el){
     // Вкладка "Производственные заказы" открывается первой по умолчанию, но
     // сама не загружает данные (в отличие от "Рабочего листа производства") —
     // раньше из-за этого она оставалась пустой, пока не зайти в другую
-    // вкладку и обратно. Теперь грузим всё нужное сразу при входе в раздел.
+    // вкладку и обратно. Теперь грузим всё нужное сразу при входе в раздел —
+    // включая прогресс с рабочего листа (иначе "В работе" не подхватится,
+    // пока не открыть саму вкладку рабочего листа хотя бы раз).
     const mrpDeps = [];
     if(!ordersData.length && typeof loadOrdersFromDB==='function') mrpDeps.push(loadOrdersFromDB());
     if(!realizationsData.length && typeof loadRealizationsFromDB==='function') mrpDeps.push(loadRealizationsFromDB());
     if(!employeesData.length && typeof loadStaffFromDB==='function') mrpDeps.push(loadStaffFromDB());
+    if(!_prodWbLoaded){
+      mrpDeps.push(
+        Promise.all([
+          sbFetchAllPages('production_worksheet','select=*'),
+          sbFetchAllPages('production_progress','select=*'),
+        ]).then(([wb, pr])=>{
+          (pr||[]).forEach(p=>{ prodProgress[p.item_key] = {id:p.id, version:1, stages:p.stages||[], materials:p.materials||[], completed:p.completed||false}; });
+          prodWbRows = (wb||[]).map(r=>({orderNum:r.order_num, itemIdx:r.item_idx, itemKey:itemKeyOf(r.order_num,r.item_idx)}));
+          _prodWbLoaded = true;
+        }).catch(e=>console.warn('⚠️ Не удалось загрузить прогресс рабочего листа:', e.message))
+      );
+    }
     if(mrpDeps.length){
       Promise.all(mrpDeps).then(()=>{ if(typeof renderMrpOrdersJournal==='function') renderMrpOrdersJournal(); });
     } else if(typeof renderMrpOrdersJournal==='function'){
