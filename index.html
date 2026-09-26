@@ -31934,8 +31934,16 @@ function isItemRealized(orderNum, itemName){
 // Эффективный статус позиции для этого журнала — реальная реализация
 // перекрывает собственный статус позиции (queue/progress), но не трогает
 // сам item.status, чтобы не путать с "отгружен по накладной"
-function mrpEffectiveStatus(order, item){
+function mrpEffectiveStatus(order, item, itemIdx){
   if(item.status!=='done' && isItemRealized(order.num, item.name)) return 'done';
+  // Если статус ещё "В очереди", но по позиции уже реально есть активность
+  // на рабочем листе (например, занесена раньше, до того как появилась эта
+  // автоматическая синхронизация) — считаем её "В работе" для этого журнала,
+  // не дожидаясь, пока кто-то ещё раз откроет и пересохранит эту позицию
+  if(item.status==='queue' && itemIdx!=null){
+    const prog = prodProgress[itemKeyOf(order.num, itemIdx)];
+    if(prog && (prog.stages.length>0 || prog.materials.length>0 || prog.completed)) return 'progress';
+  }
   return item.status;
 }
 
@@ -34122,6 +34130,8 @@ function renderMrpOrdersJournal(){
   if(yearSel && yearSel.options.length<=1){
     const years=[...new Set(positions.map(p=>{const iso=parseDMY(p.item.date||''); return iso?iso.slice(0,4):null;}).filter(Boolean))].sort().reverse();
     yearSel.innerHTML='<option value="">Все годы</option>'+years.map(y=>`<option value="${y}">${y}</option>`).join('');
+    const curYear=String(new Date().getFullYear());
+    if(years.includes(curYear)) yearSel.value=curYear;
   }
 
   const actF=document.getElementById('mrp-f-activity')?.value||'';
@@ -34133,13 +34143,13 @@ function renderMrpOrdersJournal(){
 
   // Status counts always reflect the full (unsearched) set, so tab badges stay meaningful
   const counts={all:positions.length, queue:0, progress:0, done:0};
-  positions.forEach(p=>{ const st=mrpEffectiveStatus(p.order,p.item); if(counts[st]!==undefined) counts[st]++; });
+  positions.forEach(p=>{ const st=mrpEffectiveStatus(p.order,p.item,p.itemIdx); if(counts[st]!==undefined) counts[st]++; });
   Object.keys(counts).forEach(key=>{
     const el=document.getElementById('mrp-count-'+key);
     if(el) el.textContent=counts[key];
   });
 
-  if(mrpOrdersFilter!=='all') positions=positions.filter(p=>mrpEffectiveStatus(p.order,p.item)===mrpOrdersFilter);
+  if(mrpOrdersFilter!=='all') positions=positions.filter(p=>mrpEffectiveStatus(p.order,p.item,p.itemIdx)===mrpOrdersFilter);
   if(searchVal){
     positions=positions.filter(p=>
       p.item.name.toLowerCase().includes(searchVal) || p.order.num.toLowerCase().includes(searchVal)
@@ -34182,7 +34192,7 @@ function renderMrpOrdersJournal(){
     const stageName = wbProgress && wbProgress.stages.length
       ? wbProgress.stages.map(s=>s.stage||'(без названия)').join(', ')
       : (hasTechCard ? (cols[stageIdxOld]||'—') : (wbProgress?.completed?'Завершено без этапов':'Нет данных'));
-    const effStatus=mrpEffectiveStatus(order,item);
+    const effStatus=mrpEffectiveStatus(order,item,itemIdx);
     const progClass=PROGRESS_CLASS[effStatus];
     const badgeClass=STATUS_BADGE[effStatus];
     const statusLabel=STATUS_LABELS[effStatus];
@@ -34199,7 +34209,7 @@ function renderMrpOrdersJournal(){
             onclick="event.stopPropagation();${hasTechCard?`openMarginDetail('${order.num}',${itemIdx})`:`openEditOrderModal('${order.num}',${itemIdx})`}"
             title="${hasTechCard?'Открыть детализацию затрат':'Открыть заказ'}">${item.name}</span>${marginBit}</td>
       <td>${shopBadge}</td>
-      <td style="font-family:'IBM Plex Mono',monospace">${item.qty} ${item.unit}</td>
+      <td style="font-family:'IBM Plex Mono',monospace">${item.qty} ${item.unit||'шт'}</td>
       <td style="font-size:12px;${hasTechCard?'':'color:var(--text3)'}">${stageName}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="progress" style="flex:1"><div class="progress-fill ${progClass}" style="width:${item.progress}%"></div></div><span style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text3)">${item.progress}%</span></div></td>
       <td style="font-size:12px">${item.date}</td>
