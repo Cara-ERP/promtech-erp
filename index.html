@@ -2260,7 +2260,23 @@ window.onerror = function(msg, src, line, col){
       <div class="card">
         <div class="card-header">
           <span class="card-title">Все товарные позиции в производстве</span>
-          <input type="text" id="mrp-orders-search" placeholder="Поиск по товару или номеру заказа..." style="width:240px;font-size:13px" oninput="renderMrpOrdersJournal()">
+          <input type="text" id="mrp-orders-search" placeholder="Поиск по товару или номеру заказа..." style="width:220px;font-size:13px" oninput="renderMrpOrdersJournal()">
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+          <select id="mrp-f-activity" onchange="renderMrpOrdersJournal()" style="font-size:12px;width:auto"><option value="">Все виды деятельности</option></select>
+          <select id="mrp-f-stage" onchange="renderMrpOrdersJournal()" style="font-size:12px;width:auto"><option value="">Все этапы</option></select>
+          <select id="mrp-f-resp" onchange="renderMrpOrdersJournal()" style="font-size:12px;width:auto"><option value="">Все ответственные</option></select>
+          <span style="font-size:11px;color:var(--text3)">Срок:</span>
+          <select id="mrp-f-month" onchange="renderMrpOrdersJournal()" style="font-size:12px;width:auto">
+            <option value="">Все месяцы</option>
+            ${PL_MONTH_LABELS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('')}
+          </select>
+          <select id="mrp-f-year" onchange="renderMrpOrdersJournal()" style="font-size:12px;width:auto"><option value="">Все годы</option></select>
+          <span style="font-size:11px;color:var(--text3)">Сортировка:</span>
+          <select id="mrp-sort" onchange="renderMrpOrdersJournal()" style="font-size:12px;width:auto">
+            <option value="num">По номеру</option>
+            <option value="deadline">По сроку</option>
+          </select>
         </div>
         <table class="data-table">
           <thead><tr><th>Номер</th><th>Изделие</th><th>Вид деятельности</th><th>Кол-во</th><th>Текущий этап</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Отв.</th></tr></thead>
@@ -18391,7 +18407,10 @@ function showMrpTab(tab, el){
   document.querySelectorAll('.mrp-tab').forEach(t=>t.style.display='none');
   document.getElementById('mrp-'+tab).style.display='block';
   if(tab==='shopfloor') renderShopFloor();
-  if(tab==='orders') renderMrpOrdersJournal();
+  if(tab==='orders'){
+    if(!realizationsData.length && typeof loadRealizationsFromDB==='function') loadRealizationsFromDB().then(renderMrpOrdersJournal);
+    else renderMrpOrdersJournal();
+  }
   if(tab==='worksheet') initProdWorksheet();
 }
 
@@ -31904,6 +31923,22 @@ function mrpCollectAllPositions(){
   return positions;
 }
 
+// Если по позиции уже есть реализация (Продажи → Реализация) — она считается
+// готовой независимо от того, что стоит в её собственном статусе. Иначе
+// позиция может годами висеть "В очереди", хотя фактически уже продана.
+function isItemRealized(orderNum, itemName){
+  if(!realizationsData || !realizationsData.length) return false;
+  const n = plNormProductName(itemName);
+  return realizationsData.some(r=>r.order_num===orderNum && plNormProductName(r.name)===n);
+}
+// Эффективный статус позиции для этого журнала — реальная реализация
+// перекрывает собственный статус позиции (queue/progress), но не трогает
+// сам item.status, чтобы не путать с "отгружен по накладной"
+function mrpEffectiveStatus(order, item){
+  if(item.status!=='done' && isItemRealized(order.num, item.name)) return 'done';
+  return item.status;
+}
+
 // ===== DAILY TASKS EXPORT / IMPORT — ПАРТИОННАЯ МОДЕЛЬ =====
 //
 // Новая модель: item.stageQty[stageIdx] = кол-во единиц на этом этапе.
@@ -32144,6 +32179,20 @@ async function saveProdProgress(itemKey){
     } else {
       const res = await sbInsert('production_progress', {item_key:itemKey, order_num:orderNum, item_idx:+itemIdxStr, stages:p.stages, materials:p.materials, completed:p.completed});
       p.id = res.id;
+    }
+    // Любая активность на рабочем листе (добавлен этап, материал, или
+    // отмечено завершение — не обязательно уже "проведено") переводит
+    // позицию из "В очереди" в "В работе" в журнале "Производственные заказы"
+    const hasActivity = p.stages.length>0 || p.materials.length>0 || p.completed;
+    if(hasActivity){
+      const order = ordersData.find(o=>o.num===orderNum);
+      const item = order?.items?.[+itemIdxStr];
+      if(item && item.status==='queue'){
+        item.status='progress';
+        try{ await sbPatch('orders', `num=eq.${encodeURIComponent(orderNum)}`, {items: order.items}); }
+        catch(e){ console.warn('⚠️ Не удалось обновить статус позиции в заказе:', e.message); }
+        if(typeof renderMrpOrdersJournal==='function') renderMrpOrdersJournal();
+      }
     }
   } catch(e){
     alert('Не удалось сохранить прогресс: '+e.message);
@@ -32554,16 +32603,6 @@ async function postPwbStage(idx){
     s.posted = true;
     s.accrualIds = accrualIds;
     await saveProdProgress(_pwbCurrentItemKey);
-    // Первый проведённый этап по позиции — переводим её из "В очереди" в
-    // "В работе" в журнале "Производственные заказы" (сохраняем в базу, а
-    // не только в памяти, иначе статус слетит при обновлении страницы)
-    if(item.status==='queue'){
-      item.status='progress';
-      try{
-        await sbPatch('orders', `num=eq.${encodeURIComponent(order.num)}`, {items: order.items});
-      } catch(e){ console.warn('⚠️ Не удалось обновить статус позиции в заказе:', e.message); }
-      if(typeof renderMrpOrdersJournal==='function') renderMrpOrdersJournal();
-    }
     renderPwbStagesList();
     renderProdWorksheet();
   } catch(e){
@@ -32593,16 +32632,6 @@ async function completeWithoutStages(){
   const p = prodProgress[_pwbCurrentItemKey];
   p.completed = true;
   await saveProdProgress(_pwbCurrentItemKey);
-  const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
-  const order = ordersData.find(o=>o.num===row.orderNum);
-  const item = order?.items?.[row.itemIdx];
-  if(item && item.status==='queue'){
-    item.status='progress';
-    try{
-      await sbPatch('orders', `num=eq.${encodeURIComponent(order.num)}`, {items: order.items});
-    } catch(e){ console.warn('⚠️ Не удалось обновить статус позиции в заказе:', e.message); }
-    if(typeof renderMrpOrdersJournal==='function') renderMrpOrdersJournal();
-  }
   renderProdWorksheet();
   alert('Отмечено как завершённое (без создания начислений — если нужна зарплата, добавьте этап через "+ Добавить этап").');
 }
@@ -34074,19 +34103,69 @@ function renderMrpOrdersJournal(){
   const searchVal=(document.getElementById('mrp-orders-search')?.value||'').toLowerCase();
   let positions=mrpCollectAllPositions();
 
+  // Заполняем фильтры один раз (по всем позициям, а не по уже отфильтрованным)
+  const actSel=document.getElementById('mrp-f-activity');
+  if(actSel && actSel.options.length<=1){
+    const cats=[...new Set(positions.map(p=>p.item.category).filter(Boolean))].sort();
+    actSel.innerHTML='<option value="">Все виды деятельности</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  }
+  const stSel=document.getElementById('mrp-f-stage');
+  if(stSel && stSel.options.length<=1){
+    stSel.innerHTML='<option value="">Все этапы</option>'+PROD_STAGE_NAMES().map(s=>`<option value="${s}">${s}</option>`).join('');
+  }
+  const respSel=document.getElementById('mrp-f-resp');
+  if(respSel && respSel.options.length<=1){
+    const resps=[...new Set(positions.map(p=>p.item.resp).filter(Boolean))].sort();
+    respSel.innerHTML='<option value="">Все ответственные</option>'+resps.map(r=>`<option value="${r}">${r}</option>`).join('');
+  }
+  const yearSel=document.getElementById('mrp-f-year');
+  if(yearSel && yearSel.options.length<=1){
+    const years=[...new Set(positions.map(p=>{const iso=parseDMY(p.item.date||''); return iso?iso.slice(0,4):null;}).filter(Boolean))].sort().reverse();
+    yearSel.innerHTML='<option value="">Все годы</option>'+years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  }
+
+  const actF=document.getElementById('mrp-f-activity')?.value||'';
+  const stageF=document.getElementById('mrp-f-stage')?.value||'';
+  const respF=document.getElementById('mrp-f-resp')?.value||'';
+  const monthF=document.getElementById('mrp-f-month')?.value||'';
+  const yearF=document.getElementById('mrp-f-year')?.value||'';
+  const sortBy=document.getElementById('mrp-sort')?.value||'num';
+
   // Status counts always reflect the full (unsearched) set, so tab badges stay meaningful
   const counts={all:positions.length, queue:0, progress:0, done:0};
-  positions.forEach(p=>{ if(counts[p.item.status]!==undefined) counts[p.item.status]++; });
+  positions.forEach(p=>{ const st=mrpEffectiveStatus(p.order,p.item); if(counts[st]!==undefined) counts[st]++; });
   Object.keys(counts).forEach(key=>{
     const el=document.getElementById('mrp-count-'+key);
     if(el) el.textContent=counts[key];
   });
 
-  if(mrpOrdersFilter!=='all') positions=positions.filter(p=>p.item.status===mrpOrdersFilter);
+  if(mrpOrdersFilter!=='all') positions=positions.filter(p=>mrpEffectiveStatus(p.order,p.item)===mrpOrdersFilter);
   if(searchVal){
     positions=positions.filter(p=>
       p.item.name.toLowerCase().includes(searchVal) || p.order.num.toLowerCase().includes(searchVal)
     );
+  }
+  if(actF) positions=positions.filter(p=>p.item.category===actF);
+  if(respF) positions=positions.filter(p=>p.item.resp===respF);
+  if(stageF){
+    positions=positions.filter(p=>{
+      const prog=prodProgress[itemKeyOf(p.order.num,p.itemIdx)];
+      return prog && prog.stages.some(s=>s.stage===stageF);
+    });
+  }
+  if(monthF || yearF){
+    positions=positions.filter(p=>{
+      const iso=parseDMY(p.item.date||'');
+      if(!iso) return false;
+      if(yearF && iso.slice(0,4)!==yearF) return false;
+      if(monthF && +iso.slice(5,7)!==+monthF) return false;
+      return true;
+    });
+  }
+  if(sortBy==='deadline'){
+    positions=[...positions].sort((a,b)=>(parseDMY(a.item.date||'')||'').localeCompare(parseDMY(b.item.date||'')||''));
+  } else {
+    positions=[...positions].sort((a,b)=>a.order.num.localeCompare(b.order.num, undefined, {numeric:true}));
   }
 
   if(positions.length===0){
@@ -34098,11 +34177,15 @@ function renderMrpOrdersJournal(){
     const {order,item,itemIdx}=p;
     const hasTechCard=item.techCard && item.techCard.length>0;
     const cols=hasTechCard ? sfColumnsForItem(item) : [];
-    const stageIdx=item.shopFloorStage!==undefined ? item.shopFloorStage : 0;
-    const stageName=hasTechCard ? (cols[stageIdx]||'—') : 'Нет техкарты';
-    const progClass=PROGRESS_CLASS[item.status];
-    const badgeClass=STATUS_BADGE[item.status];
-    const statusLabel=STATUS_LABELS[item.status];
+    const stageIdxOld=item.shopFloorStage!==undefined ? item.shopFloorStage : 0;
+    const wbProgress = prodProgress[itemKeyOf(order.num,itemIdx)];
+    const stageName = wbProgress && wbProgress.stages.length
+      ? wbProgress.stages.map(s=>s.stage||'(без названия)').join(', ')
+      : (hasTechCard ? (cols[stageIdxOld]||'—') : (wbProgress?.completed?'Завершено без этапов':'Нет данных'));
+    const effStatus=mrpEffectiveStatus(order,item);
+    const progClass=PROGRESS_CLASS[effStatus];
+    const badgeClass=STATUS_BADGE[effStatus];
+    const statusLabel=STATUS_LABELS[effStatus];
     const itMargin=hasTechCard ? calcItemMargin(item,order) : null;
     const marginBit=itMargin
       ? `<span class="${marginPctClass(itMargin.marginPct)}" style="font-size:10.5px;margin-left:5px">${itMargin.marginPct}%</span>`
