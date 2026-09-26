@@ -2244,6 +2244,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showMrpTab('shopfloor',this)">🏭 Производство</div>
         <div class="tab" onclick="showMrpTab('worksheet',this)">📋 Рабочий лист производства</div>
         <div class="tab" onclick="showMrpTab('techcards',this)">📐 Технологические карты</div>
+        <div class="tab" onclick="showMrpTab('workload',this)">📊 Загрузка цехов</div>
       </div>
 
       <!-- TAB: real production summary journal (built from ordersData) -->
@@ -2423,6 +2424,20 @@ window.onerror = function(msg, src, line, col){
         </div>
 
         <div id="tc-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px"></div>
+      </div>
+
+      <!-- TAB: Загрузка цехов — сколько позиций сейчас висит в каждом цехе,
+           и что горит по срокам. Без длительностей и зависимостей — только
+           наглядность на основе того, что уже реально введено. -->
+      <div class="mrp-tab" id="mrp-workload" style="display:none">
+        <div class="section-sub" style="margin-bottom:14px">Незавершённые этапы (не проведённые) по цехам — только то, что реально назначено на Рабочем листе производства</div>
+        <div id="workload-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:20px"></div>
+
+        <div class="section-sub" style="margin-bottom:10px">Все незавершённые позиции по срочности отправки</div>
+        <table class="data-table">
+          <thead><tr><th>Срочность</th><th>Заказ</th><th>Товар</th><th>Цех(а)</th><th>Срок</th></tr></thead>
+          <tbody id="workload-tbody"></tbody>
+        </table>
       </div>
     </div>
 
@@ -18501,7 +18516,82 @@ function showMrpTab(tab, el){
   }
   if(tab==='worksheet') initProdWorksheet();
   if(tab==='techcards') initTechCardsTab();
+  if(tab==='workload') renderWorkshopLoad();
 }
+
+// Загрузка цехов — сколько позиций сейчас "висит" (есть непроведённый этап)
+// в каждом цехе, и что из этого горит по сроку отправки. Без длительностей
+// и зависимостей операций — просто наглядность на основе введённых данных.
+function renderWorkshopLoad(){
+  const grid = document.getElementById('workload-grid');
+  const tbody = document.getElementById('workload-tbody');
+  if(!grid || !tbody) return;
+
+  const today = new Date().toISOString().slice(0,10);
+  const weekAhead = new Date(); weekAhead.setDate(weekAhead.getDate()+7);
+  const weekStr = weekAhead.toISOString().slice(0,10);
+
+  // Собираем все позиции с хотя бы одним непроведённым этапом
+  const pending = [];
+  Object.entries(prodProgress).forEach(([itemKey, p])=>{
+    const openStages = (p.stages||[]).filter(s=>!s.posted);
+    if(!openStages.length) return;
+    const [orderNum, itemIdxStr] = itemKey.split('|');
+    const order = ordersData.find(o=>o.num===orderNum);
+    const item = order?.items?.[+itemIdxStr];
+    if(!item) return;
+    const workshops = [...new Set(openStages.map(s=>s.workshop).filter(Boolean))];
+    const deadlineIso = parseDMY(item.date||'')||'';
+    let urgency='none', urgencyLabel='Без срока', urgencyClass='badge-blue';
+    if(deadlineIso){
+      if(deadlineIso<today){ urgency='overdue'; urgencyLabel='Просрочено'; urgencyClass='badge-red'; }
+      else if(deadlineIso<=weekStr){ urgency='soon'; urgencyLabel='Горит (7 дней)'; urgencyClass='badge-amber'; }
+      else { urgency='ok'; urgencyLabel='В порядке'; urgencyClass='badge-green'; }
+    }
+    pending.push({orderNum, item, workshops, deadlineIso, urgency, urgencyLabel, urgencyClass});
+  });
+
+  // По цехам
+  const byWorkshop = {};
+  PIECE_WORKSHOPS.forEach(w=>{ byWorkshop[w.id]={...w, total:0, overdue:0, soon:0}; });
+  pending.forEach(p=>{
+    p.workshops.forEach(wid=>{
+      if(!byWorkshop[wid]) return;
+      byWorkshop[wid].total++;
+      if(p.urgency==='overdue') byWorkshop[wid].overdue++;
+      if(p.urgency==='soon') byWorkshop[wid].soon++;
+    });
+  });
+
+  grid.innerHTML = Object.values(byWorkshop).map(w=>`
+    <div class="card" style="padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:13px;font-weight:600">${w.icon} ${w.name}</span>
+        <span style="font-size:22px;font-weight:700;color:var(--accent)">${w.total}</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${w.overdue?`<span class="badge badge-red" style="font-size:10px">${w.overdue} просрочено</span>`:''}
+        ${w.soon?`<span class="badge badge-amber" style="font-size:10px">${w.soon} горит</span>`:''}
+        ${!w.overdue && !w.soon && w.total>0?`<span class="badge badge-green" style="font-size:10px">Всё в порядке</span>`:''}
+        ${w.total===0?`<span style="font-size:11px;color:var(--text3)">Пусто</span>`:''}
+      </div>
+    </div>`).join('');
+
+  const sorted = [...pending].sort((a,b)=>{
+    const order={overdue:0, soon:1, ok:2, none:3};
+    return order[a.urgency]-order[b.urgency];
+  });
+
+  tbody.innerHTML = sorted.length ? sorted.map(p=>`
+    <tr>
+      <td><span class="badge ${p.urgencyClass}" style="font-size:11px">${p.urgencyLabel}</span></td>
+      <td style="font-family:monospace;color:var(--accent)">${p.orderNum}</td>
+      <td>${p.item.name}</td>
+      <td>${p.workshops.map(wid=>PIECE_WORKSHOPS.find(w=>w.id===wid)?.name||wid).join(', ')||'—'}</td>
+      <td>${p.deadlineIso?p.item.date:'—'}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Нет незавершённых этапов</td></tr>';
+}
+
 
 // Switch to a given Покупатели sub-tab by its data key ('persons'|'clients'|'dealers'|'salons')
 function switchToCustTabByKey(key){
