@@ -2105,10 +2105,6 @@ window.onerror = function(msg, src, line, col){
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       <span>Начисления ЗП</span>
     </div>
-    <div class="nav-item" onclick="showPage('techcards',this)">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
-      <span>Тех. карты</span>
-    </div>
     <div class="nav-item" onclick="showPage('mycabinet',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"/><polygon points="18,2 22,6 12,16 8,16 8,12"/></svg>
       <span>Мой кабинет</span>
@@ -2247,6 +2243,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab active" onclick="showMrpTab('orders',this)">Производственные заказы</div>
         <div class="tab" onclick="showMrpTab('shopfloor',this)">🏭 Производство</div>
         <div class="tab" onclick="showMrpTab('worksheet',this)">📋 Рабочий лист производства</div>
+        <div class="tab" onclick="showMrpTab('techcards',this)">📐 Технологические карты</div>
       </div>
 
       <!-- TAB: real production summary journal (built from ordersData) -->
@@ -2382,6 +2379,50 @@ window.onerror = function(msg, src, line, col){
             <div id="pwb-scrollbar-phantom" style="height:1px"></div>
           </div>
         </div>
+      </div>
+
+      <!-- TAB: Технологические карты (перенесено со старой отдельной страницы,
+           теперь с настоящим сохранением в Supabase и всеми видами привязки) -->
+      <div class="mrp-tab" id="mrp-techcards" style="display:none">
+        <div class="section-header">
+          <div>
+            <div class="section-sub">Шаблоны этапов производства — сами по себе, привязанные к изделию, к категории, или автоматически подтянутые из заказов (Рабочий лист производства)</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <select id="tc-type-filter" onchange="renderTechCardsPage()" style="font-size:13px">
+              <option value="all">Все типы</option>
+              <option value="template">Шаблоны</option>
+              <option value="item">Привязаны к изделию</option>
+              <option value="category">Привязаны к категории</option>
+              <option value="order">Привязаны к заказу</option>
+            </select>
+            <input id="tc-search" type="search" placeholder="Поиск..."
+              oninput="renderTechCardsPage()" style="font-size:13px;width:200px">
+            <button class="btn btn-primary btn-sm" onclick="openTCTemplate(null,'template')">+ Новый шаблон</button>
+          </div>
+        </div>
+
+        <!-- KPI -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div class="card" style="padding:14px 16px">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Шаблоны</div>
+            <div style="font-size:22px;font-weight:700;color:var(--accent)" id="tc-kpi-template">0</div>
+          </div>
+          <div class="card" style="padding:14px 16px">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:4px">По изделию</div>
+            <div style="font-size:22px;font-weight:700;color:var(--green)" id="tc-kpi-item">0</div>
+          </div>
+          <div class="card" style="padding:14px 16px">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:4px">По категории</div>
+            <div style="font-size:22px;font-weight:700;color:var(--purple)" id="tc-kpi-category">0</div>
+          </div>
+          <div class="card" style="padding:14px 16px">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:4px">По заказу (из рабочего листа)</div>
+            <div style="font-size:22px;font-weight:700" id="tc-kpi-order">0</div>
+          </div>
+        </div>
+
+        <div id="tc-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px"></div>
       </div>
     </div>
 
@@ -7789,57 +7830,14 @@ window.onerror = function(msg, src, line, col){
       </div>
     </div>
 
-    <div class="page" id="page-techcards">
-      <div class="section-header">
-        <div>
-          <div class="section-title">Технологические карты</div>
-          <div class="section-sub">Шаблоны этапов производства по видам изделий</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <select id="tc-category-filter" onchange="renderTechCardsPage()" style="font-size:13px">
-            <option value="all">Все категории</option>
-            <option value="Стул">🪑 Стул</option>
-            <option value="Стол">🪞 Стол</option>
-            <option value="Кровать">🛏 Кровать</option>
-            <option value="Мягкая мебель">🛋 Мягкая мебель</option>
-            <option value="Корпусная мебель">🗄 Корпусная мебель</option>
-          </select>
-          <input id="tc-search" type="search" placeholder="Поиск изделия..."
-            oninput="renderTechCardsPage()" style="font-size:13px;width:200px">
-        </div>
-      </div>
-
-      <!-- KPI -->
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-        <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Всего изделий</div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent)" id="tc-kpi-total">0</div>
-        </div>
-        <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">С тех. картами</div>
-          <div style="font-size:22px;font-weight:700;color:var(--green)" id="tc-kpi-with">0</div>
-        </div>
-        <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Без тех. карты</div>
-          <div style="font-size:22px;font-weight:700;color:var(--red)" id="tc-kpi-without">0</div>
-        </div>
-        <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Средн. этапов</div>
-          <div style="font-size:22px;font-weight:700" id="tc-kpi-avg">0</div>
-        </div>
-      </div>
-
-      <!-- Список изделий -->
-      <div id="tc-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px"></div>
-    </div>
-
-    <!-- MODAL: Просмотр/редактирование шаблона тех. карты -->
+    <!-- MODAL: Просмотр/редактирование техкарты -->
     <div class="modal-overlay" id="tcTemplateModal">
       <div class="modal" style="max-width:680px;max-height:90vh;overflow-y:auto">
         <div class="modal-header">
           <span class="modal-title" id="tc-modal-title">Тех. карта</span>
           <button class="modal-close" onclick="closeModal('tcTemplateModal')">✕</button>
         </div>
+        <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center" id="tc-modal-link-row"></div>
         <div style="margin-bottom:12px;padding:10px 12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text3)" id="tc-modal-attrs"></div>
         <div id="tc-stages-list" style="margin-bottom:16px"></div>
         <div style="display:flex;gap:8px;margin-bottom:16px">
@@ -7847,7 +7845,7 @@ window.onerror = function(msg, src, line, col){
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button class="btn btn-ghost" onclick="closeModal('tcTemplateModal')">Закрыть</button>
-          <button class="btn btn-primary" onclick="saveTCTemplate()">💾 Сохранить шаблон</button>
+          <button class="btn btn-primary" onclick="saveTCTemplate()">💾 Сохранить</button>
         </div>
       </div>
     </div>
@@ -16540,102 +16538,146 @@ function deleteTariffRow(id){
 // ТЕХНОЛОГИЧЕСКИЕ КАРТЫ — справочник шаблонов
 // ════════════════════════════════════════════════════════════════
 
-let tcCurrentProduct = null; // текущее изделие в модалке
+let techCardsData = [];      // реальные карты из Supabase (шаблон/изделие/категория)
+let tcCurrentCard = null;    // {id, link_type, link_key, name} — редактируемая карта, или null для новой
 let tcEditStages = [];       // этапы редактируемого шаблона
+
+async function initTechCardsTab(){
+  if(!techCardsData.length){
+    try{ techCardsData = await sbFetchAllPages('tech_cards','select=*') || []; }
+    catch(e){ console.warn('⚠️ Не удалось загрузить технологические карты:', e.message); }
+  }
+  if(!catalogData.length && typeof loadCatalogFromDB==='function') await loadCatalogFromDB();
+  if(!_prodWbLoaded){
+    try{
+      const [wb, pr] = await Promise.all([
+        sbFetchAllPages('production_worksheet','select=*'),
+        sbFetchAllPages('production_progress','select=*'),
+      ]);
+      (pr||[]).forEach(p=>{ prodProgress[p.item_key] = {id:p.id, version:1, stages:p.stages||[], materials:p.materials||[], completed:p.completed||false}; });
+      prodWbRows = (wb||[]).map(r=>({orderNum:r.order_num, itemIdx:r.item_idx, itemKey:itemKeyOf(r.order_num,r.item_idx)}));
+      _prodWbLoaded = true;
+    } catch(e){}
+  }
+  renderTechCardsPage();
+}
+
+const TC_TYPE_LABELS = {template:'📐 Шаблон', item:'🪑 По изделию', category:'📂 По категории', order:'📦 По заказу'};
+const TC_TYPE_BADGE  = {template:'badge-blue', item:'badge-green', category:'badge-purple', order:'badge-amber'};
 
 function renderTechCardsPage(){
   const grid = document.getElementById('tc-cards-grid');
   if(!grid) return;
 
-  const filterCat = document.getElementById('tc-category-filter')?.value||'all';
-  const search    = (document.getElementById('tc-search')?.value||'').toLowerCase();
+  const typeFilter = document.getElementById('tc-type-filter')?.value||'all';
+  const search      = (document.getElementById('tc-search')?.value||'').toLowerCase();
 
-  const allProducts = Object.keys(FURNITURE_CATALOG);
-  const filtered = allProducts.filter(name=>{
-    const def = FURNITURE_CATALOG[name];
-    const catOk = filterCat==='all' || def.cat===filterCat;
-    const searchOk = !search || name.toLowerCase().includes(search);
-    return catOk && searchOk;
-  });
-
-  // KPI
-  const withCard    = allProducts.filter(n=>techCardTemplates[n]?.length>0).length;
-  const withoutCard = allProducts.length - withCard;
-  const avgStages   = withCard>0
-    ? Math.round(allProducts.filter(n=>techCardTemplates[n]?.length>0)
-        .reduce((s,n)=>s+techCardTemplates[n].length,0) / withCard)
-    : 0;
-
-  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-  set('tc-kpi-total',   allProducts.length);
-  set('tc-kpi-with',    withCard);
-  set('tc-kpi-without', withoutCard);
-  set('tc-kpi-avg',     avgStages+' этапов');
-
-  // Группируем по категории
-  const catIcons={'Стул':'🪑','Стол':'🪞','Кровать':'🛏',
-    'Мягкая мебель':'🛋','Корпусная мебель':'🗄'};
-
-  grid.innerHTML = filtered.map(name=>{
-    const def    = FURNITURE_CATALOG[name];
-    const stages = techCardTemplates[name]||[];
-    const icon   = catIcons[def.cat]||'🪑';
-    const hasCard= stages.length>0;
-
-    const stagesList = stages.slice(0,4).map(s=>
-      `<span style="font-size:11px;padding:2px 8px;background:var(--bg3);
-        border-radius:10px;color:var(--text2)">${s.name}</span>`
-    ).join('');
-    const more = stages.length>4
-      ? `<span style="font-size:11px;color:var(--text3)">+${stages.length-4} ещё</span>`
-      : '';
-
-    return `<div class="card" style="padding:16px;cursor:pointer"
-      onclick="openTCTemplate('${name.replace(/'/g,"\'")}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div>
-          <div style="font-size:13px;font-weight:600">${icon} ${name}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">${def.cat}</div>
-        </div>
-        <span class="badge ${hasCard?'badge-green':'badge-red'}" style="font-size:10px">
-          ${hasCard?stages.length+' этапов':'Нет карты'}
-        </span>
-      </div>
-      ${hasCard?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">
-        ${stagesList}${more}
-      </div>`:`<div style="font-size:12px;color:var(--text3);margin-top:8px">
-        Тех. карта не задана — нажмите чтобы создать
-      </div>`}
-    </div>`;
-  }).join('') || `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text3)">
-    Ничего не найдено
-  </div>`;
-}
-
-function openTCTemplate(productName){
-  tcCurrentProduct = productName;
-  const def    = FURNITURE_CATALOG[productName];
-  const stages = techCardTemplates[productName]||[];
-
-  // Копируем этапы для редактирования
-  tcEditStages = stages.map(s=>({
-    name: s.name,
-    responsible: s.responsible||'',
-    materials: (s.materials||[]).map(m=>({...m}))
+  // 1) Настоящие карты (шаблон/изделие/категория) — из Supabase
+  let cards = techCardsData.map(c=>({
+    key:'db:'+c.id, dbId:c.id, type:c.link_type, linkKey:c.link_key,
+    name: c.name || c.link_key || '(без названия)',
+    stages: c.stages||[],
   }));
 
-  // Заголовок
-  const titleEl = document.getElementById('tc-modal-title');
-  if(titleEl) titleEl.textContent = productName;
+  // 2) Карты "по заказу" — автоматически из того, что уже занесено в
+  // Рабочем листе производства (только для просмотра — редактируются там же)
+  Object.entries(prodProgress).forEach(([itemKey, p])=>{
+    if(!p.stages || !p.stages.length) return;
+    const [orderNum, itemIdxStr] = itemKey.split('|');
+    const order = ordersData.find(o=>o.num===orderNum);
+    const item = order?.items?.[+itemIdxStr];
+    if(!item) return;
+    cards.push({
+      key:'order:'+itemKey, type:'order', linkKey:itemKey,
+      name: `${item.name} (заказ ${orderNum})`,
+      stages: p.stages.map(s=>({name:s.stage||'(без названия)', responsible:(s.assignees||[]).map(a=>a.name).join(', '), materials:[]})),
+      readOnly:true,
+    });
+  });
 
-  // Атрибуты изделия
+  const filtered = cards.filter(c=>{
+    const typeOk = typeFilter==='all' || c.type===typeFilter;
+    const searchOk = !search || c.name.toLowerCase().includes(search);
+    return typeOk && searchOk;
+  });
+
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('tc-kpi-template', cards.filter(c=>c.type==='template').length);
+  set('tc-kpi-item',     cards.filter(c=>c.type==='item').length);
+  set('tc-kpi-category', cards.filter(c=>c.type==='category').length);
+  set('tc-kpi-order',    cards.filter(c=>c.type==='order').length);
+
+  grid.innerHTML = filtered.map(c=>{
+    const stages = c.stages||[];
+    const hasCard = stages.length>0;
+    const stagesList = stages.slice(0,4).map(s=>
+      `<span style="font-size:11px;padding:2px 8px;background:var(--bg3);border-radius:10px;color:var(--text2)">${s.name}</span>`
+    ).join('');
+    const more = stages.length>4 ? `<span style="font-size:11px;color:var(--text3)">+${stages.length-4} ещё</span>` : '';
+    const clickAttr = c.readOnly ? '' : `onclick="openTCTemplate('${c.key}')"`;
+    return `<div class="card" style="padding:16px;${c.readOnly?'':'cursor:pointer'}" ${clickAttr}>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:600">${c.name}</div>
+          <span class="badge ${TC_TYPE_BADGE[c.type]}" style="font-size:10px;margin-top:4px;display:inline-block">${TC_TYPE_LABELS[c.type]}</span>
+        </div>
+        <span class="badge ${hasCard?'badge-green':'badge-red'}" style="font-size:10px">${hasCard?stages.length+' этапов':'Нет карты'}</span>
+      </div>
+      ${hasCard?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${stagesList}${more}</div>`
+        :`<div style="font-size:12px;color:var(--text3);margin-top:8px">Этапы не заданы</div>`}
+      ${c.readOnly?`<div style="font-size:10px;color:var(--text3);margin-top:8px">Автоматически из Рабочего листа производства — редактируется там же</div>`:''}
+    </div>`;
+  }).join('') || `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text3)">Ничего не найдено</div>`;
+}
+
+function openTCTemplate(key){
+  let card = null;
+  if(key){
+    if(key.startsWith('db:')){
+      const id = +key.slice(3);
+      const c = techCardsData.find(x=>x.id===id);
+      card = {dbId:c.id, type:c.link_type, linkKey:c.link_key, name:c.name, stages:c.stages||[]};
+    }
+  }
+  if(!card){
+    // Новая карта — сначала спрашиваем тип и, если нужно, привязку
+    const type = prompt('Тип карты: template (шаблон), item (по изделию — укажите название товара), category (по категории — укажите название категории)', 'template');
+    if(!type || !['template','item','category'].includes(type)) return;
+    let linkKey = null, name = null;
+    if(type==='item'){
+      linkKey = prompt('Название товара (как в каталоге):','');
+      if(!linkKey) return;
+      name = linkKey;
+    } else if(type==='category'){
+      linkKey = prompt('Название категории:','');
+      if(!linkKey) return;
+      name = 'Категория: '+linkKey;
+    } else {
+      name = prompt('Название шаблона:','Новый шаблон');
+      if(!name) return;
+    }
+    card = {dbId:null, type, linkKey, name, stages:[]};
+  }
+
+  tcCurrentCard = card;
+  tcEditStages = (card.stages||[]).map(s=>({
+    name: s.name, responsible: s.responsible||'', materials: (s.materials||[]).map(m=>({...m})),
+  }));
+
+  const titleEl = document.getElementById('tc-modal-title');
+  if(titleEl) titleEl.textContent = card.name;
+
+  const linkRow = document.getElementById('tc-modal-link-row');
+  if(linkRow) linkRow.innerHTML = `<span class="badge ${TC_TYPE_BADGE[card.type]}" style="font-size:11px">${TC_TYPE_LABELS[card.type]}</span>${card.linkKey?`<span style="font-size:12px;color:var(--text3)">${card.linkKey}</span>`:''}`;
+
   const attrsEl = document.getElementById('tc-modal-attrs');
-  if(attrsEl && def){
-    const attrs = Object.entries(def.attrs).map(([k,v])=>{
-      const val = Array.isArray(v) ? v.join(' / ') : v;
-      return `<span style="margin-right:12px"><b>${k}:</b> ${val}</span>`;
-    }).join('');
-    attrsEl.innerHTML = attrs||'Атрибуты не заданы';
+  if(attrsEl){
+    if(card.type==='item'){
+      const cat = catalogData.find(p=>p.name===card.linkKey);
+      attrsEl.innerHTML = cat ? `<b>Категория:</b> ${cat.category||'—'}` : 'Товар не найден в текущем каталоге (карта всё равно сохранится по названию)';
+    } else {
+      attrsEl.innerHTML = '';
+    }
   }
 
   renderTCStagesList();
@@ -16699,21 +16741,34 @@ function moveTCStage(idx, dir){
   renderTCStagesList();
 }
 
-function saveTCTemplate(){
-  if(!tcCurrentProduct) return;
-  // Сохраняем в techCardTemplates
-  techCardTemplates[tcCurrentProduct] = tcEditStages.map(s=>({
-    name: s.name,
-    responsible: s.responsible||'',
-    materials: s.materials||[],
-  }));
+async function saveTCTemplate(){
+  if(!tcCurrentCard) return;
+  const payload = {
+    link_type: tcCurrentCard.type,
+    link_key: tcCurrentCard.linkKey||null,
+    name: tcCurrentCard.name,
+    stages: tcEditStages.map(s=>({name:s.name, responsible:s.responsible||'', materials:s.materials||[]})),
+    updated_at: new Date().toISOString(),
+  };
+  try{
+    if(tcCurrentCard.dbId){
+      await sbPatch('tech_cards', `id=eq.${tcCurrentCard.dbId}`, payload);
+      const idx = techCardsData.findIndex(c=>c.id===tcCurrentCard.dbId);
+      if(idx>-1) techCardsData[idx] = {...techCardsData[idx], ...payload};
+    } else {
+      const res = await sbInsert('tech_cards', payload);
+      techCardsData.push(res);
+    }
+  } catch(e){
+    alert('Не удалось сохранить технологическую карту: '+e.message);
+    return;
+  }
   closeModal('tcTemplateModal');
   renderTechCardsPage();
-  // Показываем уведомление
   const n=document.createElement('div');
   n.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--green);color:#fff;'+
     'padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;font-weight:500';
-  n.textContent='✅ Шаблон «'+tcCurrentProduct+'» сохранён';
+  n.textContent='✅ «'+tcCurrentCard.name+'» сохранена';
   document.body.appendChild(n);
   setTimeout(()=>n.remove(),2500);
 }
@@ -18445,6 +18500,7 @@ function showMrpTab(tab, el){
     else renderMrpOrdersJournal();
   }
   if(tab==='worksheet') initProdWorksheet();
+  if(tab==='techcards') initTechCardsTab();
 }
 
 // Switch to a given Покупатели sub-tab by its data key ('persons'|'clients'|'dealers'|'salons')
