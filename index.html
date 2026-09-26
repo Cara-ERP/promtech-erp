@@ -2277,6 +2277,10 @@ window.onerror = function(msg, src, line, col){
             <option value="num">По номеру</option>
             <option value="deadline">По сроку</option>
           </select>
+          <select id="mrp-sort-dir" onchange="renderMrpOrdersJournal()" style="font-size:12px;width:auto">
+            <option value="desc">Сначала новые</option>
+            <option value="asc">Сначала старые</option>
+          </select>
         </div>
         <table class="data-table">
           <thead><tr><th>Номер</th><th>Изделие</th><th>Вид деятельности</th><th>Кол-во</th><th>Текущий этап</th><th>Прогресс</th><th>Срок</th><th>Статус</th><th>Отв.</th></tr></thead>
@@ -34169,6 +34173,7 @@ function renderMrpOrdersJournal(){
   const monthF=document.getElementById('mrp-f-month')?.value||'';
   const yearF=document.getElementById('mrp-f-year')?.value||'';
   const sortBy=document.getElementById('mrp-sort')?.value||'num';
+  const sortDir=document.getElementById('mrp-sort-dir')?.value||'desc';
 
   // Status counts always reflect the full (unsearched) set, so tab badges stay meaningful
   const counts={all:positions.length, queue:0, progress:0, done:0};
@@ -34201,10 +34206,11 @@ function renderMrpOrdersJournal(){
       return true;
     });
   }
+  const dirMul = sortDir==='asc' ? -1 : 1;
   if(sortBy==='deadline'){
-    positions=[...positions].sort((a,b)=>(parseDMY(a.item.date||'')||'').localeCompare(parseDMY(b.item.date||'')||''));
+    positions=[...positions].sort((a,b)=>dirMul*((parseDMY(b.item.date||'')||'').localeCompare(parseDMY(a.item.date||'')||'')));
   } else {
-    positions=[...positions].sort((a,b)=>a.order.num.localeCompare(b.order.num, undefined, {numeric:true}));
+    positions=[...positions].sort((a,b)=>dirMul*(b.order.num.localeCompare(a.order.num, undefined, {numeric:true})));
   }
 
   if(positions.length===0){
