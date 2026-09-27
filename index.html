@@ -2245,6 +2245,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showMrpTab('worksheet',this)">📋 Рабочий лист производства</div>
         <div class="tab" onclick="showMrpTab('techcards',this)">📐 Технологические карты</div>
         <div class="tab" onclick="showMrpTab('workload',this)">📊 Загрузка цехов</div>
+        <div class="tab" onclick="showMrpTab('worklog',this)">📅 Журнал работ</div>
       </div>
 
       <!-- TAB: real production summary journal (built from ordersData) -->
@@ -2437,6 +2438,28 @@ window.onerror = function(msg, src, line, col){
         <table class="data-table">
           <thead><tr><th>Срочность</th><th>Заказ</th><th>Товар</th><th>Цех(а)</th><th>Срок</th></tr></thead>
           <tbody id="workload-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- TAB: Журнал работ — построчно по проведённым этапам за выбранный
+           месяц, с фильтрами по цеху/исполнителю/заказу/категории/изделию/работе -->
+      <div class="mrp-tab" id="mrp-worklog" style="display:none">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+          <select id="wl-month" onchange="renderWorkLog()" style="font-size:12px;width:auto">
+            ${PL_MONTH_LABELS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('')}
+          </select>
+          <select id="wl-year" onchange="renderWorkLog()" style="font-size:12px;width:auto"></select>
+          <select id="wl-workshop" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
+          <select id="wl-exec" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все исполнители</option></select>
+          <input id="wl-order" type="text" placeholder="№ заказа..." style="width:100px;font-size:12px" oninput="renderWorkLog()">
+          <select id="wl-category" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все категории</option></select>
+          <input id="wl-item" type="text" placeholder="Изделие..." style="width:130px;font-size:12px" oninput="renderWorkLog()">
+          <select id="wl-stage" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все работы</option></select>
+          <button class="btn btn-ghost btn-sm" onclick="exportWorkLogExcel()">📥 Excel</button>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Дата</th><th>Цех</th><th>Исполнитель</th><th>Заказ</th><th>Изделие</th><th>Категория</th><th>Работа</th></tr></thead>
+          <tbody id="wl-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -18518,7 +18541,124 @@ function showMrpTab(tab, el){
   if(tab==='worksheet') initProdWorksheet();
   if(tab==='techcards') initTechCardsTab();
   if(tab==='workload') renderWorkshopLoad();
+  if(tab==='worklog') renderWorkLog();
 }
+
+// Журнал работ — построчно: каждая строка это один проведённый этап одного
+// исполнителя в конкретный день. Если у этапа несколько исполнителей —
+// столько же строк (иначе фильтр по исполнителю не сработает честно).
+function collectWorkLogEntries(){
+  const entries = [];
+  Object.entries(prodProgress).forEach(([itemKey, p])=>{
+    const [orderNum, itemIdxStr] = itemKey.split('|');
+    const order = ordersData.find(o=>o.num===orderNum);
+    const item = order?.items?.[+itemIdxStr];
+    if(!item) return;
+    (p.stages||[]).forEach(s=>{
+      if(!s.posted || !s.postedDate) return;
+      const list = (s.assignees&&s.assignees.length) ? s.assignees.map(a=>a.name) : ['—'];
+      list.forEach(execName=>{
+        entries.push({
+          date: s.postedDate, workshop: s.workshop||'', exec: execName,
+          orderNum, itemName: item.name, category: item.category||'—', stage: s.stage||'(без названия)',
+        });
+      });
+    });
+  });
+  return entries;
+}
+
+function renderWorkLog(){
+  const tbody = document.getElementById('wl-tbody');
+  if(!tbody) return;
+  const all = collectWorkLogEntries();
+
+  // Год — заполняем один раз, по умолчанию текущий
+  const yearSel = document.getElementById('wl-year');
+  if(yearSel && yearSel.options.length===0){
+    const years=[...new Set(all.map(e=>e.date.slice(0,4)))].sort().reverse();
+    const curYear=String(new Date().getFullYear());
+    if(!years.includes(curYear)) years.unshift(curYear);
+    yearSel.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join('');
+    yearSel.value = curYear;
+    document.getElementById('wl-month').value = String(new Date().getMonth()+1);
+  }
+  const wsSel = document.getElementById('wl-workshop');
+  if(wsSel && wsSel.options.length<=1){
+    wsSel.innerHTML='<option value="">Все цеха</option>'+PIECE_WORKSHOPS.map(w=>`<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
+  }
+  const execSel = document.getElementById('wl-exec');
+  if(execSel && execSel.options.length<=1){
+    execSel.innerHTML='<option value="">Все исполнители</option>'+employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('');
+  }
+  const catSel = document.getElementById('wl-category');
+  if(catSel && catSel.options.length<=1){
+    const cats=[...new Set(all.map(e=>e.category).filter(Boolean))].sort();
+    catSel.innerHTML='<option value="">Все категории</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  }
+  const stageSel = document.getElementById('wl-stage');
+  if(stageSel && stageSel.options.length<=1){
+    const stages=[...new Set(all.map(e=>e.stage).filter(Boolean))].sort();
+    stageSel.innerHTML='<option value="">Все работы</option>'+stages.map(s=>`<option value="${s}">${s}</option>`).join('');
+  }
+
+  const month = document.getElementById('wl-month')?.value||String(new Date().getMonth()+1);
+  const year = document.getElementById('wl-year')?.value||String(new Date().getFullYear());
+  const wsF = document.getElementById('wl-workshop')?.value||'';
+  const execF = document.getElementById('wl-exec')?.value||'';
+  const orderF = (document.getElementById('wl-order')?.value||'').toLowerCase();
+  const catF = document.getElementById('wl-category')?.value||'';
+  const itemF = (document.getElementById('wl-item')?.value||'').toLowerCase();
+  const stageF = document.getElementById('wl-stage')?.value||'';
+
+  const monthPrefix = `${year}-${String(month).padStart(2,'0')}`;
+  const filtered = all.filter(e=>{
+    if(!e.date.startsWith(monthPrefix)) return false;
+    if(wsF && e.workshop!==wsF) return false;
+    if(execF && e.exec!==execF) return false;
+    if(orderF && !e.orderNum.toLowerCase().includes(orderF)) return false;
+    if(catF && e.category!==catF) return false;
+    if(itemF && !e.itemName.toLowerCase().includes(itemF)) return false;
+    if(stageF && e.stage!==stageF) return false;
+    return true;
+  }).sort((a,b)=>a.date.localeCompare(b.date));
+
+  window._workLogFiltered = filtered;
+
+  tbody.innerHTML = filtered.length ? filtered.map(e=>{
+    const w = PIECE_WORKSHOPS.find(x=>x.id===e.workshop);
+    return `<tr>
+      <td style="font-family:monospace;font-size:12px">${e.date.split('-').reverse().join('.')}</td>
+      <td style="font-size:12px">${w?w.icon+' '+w.name:'—'}</td>
+      <td style="font-size:12px">${e.exec}</td>
+      <td style="font-family:monospace;color:var(--accent)">${e.orderNum}</td>
+      <td>${e.itemName}</td>
+      <td style="font-size:12px;color:var(--text3)">${e.category}</td>
+      <td style="font-size:12px">${e.stage}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">Нет проведённых работ за выбранный период</td></tr>';
+}
+
+function exportWorkLogExcel(){
+  if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд.');return;}
+  const rows = window._workLogFiltered||[];
+  if(!rows.length){alert('Нет данных для выгрузки.');return;}
+  const aoa = [
+    ['Журнал работ'],
+    [],
+    ['Дата','Цех','Исполнитель','Заказ','Изделие','Категория','Работа'],
+    ...rows.map(e=>{
+      const w = PIECE_WORKSHOPS.find(x=>x.id===e.workshop);
+      return [e.date.split('-').reverse().join('.'), w?w.name:'—', e.exec, e.orderNum, e.itemName, e.category, e.stage];
+    }),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:12},{wch:18},{wch:20},{wch:12},{wch:26},{wch:16},{wch:20}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Журнал работ');
+  XLSX.writeFile(wb, `PromTech_Zhurnal_rabot_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
 
 // Загрузка цехов — сколько позиций сейчас "висит" (есть непроведённый этап)
 // в каждом цехе, и что из этого горит по сроку отправки. Без длительностей
@@ -32797,6 +32937,7 @@ async function postPwbStage(idx){
       if(_payrollData) _payrollData.accruals.push(res);
     }
     s.posted = true;
+    s.postedDate = today;
     s.accrualIds = accrualIds;
     await saveProdProgress(_pwbCurrentItemKey);
     renderPwbStagesList();
@@ -32815,6 +32956,7 @@ async function unpostPwbStage(idx){
       if(_payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>a.id!==id);
     }
     s.posted = false;
+    s.postedDate = null;
     s.accrualIds = [];
     await saveProdProgress(_pwbCurrentItemKey);
     renderPwbStagesList();
