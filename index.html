@@ -742,6 +742,7 @@ async function loadStaffFromDB(){
             deduction_osms_fixed: s.deduction_osms_fixed||0,
             status:     s.status||'active',
             fired_date: s.fired_date||null,
+            pieceGoal:  s.piece_goal||400,
             initials:s.name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(),
             color:'rgba(79,142,247,.15)', tc:'var(--accent)',
           });
@@ -7923,13 +7924,10 @@ window.onerror = function(msg, src, line, col){
         <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)">
           <span style="font-weight:600">Рейтинг сотрудников</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="pw-filter-month" onchange="renderPieceWages()" style="font-size:12px"></select>
+            <select id="pw-filter-year" onchange="renderPieceWages()" style="font-size:12px"></select>
             <select id="pw-filter-act" onchange="renderPieceWages()" style="font-size:12px">
-              <option value="all">Все виды деятельности</option>
-              <option value="chair">🪑 Стул</option>
-              <option value="table">🪞 Стол</option>
-              <option value="sofa">🛋 Мягкая мебель</option>
-              <option value="bed">🛏 Кровать</option>
-              <option value="cabinet">🗄 Корпусная мебель</option>
+              <option value="all">Все категории</option>
             </select>
             <select id="pw-filter-ws" onchange="renderPieceWages()" style="font-size:12px">
               <option value="all">Все цеха</option>
@@ -7959,7 +7957,7 @@ window.onerror = function(msg, src, line, col){
       </div>
 
       <!-- Детализация по сотруднику -->
-      <div id="pw-detail" style="display:none" class="card" style="padding:0;margin-bottom:16px">
+      <div id="pw-detail" style="display:none;padding:0;margin-bottom:16px" class="card">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
           <span style="font-weight:600" id="pw-detail-title">Детализация</span>
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pw-detail').style.display='none'">✕</button>
@@ -16107,7 +16105,26 @@ function showPage(id, el){
     });
     ensureEsfLinksLoaded().then(()=>{ renderCashTx(); renderBankTx(); if(typeof renderAllTx==='function') renderAllTx(); });
   }
-  if(id==='wages') renderPieceWages();
+  if(id==='wages'){
+    const wagesDeps = [];
+    if(!employeesData.length && typeof loadStaffFromDB==='function') wagesDeps.push(loadStaffFromDB());
+    if(!ordersData.length && typeof loadOrdersFromDB==='function') wagesDeps.push(loadOrdersFromDB());
+    if(!catalogData.length && typeof loadCatalogFromDB==='function') wagesDeps.push(loadCatalogFromDB());
+    if(!_prodWbLoaded){
+      wagesDeps.push(
+        Promise.all([
+          sbFetchAllPages('production_worksheet','select=*'),
+          sbFetchAllPages('production_progress','select=*'),
+        ]).then(([wb, pr])=>{
+          (pr||[]).forEach(p=>{ prodProgress[p.item_key] = {id:p.id, version:1, stages:p.stages||[], materials:p.materials||[], completed:p.completed||false}; });
+          prodWbRows = (wb||[]).map(r=>({orderNum:r.order_num, itemIdx:r.item_idx, itemKey:itemKeyOf(r.order_num,r.item_idx)}));
+          _prodWbLoaded = true;
+        }).catch(e=>console.warn('⚠️ Не удалось загрузить прогресс рабочего листа:', e.message))
+      );
+    }
+    if(wagesDeps.length) Promise.all(wagesDeps).then(renderPieceWages);
+    else renderPieceWages();
+  }
   if(id==='techcards') renderTechCardsPage();
   if(id==='suppliers'){
     renderSupplierList();
@@ -16816,53 +16833,84 @@ function renderPieceWages(){
   const tbody = document.getElementById('piece-wages-tbody');
   if(!tbody) return;
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-
-  // Фильтры
-  const filterWs  = document.getElementById("pw-filter-ws")?.value||'all';
-  const filterAct = document.getElementById("pw-filter-act")?.value||'all';
   const wsh = id => PIECE_WORKSHOPS.find(w=>w.id===id);
-  const act = id => ACTIVITY_TYPES.find(a=>a.id===id);
 
-  const sorted = [...wageEmployees]
-    .filter(e=>(filterWs==='all'||e.workshop===filterWs)&&
-               (filterAct==='all'||e.activity===filterAct))
-    .sort((a,b)=>b.earned-a.earned);
+  // Месяц/год — по умолчанию текущий
+  const monthSel = document.getElementById('pw-filter-month');
+  if(monthSel && monthSel.options.length===0){
+    monthSel.innerHTML = PL_MONTH_LABELS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
+    monthSel.value = String(new Date().getMonth()+1);
+  }
+  const yearSel = document.getElementById('pw-filter-year');
+  if(yearSel && yearSel.options.length===0){
+    const curYear = new Date().getFullYear();
+    const years=[curYear, curYear-1];
+    yearSel.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join('');
+    yearSel.value = String(curYear);
+  }
+  const actSel = document.getElementById('pw-filter-act');
+  if(actSel && actSel.options.length<=1){
+    const cats=[...new Set(catalogData.map(c=>c.category).filter(Boolean))].sort();
+    actSel.innerHTML = '<option value="all">Все категории</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  }
+
+  const filterWs   = document.getElementById("pw-filter-ws")?.value||'all';
+  const filterCat  = document.getElementById("pw-filter-act")?.value||'all';
+  const month = document.getElementById('pw-filter-month')?.value || String(new Date().getMonth()+1);
+  const year  = document.getElementById('pw-filter-year')?.value  || String(new Date().getFullYear());
+  const monthPrefix = `${year}-${String(month).padStart(2,'0')}`;
+
+  const allEntries = collectWorkLogEntries().filter(e=>{
+    if(!e.date.startsWith(monthPrefix)) return false;
+    if(filterWs!=='all' && e.workshop!==filterWs) return false;
+    if(filterCat!=='all' && e.category!==filterCat) return false;
+    return true;
+  });
+
+  // Базовый список — все реальные производственные сотрудники, даже если у
+  // них ноль операций за период (они всё равно должны стоять в таблице)
+  const prodStaff = employeesData.filter(e=>e.type==='prod');
+  const rows = prodStaff.map(emp=>{
+    const own = allEntries.filter(e=>e.exec===emp.name);
+    const ops = own.length;
+    const earned = own.reduce((s,e)=>s+e.amount,0);
+    const workshops = [...new Set(own.map(e=>e.workshop).filter(Boolean))];
+    return {emp, ops, earned, workshops};
+  }).sort((a,b)=>b.earned-a.earned);
 
   let totalFot=0, totalOps=0, bestEarned=0, goalsHit=0;
 
-  tbody.innerHTML = sorted.map((emp,idx)=>{
-    const factEarned = (emp.items||[]).reduce((s,it)=>s+it.qty*it.rate, 0);
-    const earned = factEarned || emp.earned;
-    const ops    = (emp.items||[]).reduce((s,it)=>s+it.qty, 0) || emp.output;
-    totalFot  += earned;
-    totalOps  += ops;
+  tbody.innerHTML = rows.map((r,idx)=>{
+    const {emp, ops, earned, workshops} = r;
+    totalFot += earned; totalOps += ops;
     if(earned>bestEarned) bestEarned=earned;
-    if(ops>=emp.goal) goalsHit++;
-
-    const pct = emp.goal>0 ? Math.min(100,Math.round(ops/emp.goal*100)) : 0;
+    const goal = emp.pieceGoal||400;
+    if(ops>=goal) goalsHit++;
+    const pct = goal>0 ? Math.min(100,Math.round(ops/goal*100)) : 0;
     const barColor = pct>=85?'var(--green)':pct>=60?'var(--accent)':pct>=40?'var(--amber)':'var(--red)';
-    const ws = wsh(emp.workshop);
-    const st = PIECE_STAGES.find(s=>s.id===emp.stage);
+    const wsLabel = workshops.length
+      ? workshops.map(wid=>{const w=wsh(wid);return w?w.icon+' '+w.name:wid;}).join(', ')
+      : (emp.ws?(wsh(emp.ws)?wsh(emp.ws).icon+' '+wsh(emp.ws).name:emp.ws):'—');
 
-    return `<tr style="cursor:pointer" onclick="showPieceDetail('${emp.id}')">
+    return `<tr style="cursor:pointer" onclick="showPieceDetail('${emp.name.replace(/'/g,"\\'")}')">
       <td style="font-family:monospace;color:var(--text3);font-size:12px">${idx+1}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px">
-          <div style="width:28px;height:28px;border-radius:50%;background:${emp.color};
-            color:${emp.tc};display:flex;align-items:center;justify-content:center;
-            font-size:10px;font-weight:600;flex-shrink:0">${emp.initials}</div>
+          <div style="width:28px;height:28px;border-radius:50%;background:${emp.color||'rgba(79,142,247,.15)'};
+            color:${emp.tc||'var(--accent)'};display:flex;align-items:center;justify-content:center;
+            font-size:10px;font-weight:600;flex-shrink:0">${emp.initials||emp.name.split(' ').map(x=>x[0]).join('').slice(0,2)}</div>
           <div>
             <div style="font-weight:500">${emp.name}</div>
-            <div style="font-size:11px;color:var(--text3)">${emp.pos}</div>
+            <div style="font-size:11px;color:var(--text3)">${emp.pos||''}</div>
           </div>
         </div>
       </td>
-      <td>
-        <div style="font-size:12px;font-weight:500">${wsh(emp.workshop)?wsh(emp.workshop).icon+' '+wsh(emp.workshop).name:'—'}</div>
-        <div style="font-size:11px;color:var(--text3)">${act(emp.activity)?act(emp.activity).icon+' '+act(emp.activity).name:'—'}</div>
-      </td>
+      <td><div style="font-size:12px;font-weight:500">${wsLabel}</div></td>
       <td style="text-align:right;font-family:monospace;font-weight:600">${ops.toLocaleString('ru-RU')} шт</td>
-      <td style="text-align:right;font-family:monospace;color:var(--text3)">${emp.goal.toLocaleString('ru-RU')} шт</td>
+      <td style="text-align:right">
+        <input type="number" min="0" value="${goal}" style="width:70px;font-size:12px;text-align:right"
+          onclick="event.stopPropagation()" onchange="event.stopPropagation();updatePieceGoal('${emp.name.replace(/'/g,"\\'")}',this.value)">
+      </td>
       <td>
         <div style="display:flex;align-items:center;gap:8px">
           <div style="flex:1;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
@@ -16873,21 +16921,30 @@ function renderPieceWages(){
       </td>
       <td style="text-align:right;font-family:monospace;font-weight:700;color:var(--green)">${fmt(earned)}</td>
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px"
-        onclick="event.stopPropagation();showPieceDetail('${emp.id}')">📋</button></td>
+        onclick="event.stopPropagation();showPieceDetail('${emp.name.replace(/'/g,"\\'")}')">📋</button></td>
     </tr>`;
-  }).join('') || `<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Нет сотрудников</td></tr>`;
+  }).join('') || `<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Нет сотрудников производства (Тип = "Производственный" в карточке сотрудника)</td></tr>`;
 
   const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
   set('pw-kpi-fot',  fmt(totalFot));
   set('pw-kpi-ops',  totalOps.toLocaleString('ru-RU')+' шт');
   set('pw-kpi-best', fmt(bestEarned));
-  set('pw-kpi-goal', goalsHit+'/'+wageEmployees.length);
+  set('pw-kpi-goal', goalsHit+'/'+prodStaff.length);
 
   renderPieceTariffs();
 }
 
-function showPieceDetail(empId){
-  const emp = wageEmployees.find(e=>e.id===empId);
+async function updatePieceGoal(empName, val){
+  const goal = parseFloat(val)||0;
+  const emp = employeesData.find(e=>e.name===empName);
+  if(emp) emp.pieceGoal = goal;
+  try{ await sbPatch('staff', `name=eq.${encodeURIComponent(empName)}`, {piece_goal:goal}); }
+  catch(e){ console.warn('⚠️ Не удалось сохранить план:', e.message); }
+  renderPieceWages();
+}
+
+function showPieceDetail(empName){
+  const emp = employeesData.find(e=>e.name===empName);
   if(!emp) return;
   const detail = document.getElementById('pw-detail');
   const titleEl= document.getElementById('pw-detail-title');
@@ -16895,42 +16952,38 @@ function showPieceDetail(empId){
   if(!detail||!tbody) return;
   const fmt = n=>'₸'+Math.round(n).toLocaleString('ru-RU');
   const wsh = id=>PIECE_WORKSHOPS.find(w=>w.id===id);
-  const stg = id=>PIECE_STAGES.find(s=>s.id===id);
 
-  const ws = wsh(emp.workshop);
-  const st = PIECE_STAGES.find(s=>s.id===emp.stage);
-  titleEl.innerHTML = `📋 ${emp.name}
-    <span style="font-size:11px;color:var(--text3);margin-left:8px">
-      ${ws?ws.icon+' '+ws.name:''} · ${st?st.name:''}
-    </span>`;
+  const month = document.getElementById('pw-filter-month')?.value || String(new Date().getMonth()+1);
+  const year  = document.getElementById('pw-filter-year')?.value  || String(new Date().getFullYear());
+  const monthPrefix = `${year}-${String(month).padStart(2,'0')}`;
+  const items = collectWorkLogEntries()
+    .filter(e=>e.exec===empName && e.date.startsWith(monthPrefix))
+    .sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 
-  const items = (emp.items||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  titleEl.innerHTML = `📋 ${emp.name} <span style="font-size:11px;color:var(--text3);margin-left:8px">${PL_MONTH_LABELS[+month-1]} ${year}</span>`;
+
   let total=0;
   tbody.innerHTML = `<tr style="font-size:11px;background:var(--bg3)">
     <th style="padding:6px 12px">Дата</th>
     <th style="padding:6px 12px">Операция</th>
-    <th style="padding:6px 12px">Цех / Вид деятельности</th>
-    <th style="padding:6px 12px">Этап</th>
+    <th style="padding:6px 12px">Цех</th>
     <th style="padding:6px 12px">Заказ</th>
-    <th style="padding:6px 12px;text-align:right">Кол-во</th>
-    <th style="padding:6px 12px;text-align:right">Ставка</th>
-    <th style="padding:6px 12px;text-align:right;color:var(--green)">Сумма</th>
-  </tr>`+items.map(it=>{
-    const sum=it.qty*it.rate; total+=sum;
-    const iws=wsh(it.workshop||emp.workshop);
-    const ist=PIECE_STAGES.find(s=>s.id===(it.stage||emp.stage));
+    <th style="padding:6px 12px">Изделие</th>
+    <th style="padding:6px 12px;text-align:right">Сумма</th>
+  </tr>`+(items.length ? items.map(it=>{
+    total+=it.amount;
+    const iws=wsh(it.workshop);
     return `<tr>
-      <td style="font-size:12px;color:var(--text3)">${it.date||'—'}</td>
-      <td style="font-weight:500">${it.op}</td>
+      <td style="font-size:12px;color:var(--text3)">${it.date.split('-').reverse().join('.')}</td>
+      <td style="font-weight:500">${it.stage}</td>
       <td style="font-size:12px">${iws?iws.icon+' '+iws.name:'—'}</td>
-      <td style="font-size:12px;color:var(--text3)">${ist?ist.name:'—'}</td>
-      <td style="font-size:12px;color:var(--accent)">${it.orderNum||'—'}</td>
-      <td style="text-align:right;font-family:monospace">${it.qty.toLocaleString('ru-RU')}</td>
-      <td style="text-align:right;font-family:monospace;color:var(--text3)">${fmt(it.rate)}</td>
-      <td style="text-align:right;font-family:monospace;font-weight:600;color:var(--green)">${fmt(sum)}</td>
+      <td style="font-size:12px;color:var(--accent)">${it.orderNum}</td>
+      <td style="font-size:12px">${it.itemName}</td>
+      <td style="text-align:right;font-family:monospace;font-weight:600;color:var(--green)">${fmt(it.amount)}</td>
     </tr>`;
-  }).join('')+`<tr style="font-weight:700;background:var(--bg3)">
-    <td colspan="7" style="padding:8px 12px">Итого начислено</td>
+  }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Нет проведённых операций за этот период</td></tr>`)
+  +`<tr style="font-weight:700;background:var(--bg3)">
+    <td colspan="5" style="padding:8px 12px">Итого начислено</td>
     <td style="text-align:right;font-family:monospace;color:var(--green);padding:8px 12px">${fmt(total)}</td>
   </tr>`;
   detail.style.display='';
@@ -18556,16 +18609,25 @@ function collectWorkLogEntries(){
     if(!item) return;
     (p.stages||[]).forEach(s=>{
       if(!s.posted || !s.postedDate) return;
-      const list = (s.assignees&&s.assignees.length) ? s.assignees.map(a=>a.name) : ['—'];
-      list.forEach(execName=>{
+      const assignees = (s.assignees&&s.assignees.length) ? s.assignees : [{name:'—',ktu:1}];
+      const total = computeStageAmountFor(s, item);
+      const ktuSum = assignees.reduce((sum,a)=>sum+(a.ktu||1),0)||1;
+      assignees.forEach(a=>{
         entries.push({
-          date: s.postedDate, workshop: s.workshop||'', exec: execName,
+          date: s.postedDate, workshop: s.workshop||'', exec: a.name,
           orderNum, itemName: item.name, category: item.category||'—', stage: s.stage||'(без названия)',
+          amount: total * ((a.ktu||1)/ktuSum),
         });
       });
     });
   });
   return entries;
+}
+// Сумма по этапу — та же формула, что и при проведении (по расценке или %
+// от суммы заказа по товару), вынесена отдельно, чтобы не дублировать код
+function computeStageAmountFor(s, item){
+  if(s.payMethod==='percent') return (item.qty||1)*(item.price||0) * ((s.percent||0)/100);
+  return (s.rate||0) * (s.qty||1);
 }
 
 function renderWorkLog(){
