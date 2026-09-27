@@ -32661,6 +32661,14 @@ function openPwbStageEditor(itemKey){
 function renderPwbStagesList(){
   const p = prodProgress[_pwbCurrentItemKey];
   const el = document.getElementById('pwb-stages-list');
+  // Сохраняем то, что уже выбрано в списках "добавить исполнителя" — иначе
+  // при любом другом изменении на карточке (название этапа, цех, способ
+  // оплаты) список перерисовывается и выбор сбрасывается на первого в списке
+  const keptSelections = {};
+  el.querySelectorAll('[id^="pwb-new-assignee-"]').forEach(sel=>{
+    const idx = sel.id.replace('pwb-new-assignee-','');
+    keptSelections[idx] = sel.value;
+  });
   if(!p.stages.length){ el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0">Этапов пока нет</div>'; return; }
   el.innerHTML = p.stages.map((s,idx)=>{
     const ktuSum = (s.assignees||[]).reduce((sum,a)=>sum+(a.ktu||1),0)||1;
@@ -32692,7 +32700,7 @@ function renderPwbStagesList(){
         </span>`).join('')}
       </div>
       ${!s.posted?`<div style="display:flex;gap:6px;align-items:center">
-        <select id="pwb-new-assignee-${idx}" style="font-size:12px;width:auto">${employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('')}</select>
+        <select id="pwb-new-assignee-${idx}" style="font-size:12px;width:auto">${employeesData.map(e=>`<option value="${e.name}" ${keptSelections[idx]===e.name?'selected':''}>${e.name}</option>`).join('')}</select>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="addPwbAssignee(${idx})">+ Исполнитель</button>
       </div>`:''}
       <div style="display:flex;gap:8px;margin-top:8px">
