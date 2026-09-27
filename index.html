@@ -32800,7 +32800,7 @@ function renderProdWorksheet(){
       ? workshopIds.map(wid=>{ const w=PIECE_WORKSHOPS.find(x=>x.id===wid); return `<span class="badge badge-blue" style="font-size:10px;margin:1px">${w?w.icon+' '+w.name:wid}</span>`; }).join(' ')
       : '<span style="color:var(--text3)">—</span>';
     const stagesHtml = r.progress.stages.length
-      ? r.progress.stages.map(s=>`<span class="badge ${s.posted?'badge-green':'badge-blue'}" style="font-size:11px;font-weight:600;margin:1px">${s.stage||'(без названия)'}${s.posted?' ✓':''}</span>`).join(' ')
+      ? r.progress.stages.map(s=>`<span class="badge ${s.posted?'badge-green':s.started?'badge-amber':'badge-blue'}" style="font-size:11px;font-weight:600;margin:1px">${s.stage||'(без названия)'}${s.posted?' ✓':s.started?' ▶':''}</span>`).join(' ')
       : (r.progress.completed?'<span class="badge badge-green" style="font-size:11px">Завершено без этапов</span>':'<span style="color:var(--text3)">—</span>');
     const execNames = [...new Set(r.progress.stages.flatMap(s=>(s.assignees||[]).map(a=>a.name)))];
     const execHtml = execNames.length
@@ -32905,10 +32905,11 @@ function renderPwbStagesList(){
         <select id="pwb-new-assignee-${idx}" style="font-size:12px;width:auto">${employeesData.map(e=>`<option value="${e.name}" ${keptSelections[idx]===e.name?'selected':''}>${e.name}</option>`).join('')}</select>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="addPwbAssignee(${idx})">+ Исполнитель</button>
       </div>`:''}
-      <div style="display:flex;gap:8px;margin-top:8px">
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
         ${s.posted
-          ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbStage(${idx})">↩ Снять с проведения</button>`
-          : `<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="postPwbStage(${idx})">✅ Провести</button>
+          ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbStage(${idx})">↩ Снять с завершения</button>`
+          : `${!s.started?`<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent)" onclick="startPwbStage(${idx})">▶️ Начать работу</button>`:`<span class="badge badge-amber" style="font-size:10px">В работе с ${s.startedDate?s.startedDate.split('-').reverse().join('.'):''}</span>`}
+             <button class="btn btn-primary btn-sm" style="font-size:11px" onclick="postPwbStage(${idx})">✅ Завершить работу</button>
              <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removePwbStage(${idx})">🗑 Удалить этап</button>`}
       </div>
     </div>`;
@@ -32929,7 +32930,18 @@ function addPwbStage(){
   const p = prodProgress[_pwbCurrentItemKey];
   const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
   const item = ordersData.find(o=>o.num===row.orderNum).items[row.itemIdx];
-  p.stages.push({stage:'', workshop:'', assignees:[], payMethod:'rate', rate:0, percent:0, qty:item.qty||1, posted:false, accrualIds:[]});
+  p.stages.push({stage:'', workshop:'', assignees:[], payMethod:'rate', rate:0, percent:0, qty:item.qty||1, started:false, startedDate:null, posted:false, accrualIds:[]});
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbStagesList();
+  renderProdWorksheet();
+}
+// Отметка "мастер цеха взялся за работу" — просто фиксирует дату начала,
+// денег не начисляет (это делает только "Завершить работу")
+function startPwbStage(idx){
+  const p = prodProgress[_pwbCurrentItemKey];
+  const s = p.stages[idx];
+  s.started = true;
+  s.startedDate = new Date().toISOString().slice(0,10);
   saveProdProgress(_pwbCurrentItemKey);
   renderPwbStagesList();
   renderProdWorksheet();
