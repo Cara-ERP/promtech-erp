@@ -3111,6 +3111,90 @@ window.onerror = function(msg, src, line, col){
       </div>
     </div>
 
+    <!-- Заявки на материал от мастеров цехов + Журнал поступления —
+         отдельная, настоящая часть (старую канбан-часть выше не трогаем) -->
+    <div style="max-width:1400px;margin:24px auto 0;padding:0 24px" id="mreq-extra-block">
+      <div class="tabs" style="margin-bottom:16px">
+        <div class="tab active" onclick="showPurchExtraTab('requests',this)">📝 Заявки на материал</div>
+        <div class="tab" onclick="showPurchExtraTab('receipts',this)">📥 Журнал поступления</div>
+      </div>
+
+      <!-- TAB: Заявки на материал -->
+      <div id="purch-extra-requests">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+          <select id="mreq-f-status" onchange="renderMaterialRequests()" style="font-size:12px;width:auto">
+            <option value="">Все статусы</option>
+            <option value="requested">Заявлено</option>
+            <option value="in_purchase">Взято в закупку</option>
+            <option value="received">Пришло на склад</option>
+          </select>
+          <input id="mreq-f-search" type="search" placeholder="🔍 Материал..." style="width:180px;font-size:12px" oninput="renderMaterialRequests()">
+          <button class="btn btn-ghost btn-sm" onclick="openNewMaterialRequestModal()">+ Заявка вручную</button>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Дата</th><th>Материал</th><th>Кол-во</th><th>Заказ / изделие</th><th>Цех</th><th>Заявил</th><th>Статус</th><th></th></tr></thead>
+          <tbody id="mreq-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- TAB: Журнал поступления -->
+      <div id="purch-extra-receipts" style="display:none">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+          <input id="gr-date" type="date" style="font-size:13px">
+          <input id="gr-supplier" type="text" placeholder="Поставщик..." style="font-size:13px;width:220px">
+          <button class="btn btn-primary btn-sm" onclick="openNewGoodsReceiptModal()">+ Новая накладная</button>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Дата</th><th>Поставщик</th><th>Позиций</th><th>Сумма</th><th>ЭСФ</th><th></th></tr></thead>
+          <tbody id="gr-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MODAL: Заявка на материал вручную -->
+    <div class="modal-overlay" id="newMaterialRequestModal">
+      <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+          <span class="modal-title">Заявка на материал</span>
+          <button class="modal-close" onclick="closeModal('newMaterialRequestModal')">✕</button>
+        </div>
+        <div class="form-row"><label class="label">Материал</label><input id="mreq-name" type="text"></div>
+        <div class="form-row"><label class="label">Количество</label><input id="mreq-qty" type="number" min="0" step="0.01"></div>
+        <div class="form-row"><label class="label">Ед. изм.</label><input id="mreq-unit" type="text" placeholder="шт / м² / кг"></div>
+        <div class="form-row"><label class="label">Комментарий (для чего)</label><input id="mreq-comment" type="text"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-ghost" onclick="closeModal('newMaterialRequestModal')">Отмена</button>
+          <button class="btn btn-primary" onclick="saveMaterialRequestManual()">Создать заявку</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Накладная поступления — сопоставление названий -->
+    <div class="modal-overlay" id="goodsReceiptModal">
+      <div class="modal" style="max-width:820px;max-height:90vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title">Накладная поступления</span>
+          <button class="modal-close" onclick="closeModal('goodsReceiptModal')">✕</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-row"><label class="label">Дата</label><input id="gr-modal-date" type="date"></div>
+          <div class="form-row"><label class="label">Поставщик</label><input id="gr-modal-supplier" type="text"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:13px;font-weight:600">Позиции накладной</span>
+          <button class="btn btn-ghost btn-sm" onclick="addGrItemRow()">+ Строка</button>
+        </div>
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Материал по заявке</th><th>Материал по накладной</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th><th></th></tr></thead>
+          <tbody id="gr-items-tbody"></tbody>
+        </table>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-ghost" onclick="closeModal('goodsReceiptModal')">Отмена</button>
+          <button class="btn btn-primary" onclick="saveGoodsReceipt()">💾 Сохранить накладную</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== SUPPLIERS ===== -->
     <div class="page" id="page-esf">
       <div class="section-header">
@@ -16027,6 +16111,9 @@ function showPage(id, el){
   }
   if(id==='purchases'){
     loadPurchasesFromDB().then(()=>{renderPurchKanban();renderPurchKPIs();});
+  }
+  if(id==='purchases'){
+    initPurchasesExtra();
   }
   if(id==='hr'){
     loadStaffFromDB().then(()=>{
@@ -33098,14 +33185,17 @@ function renderPwbMaterialSuggestions(idx, query){
     if(q && !w.name.toLowerCase().includes(q)) return false;
     return true;
   }).slice(0,30);
+  const requestBtn = q ? `<div style="padding:6px 10px;border-top:1px solid var(--border)">
+    <button class="btn btn-ghost btn-sm" style="font-size:11px;width:100%" onmousedown="event.preventDefault();requestMaterialFromWorksheet('${q.replace(/'/g,"\\'")}', 0, '')">🛒 Запросить закупку «${q}»</button>
+  </div>` : '';
   if(!materialItems.length){
-    box.innerHTML = '<div style="padding:8px;font-size:11px;color:var(--text3)">Ничего не найдено</div>';
+    box.innerHTML = '<div style="padding:8px;font-size:11px;color:var(--text3)">Ничего не найдено</div>'+requestBtn;
   } else {
     box.innerHTML = materialItems.map(w=>`<div class="pwb-mat-suggest-row" style="padding:6px 10px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;gap:8px"
         onmousedown="event.preventDefault();selectPwbMaterialSuggestion(${idx},'${w.id}')">
       <span>${w.name}</span>
       <span style="color:${w.qty>0?'var(--text3)':'var(--red)'};white-space:nowrap">${w.qty} ${w.unit||''}</span>
-    </div>`).join('');
+    </div>`).join('') + requestBtn;
     // подсветка при наведении — через делегирование, без inline hover-стилей
     box.querySelectorAll('.pwb-mat-suggest-row').forEach(row=>{
       row.addEventListener('mouseenter', ()=>row.style.background='var(--bg3)');
@@ -33246,6 +33336,249 @@ function handleProdWorksheetImport(file){
   };
   reader.readAsArrayBuffer(file);
 }
+
+// ================================================================
+// ЗАЯВКИ НА МАТЕРИАЛ + ЖУРНАЛ ПОСТУПЛЕНИЯ (сделано внутри страницы Закупки,
+// параллельно старой нерабочей части — её не трогаем)
+// ================================================================
+let materialRequestsData = [];
+let materialNameAliases = [];
+let goodsReceiptsData = [];
+let _purchExtraLoaded = false;
+let grEditItems = [];
+
+async function initPurchasesExtra(){
+  if(!_purchExtraLoaded){
+    try{
+      const [reqs, aliases, receipts] = await Promise.all([
+        sbFetchAllPages('material_requests','select=*&order=created_at.desc'),
+        sbFetchAllPages('material_name_aliases','select=*'),
+        sbFetchAllPages('goods_receipts','select=*&order=created_at.desc'),
+      ]);
+      materialRequestsData = reqs||[];
+      materialNameAliases  = aliases||[];
+      goodsReceiptsData    = receipts||[];
+      _purchExtraLoaded = true;
+    } catch(e){
+      console.warn('⚠️ Не удалось загрузить заявки/поступления — проверьте, что выполнен SQL (material_requests, material_name_aliases, goods_receipts):', e.message);
+    }
+  }
+  if(!warehouseData.length && typeof loadWarehouseFromDB==='function') await loadWarehouseFromDB();
+  renderMaterialRequests();
+  renderGoodsReceipts();
+}
+
+function showPurchExtraTab(tab, el){
+  document.querySelectorAll('#mreq-extra-block > .tabs .tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('purch-extra-requests').style.display = tab==='requests' ? '' : 'none';
+  document.getElementById('purch-extra-receipts').style.display = tab==='receipts' ? '' : 'none';
+}
+
+const MREQ_STATUS_LABELS = {requested:'Заявлено', in_purchase:'Взято в закупку', received:'Пришло на склад'};
+const MREQ_STATUS_BADGE  = {requested:'badge-amber', in_purchase:'badge-blue', received:'badge-green'};
+
+// Вызывается прямо из поиска материалов на Рабочем листе производства —
+// мастер цеха увидел, что не хватает, и тут же создаёт заявку
+async function requestMaterialFromWorksheet(materialName, needQty, unit){
+  const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
+  const order = row ? ordersData.find(o=>o.num===row.orderNum) : null;
+  const item = order && row ? order.items[row.itemIdx] : null;
+  const activeStage = item ? null : null;
+  const payload = {
+    material_name: materialName, qty: needQty||0, unit: unit||'',
+    order_num: row?row.orderNum:'', item_name: item?item.name:'',
+    workshop: '', requested_by: '', status:'requested',
+  };
+  try{
+    const res = await sbInsert('material_requests', payload);
+    materialRequestsData.unshift(res);
+    alert(`Заявка на «${materialName}» создана. Кладовщик увидит её в разделе Закупки → Заявки на материал.`);
+  } catch(e){
+    alert('Не удалось создать заявку: '+e.message);
+  }
+}
+
+function openNewMaterialRequestModal(){
+  document.getElementById('mreq-name').value='';
+  document.getElementById('mreq-qty').value='';
+  document.getElementById('mreq-unit').value='';
+  document.getElementById('mreq-comment').value='';
+  showModal('newMaterialRequestModal');
+}
+async function saveMaterialRequestManual(){
+  const name = document.getElementById('mreq-name').value.trim();
+  if(!name){ alert('Укажите материал.'); return; }
+  const payload = {
+    material_name: name,
+    qty: parseFloat(document.getElementById('mreq-qty').value)||0,
+    unit: document.getElementById('mreq-unit').value.trim(),
+    item_name: document.getElementById('mreq-comment').value.trim(),
+    status:'requested',
+  };
+  try{
+    const res = await sbInsert('material_requests', payload);
+    materialRequestsData.unshift(res);
+    closeModal('newMaterialRequestModal');
+    renderMaterialRequests();
+  } catch(e){ alert('Не удалось создать заявку: '+e.message); }
+}
+
+async function updateMaterialRequestStatus(id, status){
+  try{
+    await sbPatch('material_requests', `id=eq.${id}`, {status, updated_at:new Date().toISOString()});
+    const r = materialRequestsData.find(x=>x.id===id);
+    if(r) r.status = status;
+    renderMaterialRequests();
+  } catch(e){ alert('Не удалось изменить статус: '+e.message); }
+}
+
+function renderMaterialRequests(){
+  const tbody = document.getElementById('mreq-tbody');
+  if(!tbody) return;
+  const statusF = document.getElementById('mreq-f-status')?.value||'';
+  const search  = (document.getElementById('mreq-f-search')?.value||'').toLowerCase();
+  const rows = materialRequestsData.filter(r=>{
+    if(statusF && r.status!==statusF) return false;
+    if(search && !(r.material_name||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+  tbody.innerHTML = rows.length ? rows.map(r=>{
+    const nextStatus = r.status==='requested' ? 'in_purchase' : r.status==='in_purchase' ? 'received' : null;
+    const nextLabel = r.status==='requested' ? 'Взять в закупку' : r.status==='in_purchase' ? 'Отметить пришедшим' : null;
+    return `<tr>
+      <td style="font-size:12px;color:var(--text3)">${(r.created_at||'').slice(0,10).split('-').reverse().join('.')}</td>
+      <td style="font-weight:500">${r.material_name}</td>
+      <td style="font-family:monospace">${r.qty||0} ${r.unit||''}</td>
+      <td style="font-size:12px">${r.order_num?r.order_num+' / ':''}${r.item_name||'—'}</td>
+      <td style="font-size:12px">${r.workshop?(PIECE_WORKSHOPS.find(w=>w.id===r.workshop)?.name||r.workshop):'—'}</td>
+      <td style="font-size:12px">${r.requested_by||'—'}</td>
+      <td><span class="badge ${MREQ_STATUS_BADGE[r.status]}" style="font-size:10px">${MREQ_STATUS_LABELS[r.status]||r.status}</span></td>
+      <td>${nextStatus?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="updateMaterialRequestStatus(${r.id},'${nextStatus}')">${nextLabel} →</button>`:''}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Заявок нет</td></tr>`;
+}
+
+// ---------- Журнал поступления ----------
+function renderGoodsReceipts(){
+  const tbody = document.getElementById('gr-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = goodsReceiptsData.length ? goodsReceiptsData.map(r=>{
+    const items = r.items||[];
+    const sum = items.reduce((s,it)=>s+(it.amount||0),0);
+    return `<tr style="cursor:pointer" onclick="openGoodsReceiptModal(${r.id})">
+      <td>${r.date?r.date.split('-').reverse().join('.'):'—'}</td>
+      <td>${r.supplier||'—'}</td>
+      <td>${items.length}</td>
+      <td style="font-family:monospace">₸${Math.round(sum).toLocaleString('ru-RU')}</td>
+      <td>${r.linked_esf_id?`<span class="badge badge-green" style="font-size:10px">Связана</span>`:`<span class="badge badge-amber" style="font-size:10px">Без ЭСФ</span>`}</td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="event.stopPropagation();openGoodsReceiptModal(${r.id})">✏️</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">Накладных пока нет</td></tr>`;
+}
+
+function openNewGoodsReceiptModal(){
+  grEditItems = [];
+  document.getElementById('gr-modal-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('gr-modal-supplier').value = '';
+  document.getElementById('goodsReceiptModal').dataset.editId = '';
+  // Предзаполняем строками из заявок, которые уже "взяты в закупку"
+  const pending = materialRequestsData.filter(r=>r.status==='in_purchase');
+  pending.forEach(r=>{
+    grEditItems.push({request_name:r.material_name, invoice_name:findAliasFor(r.material_name), qty:r.qty||0, unit:r.unit||'', price:0, amount:0, request_id:r.id});
+  });
+  if(!grEditItems.length) grEditItems.push({request_name:'', invoice_name:'', qty:0, unit:'', price:0, amount:0, request_id:null});
+  renderGrItemsTable();
+  showModal('goodsReceiptModal');
+}
+function openGoodsReceiptModal(id){
+  const r = goodsReceiptsData.find(x=>x.id===id);
+  if(!r) return;
+  document.getElementById('gr-modal-date').value = r.date||'';
+  document.getElementById('gr-modal-supplier').value = r.supplier||'';
+  document.getElementById('goodsReceiptModal').dataset.editId = id;
+  grEditItems = (r.items||[]).map(it=>({...it}));
+  renderGrItemsTable();
+  showModal('goodsReceiptModal');
+}
+function findAliasFor(requestName){
+  const a = materialNameAliases.find(x=>x.request_name===requestName);
+  return a ? a.invoice_name : '';
+}
+function addGrItemRow(){
+  grEditItems.push({request_name:'', invoice_name:'', qty:0, unit:'', price:0, amount:0, request_id:null});
+  renderGrItemsTable();
+}
+function removeGrItemRow(idx){
+  grEditItems.splice(idx,1);
+  renderGrItemsTable();
+}
+function updateGrItemField(idx, field, val){
+  const it = grEditItems[idx];
+  if(['qty','price'].includes(field)) it[field] = parseFloat(val)||0;
+  else it[field] = val;
+  if(field==='request_name'){
+    // Подставляем запомненное соответствие, если оно уже встречалось раньше
+    const known = findAliasFor(val);
+    if(known && !it.invoice_name) it.invoice_name = known;
+  }
+  it.amount = (it.qty||0) * (it.price||0);
+  renderGrItemsTable();
+}
+function renderGrItemsTable(){
+  const tbody = document.getElementById('gr-items-tbody');
+  if(!tbody) return;
+  const reqNames = [...new Set(materialRequestsData.map(r=>r.material_name))];
+  tbody.innerHTML = grEditItems.map((it,idx)=>`<tr>
+    <td><input list="gr-req-names" value="${(it.request_name||'').replace(/"/g,'&quot;')}" style="width:100%;font-size:12px" onchange="updateGrItemField(${idx},'request_name',this.value)"></td>
+    <td><input list="gr-wh-names" value="${(it.invoice_name||'').replace(/"/g,'&quot;')}" style="width:100%;font-size:12px" placeholder="как в накладной поставщика" onchange="updateGrItemField(${idx},'invoice_name',this.value)"></td>
+    <td><input type="number" step="0.01" value="${it.qty||0}" style="width:70px;font-size:12px" onchange="updateGrItemField(${idx},'qty',this.value)"></td>
+    <td><input type="text" value="${it.unit||''}" style="width:50px;font-size:12px" onchange="updateGrItemField(${idx},'unit',this.value)"></td>
+    <td><input type="number" step="0.01" value="${it.price||0}" style="width:80px;font-size:12px" onchange="updateGrItemField(${idx},'price',this.value)"></td>
+    <td style="font-family:monospace;font-size:12px">₸${Math.round(it.amount||0).toLocaleString('ru-RU')}</td>
+    <td><span style="cursor:pointer;color:var(--red)" onclick="removeGrItemRow(${idx})">✕</span></td>
+  </tr>`).join('')
+  + `<datalist id="gr-req-names">${reqNames.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('')}</datalist>`
+  + `<datalist id="gr-wh-names">${warehouseData.map(w=>`<option value="${w.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>`;
+}
+
+async function saveGoodsReceipt(){
+  const date = document.getElementById('gr-modal-date').value;
+  const supplier = document.getElementById('gr-modal-supplier').value.trim();
+  const validItems = grEditItems.filter(it=>it.request_name||it.invoice_name);
+  if(!validItems.length){ alert('Добавьте хотя бы одну позицию.'); return; }
+  const payload = {date, supplier, items: validItems, updated_at:new Date().toISOString()};
+  const editId = document.getElementById('goodsReceiptModal').dataset.editId;
+  try{
+    if(editId){
+      await sbPatch('goods_receipts', `id=eq.${editId}`, payload);
+      const idx = goodsReceiptsData.findIndex(r=>String(r.id)===String(editId));
+      if(idx>-1) goodsReceiptsData[idx] = {...goodsReceiptsData[idx], ...payload};
+    } else {
+      const res = await sbInsert('goods_receipts', payload);
+      goodsReceiptsData.unshift(res);
+    }
+    // Запоминаем соответствия названий на будущее (чтобы не сопоставлять
+    // одно и то же заново), и закрываем связанные заявки как "пришедшие"
+    for(const it of validItems){
+      if(it.request_name && it.invoice_name && !findAliasFor(it.request_name)){
+        try{
+          const a = await sbInsert('material_name_aliases', {request_name:it.request_name, invoice_name:it.invoice_name});
+          materialNameAliases.push(a);
+        } catch(e){ /* пара уже могла существовать — не критично */ }
+      }
+      if(it.request_id){
+        await updateMaterialRequestStatus(it.request_id, 'received');
+      }
+    }
+    closeModal('goodsReceiptModal');
+    renderGoodsReceipts();
+    renderMaterialRequests();
+  } catch(e){
+    alert('Не удалось сохранить накладную: '+e.message);
+  }
+}
+
 
 function exportDailyTasks(){
   if(typeof XLSX==='undefined'){alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.');return;}
