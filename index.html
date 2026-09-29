@@ -2150,7 +2150,6 @@ window.onerror = function(msg, src, line, col){
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
         <div class="notif-dot"></div>
       </div>
-      <button class="btn btn-primary btn-sm" id="topbar-prod-order-btn" onclick="showModal('newOrderModal')">+ Новый произв. заказ</button>
       <button class="btn btn-ghost btn-sm" onclick="clearCache()" title="Обновить данные из базы" style="font-size:16px;padding:4px 8px">🔄</button>
     </div>
   </div>
@@ -2236,8 +2235,6 @@ window.onerror = function(msg, src, line, col){
             📤 Загрузить факт
             <input type="file" accept=".xlsx,.xls" onchange="importDailyFact(this)" style="display:none">
           </label>
-          <button class="btn btn-primary btn-sm" id="btn-new-mrp-order"
-            onclick="showModal('newOrderModal')">+ Новый производственный заказ</button>
         </div>
       </div>
       <div class="tabs">
@@ -3547,7 +3544,7 @@ window.onerror = function(msg, src, line, col){
           <span style="font-weight:600;font-size:13px">Этапы</span>
           <div style="display:flex;gap:8px">
             <button class="btn btn-ghost btn-sm" onclick="addPwbStage()">+ Добавить этап</button>
-            <button class="btn btn-primary btn-sm" onclick="completeWithoutStages()">✅ Завершить без этапов</button>
+            <button class="btn btn-primary btn-sm" onclick="completeWithoutStages()">✅ Завершить производство</button>
           </div>
         </div>
         <div id="pwb-stages-list"></div>
@@ -33042,10 +33039,15 @@ async function unpostPwbStage(idx){
 
 async function completeWithoutStages(){
   const p = prodProgress[_pwbCurrentItemKey];
+  const openStages = (p.stages||[]).filter(s=>!s.posted);
+  if(openStages.length){
+    alert(`Нельзя завершить производство — есть незавершённые этапы (${openStages.length}): ${openStages.map(s=>s.stage||'(без названия)').join(', ')}.\n\nСначала завершите их кнопкой "Завершить работу" (или удалите, если они не нужны).`);
+    return;
+  }
   p.completed = true;
   await saveProdProgress(_pwbCurrentItemKey);
   renderProdWorksheet();
-  alert('Отмечено как завершённое (без создания начислений — если нужна зарплата, добавьте этап через "+ Добавить этап").');
+  alert('Производство отмечено как завершённое (без создания дополнительных начислений — если нужна зарплата, добавьте этап через "+ Добавить этап").');
 }
 
 // ---------- Материалы ----------
