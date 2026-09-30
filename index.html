@@ -2879,249 +2879,43 @@ window.onerror = function(msg, src, line, col){
     <!-- ===== PURCHASES ===== -->
     <div class="page" id="page-purchases">
       <div class="section-header">
-        <div><div class="section-title">Закупки</div><div class="section-sub">Управление закупками материалов</div></div>
-        <button class="btn btn-primary btn-sm" onclick="openNewPurchaseModal()">+ Новая закупка</button>
+        <div><div class="section-title">Закупки</div><div class="section-sub">Заявки мастеров, закупка, поступление материалов</div></div>
       </div>
 
-      <!-- Дашборд закупок -->
+      <!-- Дашборд закупок — реальные цифры из заявок -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px" id="purch-kpi-row">
         <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">🔴 Срочно (до 3 дней)</div>
-          <div style="font-size:22px;font-weight:700;color:var(--red)" id="pk-urgent">0</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">🟡 Заявлено</div>
+          <div style="font-size:22px;font-weight:700;color:var(--amber)" id="pk-requested">0</div>
         </div>
         <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">🟡 Нужно купить</div>
-          <div style="font-size:22px;font-weight:700;color:var(--amber)" id="pk-todo">0</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">🔵 Взято в закупку</div>
+          <div style="font-size:22px;font-weight:700;color:var(--accent)" id="pk-inpurchase">0</div>
         </div>
         <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">🔵 В пути</div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent)" id="pk-transit">0</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">✅ Пришло на склад</div>
+          <div style="font-size:22px;font-weight:700;color:var(--green)" id="pk-received">0</div>
         </div>
         <div class="card" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Сумма открытых</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Сумма по накладным (всего)</div>
           <div style="font-size:18px;font-weight:700;color:var(--text1)" id="pk-sum">₸0</div>
         </div>
       </div>
 
-      <!-- Вкладки -->
       <div class="tabs" style="margin-bottom:16px">
-        <div class="tab active" onclick="showPurchTab('kanban',this)">🔄 Канбан</div>
-        <div class="tab" onclick="showPurchTab('plan',this)">📋 План по заказам</div>
-        <div class="tab" onclick="showPurchTab('list',this)">📄 Все закупки</div>
-        <div class="tab" onclick="showPurchTab('materials',this)">📊 Дефицит</div>
-        <div class="tab" onclick="showPurchTab('bom',this)">⚙️ Нормы расхода</div>
+        <div class="tab active" onclick="showPurchExtraTab('requests',this)">🔄 Заявки и закупки</div>
+        <div class="tab" onclick="showPurchExtraTab('receipts',this)">📥 Поступления</div>
+        <div class="tab" onclick="showPurchExtraTab('planfact',this)">📊 План-факт</div>
+        <div class="tab" onclick="showPurchExtraTab('norms',this)">📐 Нормы расхода</div>
       </div>
 
-      <!-- КАНБАН -->
-      <div id="purch-tab-kanban">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
-          <div class="card" style="padding:0;overflow:hidden">
-            <div style="padding:10px 14px;font-weight:600;font-size:13px;background:rgba(245,92,92,.1);color:var(--red);border-bottom:1px solid var(--border)">
-              🛒 Нужно купить <span class="kanban-count" id="pk-col-todo">0</span>
-            </div>
-            <div id="pk-col-todo-body" style="padding:10px;min-height:120px;display:flex;flex-direction:column;gap:8px"></div>
-            <div style="padding:8px 14px;border-top:1px solid var(--border)">
-              <button class="btn btn-ghost btn-sm" style="width:100%;font-size:12px" onclick="openNewPurchaseModal('todo')">+ Добавить</button>
-            </div>
-          </div>
-          <div class="card" style="padding:0;overflow:hidden">
-            <div style="padding:10px 14px;font-weight:600;font-size:13px;background:rgba(79,142,247,.1);color:var(--accent);border-bottom:1px solid var(--border)">
-              📦 Заказано поставщику <span class="kanban-count" id="pk-col-ordered">0</span>
-            </div>
-            <div id="pk-col-ordered-body" style="padding:10px;min-height:120px;display:flex;flex-direction:column;gap:8px"></div>
-          </div>
-          <div class="card" style="padding:0;overflow:hidden">
-            <div style="padding:10px 14px;font-weight:600;font-size:13px;background:rgba(61,214,140,.1);color:var(--green);border-bottom:1px solid var(--border)">
-              ✅ Получено <span class="kanban-count" id="pk-col-received">0</span>
-            </div>
-            <div id="pk-col-received-body" style="padding:10px;min-height:120px;display:flex;flex-direction:column;gap:8px"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ПЛАН ПО ЗАКАЗАМ -->
-      <div id="purch-tab-plan" style="display:none">
-        <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center">
-          <span style="font-size:13px;color:var(--text2)">Что нужно закупить под активные производственные заказы:</span>
-          <button class="btn btn-ghost btn-sm" onclick="renderPurchPlan()">🔄 Обновить</button>
-        </div>
-        <div id="purch-plan-body"></div>
-      </div>
-
-      <!-- СПИСОК ВСЕХ ЗАКУПОК -->
-      <div id="purch-tab-list" style="display:none">
-        <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-          <input type="text" id="purch-search" placeholder="Поиск по материалу или поставщику..."
-            style="flex:1;max-width:320px" oninput="renderPurchList()">
-          <select id="purch-status-filter" onchange="renderPurchList()" style="font-size:13px;width:auto">
-            <option value="all">Все статусы</option>
-            <option value="todo">Нужно купить</option>
-            <option value="ordered">Заказано</option>
-            <option value="transit">В пути</option>
-            <option value="received">Получено</option>
-          </select>
-        </div>
-        <table class="data-table">
-          <thead><tr>
-            <th>Материал</th><th>Кол-во</th><th>Ед.</th>
-            <th>Поставщик</th><th>Сумма</th><th>Нужно к</th>
-            <th>Под заказ</th><th>Статус</th><th></th>
-          </tr></thead>
-          <tbody id="purch-list-tbody"></tbody>
-        </table>
-      </div>
-
-      <!-- СВОДНАЯ ПО МАТЕРИАЛАМ -->
-      <div id="purch-tab-materials" style="display:none">
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-          <div style="font-size:13px;color:var(--text2)">
-            Автоматический расчёт дефицита по активным заказам и остаткам склада:
-          </div>
-          <div style="flex:1"></div>
-          <button class="btn btn-ghost btn-sm" onclick="renderPurchMaterials()">🔄 Пересчитать</button>
-          <button class="btn btn-primary btn-sm" onclick="createAllDeficitOrders()">📦 Создать все заявки</button>
-        </div>
-        <table class="data-table">
-          <thead><tr>
-            <th>Материал</th><th>Ед.</th>
-            <th style="text-align:right">Нужно (план)</th>
-            <th style="text-align:right">На складе</th>
-            <th style="text-align:right">Заказано</th>
-            <th style="text-align:right;color:var(--red)">Дефицит</th>
-            <th>Статус</th><th></th>
-          </tr></thead>
-          <tbody id="purch-mat-tbody"></tbody>
-        </table>
-        <div style="margin-top:14px;padding:12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text3)">
-          💡 Расчёт: Нужно = норма × кол-во изделий в активных заказах.
-          Дефицит = Нужно − На складе − Уже заказано.
-          Нормы расхода настраиваются во вкладке <b>⚙️ Нормы расхода</b>.
-        </div>
-      </div>
-
-      <!-- НОРМЫ РАСХОДА (BOM) -->
-      <div id="purch-tab-bom" style="display:none">
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
-          <div style="font-size:13px;color:var(--text2)">
-            Нормы расхода материалов на одно изделие. Используются для расчёта дефицита.
-          </div>
-          <div style="flex:1"></div>
-          <button class="btn btn-primary btn-sm" onclick="openBomModal(null)">+ Добавить норму</button>
-        </div>
-        <div id="purch-bom-body"></div>
-      </div>
-    </div>
-
-    <!-- MODAL: Норма расхода (BOM) -->
-    <div class="modal-overlay" id="bomModal">
-      <div class="modal" style="max-width:480px">
-        <div class="modal-header">
-          <span class="modal-title" id="bom-modal-title">Норма расхода</span>
-          <button class="modal-close" onclick="closeModal('bomModal')">✕</button>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 4px">
-          <div class="form-row" style="grid-column:1/-1">
-            <label class="label">Тип изделия</label>
-            <select id="bom-category" style="font-size:13px">
-              ${Object.entries(ITEM_CATEGORIES||{}).map(([k,v])=>`<option value="${k}">${v.icon} ${v.label}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-row" style="grid-column:1/-1">
-            <label class="label">Материал</label>
-            <select id="bom-material" style="font-size:13px"></select>
-          </div>
-          <div class="form-row">
-            <label class="label">Кол-во на 1 изделие</label>
-            <input id="bom-qty" type="number" min="0" step="0.01" placeholder="0">
-          </div>
-          <div class="form-row">
-            <label class="label">Единица</label>
-            <input id="bom-unit" type="text" placeholder="листов, м, шт...">
-          </div>
-          <div class="form-row" style="grid-column:1/-1">
-            <label class="label">Примечание</label>
-            <input id="bom-note" type="text" placeholder="Уточнение...">
-          </div>
-        </div>
-        <input type="hidden" id="bom-edit-id">
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-          <button class="btn btn-ghost" onclick="closeModal('bomModal')">Отмена</button>
-          <button class="btn btn-primary" onclick="saveBomEntry()">Сохранить</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- MODAL: Новая закупка -->
-    <div class="modal-overlay" id="newPurchaseModal">
-      <div class="modal" style="max-width:520px">
-        <div class="modal-header"><span class="modal-title">Новая закупка</span>
-          <button class="modal-close" onclick="closeModal('newPurchaseModal')">✕</button></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 4px">
-          <div class="form-row" style="grid-column:1/-1">
-            <label class="label">Материал / Описание</label>
-            <input id="np-material" type="text" placeholder="Например: ЛДСП 16мм белый, 120×250">
-          </div>
-          <div class="form-row">
-            <label class="label">Количество</label>
-            <input id="np-qty" type="number" min="0" placeholder="0">
-          </div>
-          <div class="form-row">
-            <label class="label">Единица</label>
-            <select id="np-unit">
-              <option>листов</option><option>м²</option><option>м³</option><option>м.п.</option>
-              <option>кг</option><option>шт</option><option>рулонов</option><option>комплект</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label class="label">Поставщик</label>
-            <input id="np-supplier" type="text" placeholder="Название поставщика">
-          </div>
-          <div class="form-row">
-            <label class="label">Сумма (тенге)</label>
-            <input id="np-amount" type="number" min="0" placeholder="0">
-          </div>
-          <div class="form-row">
-            <label class="label">Нужно к дате</label>
-            <input id="np-deadline" type="date">
-          </div>
-          <div class="form-row">
-            <label class="label">Под заказ</label>
-            <select id="np-order">
-              <option value="">— общий запас —</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label class="label">Статус</label>
-            <select id="np-status">
-              <option value="todo">🛒 Нужно купить</option>
-              <option value="ordered">📦 Заказано поставщику</option>
-              <option value="transit">🚚 В пути</option>
-              <option value="received">✅ Получено</option>
-            </select>
-          </div>
-          <div class="form-row" style="grid-column:1/-1">
-            <label class="label">Комментарий</label>
-            <input id="np-comment" type="text" placeholder="Спецификация, артикул, условия...">
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-          <button class="btn btn-ghost" onclick="closeModal('newPurchaseModal')">Отмена</button>
-          <button class="btn btn-primary" onclick="savePurchase()">Сохранить</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Заявки на материал от мастеров цехов + Журнал поступления —
-         отдельная, настоящая часть (старую канбан-часть выше не трогаем) -->
-    <div style="max-width:1400px;margin:24px auto 0;padding:0 24px" id="mreq-extra-block">
-      <div class="tabs" style="margin-bottom:16px">
-        <div class="tab active" onclick="showPurchExtraTab('requests',this)">📝 Заявки на материал</div>
-        <div class="tab" onclick="showPurchExtraTab('receipts',this)">📥 Журнал поступления</div>
-      </div>
-
-      <!-- TAB: Заявки на материал -->
+      <!-- TAB: Заявки и закупки (таблица + канбан одних и тех же данных) -->
       <div id="purch-extra-requests">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+          <div class="tabs" style="margin:0">
+            <div class="tab active" id="mreq-view-table-btn" onclick="setMreqView('table')" style="padding:6px 14px;font-size:12px">📋 Таблица</div>
+            <div class="tab" id="mreq-view-kanban-btn" onclick="setMreqView('kanban')" style="padding:6px 14px;font-size:12px">🔄 Канбан</div>
+          </div>
           <select id="mreq-f-status" onchange="renderMaterialRequests()" style="font-size:12px;width:auto">
             <option value="">Все статусы</option>
             <option value="requested">Заявлено</option>
@@ -3131,23 +2925,82 @@ window.onerror = function(msg, src, line, col){
           <input id="mreq-f-search" type="search" placeholder="🔍 Материал..." style="width:180px;font-size:12px" oninput="renderMaterialRequests()">
           <button class="btn btn-ghost btn-sm" onclick="openNewMaterialRequestModal()">+ Заявка вручную</button>
         </div>
-        <table class="data-table">
+        <table class="data-table" id="mreq-table-view">
           <thead><tr><th>Дата</th><th>Материал</th><th>Кол-во</th><th>Заказ / изделие</th><th>Цех</th><th>Заявил</th><th>Статус</th><th></th></tr></thead>
           <tbody id="mreq-tbody"></tbody>
         </table>
+        <div id="mreq-kanban-view" style="display:none;grid-template-columns:repeat(3,1fr);gap:14px">
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:10px 14px;font-weight:600;font-size:13px;background:rgba(245,166,35,.1);color:var(--amber);border-bottom:1px solid var(--border)">🟡 Заявлено <span id="mk-count-requested">0</span></div>
+            <div id="mk-col-requested" style="padding:10px;min-height:160px;display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:10px 14px;font-weight:600;font-size:13px;background:rgba(79,142,247,.1);color:var(--accent);border-bottom:1px solid var(--border)">🔵 Взято в закупку <span id="mk-count-in_purchase">0</span></div>
+            <div id="mk-col-in_purchase" style="padding:10px;min-height:160px;display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:10px 14px;font-weight:600;font-size:13px;background:rgba(61,214,140,.1);color:var(--green);border-bottom:1px solid var(--border)">✅ Пришло на склад <span id="mk-count-received">0</span></div>
+            <div id="mk-col-received" style="padding:10px;min-height:160px;display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+        </div>
       </div>
 
-      <!-- TAB: Журнал поступления -->
+      <!-- TAB: Поступления (бывший "Журнал поступления" + "Все закупки") -->
       <div id="purch-extra-receipts" style="display:none">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
-          <input id="gr-date" type="date" style="font-size:13px">
-          <input id="gr-supplier" type="text" placeholder="Поставщик..." style="font-size:13px;width:220px">
           <button class="btn btn-primary btn-sm" onclick="openNewGoodsReceiptModal()">+ Новая накладная</button>
         </div>
         <table class="data-table">
           <thead><tr><th>Дата</th><th>Поставщик</th><th>Позиций</th><th>Сумма</th><th>ЭСФ</th><th></th></tr></thead>
           <tbody id="gr-tbody"></tbody>
         </table>
+      </div>
+
+      <!-- TAB: План-факт (включает "Дефицит" как фильтр, а не отдельную вкладку) -->
+      <div id="purch-extra-planfact" style="display:none">
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="pf-deficit-only" onchange="renderPlanFact()"> Показать только дефицит
+          </label>
+          <div style="flex:1"></div>
+          <button class="btn btn-ghost btn-sm" onclick="renderPlanFact()">🔄 Пересчитать</button>
+        </div>
+        <table class="data-table">
+          <thead><tr>
+            <th>Материал</th><th>Ед.</th>
+            <th style="text-align:right">Нужно (открытые заявки)</th>
+            <th style="text-align:right">Куплено (по накладным)</th>
+            <th style="text-align:right">Остаток на складе</th>
+            <th style="text-align:right;color:var(--red)">К покупке</th>
+            <th>Срок</th>
+          </tr></thead>
+          <tbody id="pf-tbody"></tbody>
+        </table>
+        <div style="margin-top:14px;padding:12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text3)">
+          💡 «Нужно» считается по заявкам, которые ещё не пришли на склад (статусы «Заявлено» и «Взято в закупку»). «К покупке» = Нужно − Остаток на складе, не ниже нуля.
+        </div>
+      </div>
+
+      <!-- TAB: Нормы расхода — привязаны к Технологическим картам -->
+      <div id="purch-extra-norms" style="display:none">
+        <div class="section-sub" style="margin-bottom:14px">Сколько материала уходит на одну единицу — привязывается к технологической карте (по изделию или по категории), раздел Производство → Технологические карты</div>
+        <div id="norms-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px"></div>
+      </div>
+    </div>
+
+    <!-- MODAL: Норма расхода -->
+    <div class="modal-overlay" id="normsModal">
+      <div class="modal" style="max-width:520px;max-height:88vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title" id="norms-modal-title">Нормы расхода</span>
+          <button class="modal-close" onclick="closeModal('normsModal')">✕</button>
+        </div>
+        <div id="norms-rows" style="margin-bottom:12px"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addNormRow()">+ Добавить материал</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-ghost" onclick="closeModal('normsModal')">Отмена</button>
+          <button class="btn btn-primary" onclick="saveNorms()">💾 Сохранить</button>
+        </div>
       </div>
     </div>
 
@@ -33364,15 +33217,30 @@ async function initPurchasesExtra(){
     }
   }
   if(!warehouseData.length && typeof loadWarehouseFromDB==='function') await loadWarehouseFromDB();
+  if(!techCardsData.length){
+    try{ techCardsData = await sbFetchAllPages('tech_cards','select=*') || []; }
+    catch(e){ console.warn('⚠️ Не удалось загрузить технологические карты:', e.message); }
+  }
   renderMaterialRequests();
   renderGoodsReceipts();
 }
 
 function showPurchExtraTab(tab, el){
-  document.querySelectorAll('#mreq-extra-block > .tabs .tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('#page-purchases > .tabs .tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  document.getElementById('purch-extra-requests').style.display = tab==='requests' ? '' : 'none';
-  document.getElementById('purch-extra-receipts').style.display = tab==='receipts' ? '' : 'none';
+  ['requests','receipts','planfact','norms'].forEach(t=>{
+    const div = document.getElementById('purch-extra-'+t);
+    if(div) div.style.display = (t===tab) ? '' : 'none';
+  });
+  if(tab==='planfact') renderPlanFact();
+  if(tab==='norms') renderNormsGrid();
+}
+function setMreqView(view){
+  document.getElementById('mreq-view-table-btn').classList.toggle('active', view==='table');
+  document.getElementById('mreq-view-kanban-btn').classList.toggle('active', view==='kanban');
+  document.getElementById('mreq-table-view').style.display = view==='table' ? '' : 'none';
+  document.getElementById('mreq-kanban-view').style.display = view==='kanban' ? 'grid' : 'none';
+  if(view==='kanban') renderMaterialRequestsKanban();
 }
 
 const MREQ_STATUS_LABELS = {requested:'Заявлено', in_purchase:'Взято в закупку', received:'Пришло на склад'};
@@ -33436,6 +33304,7 @@ async function updateMaterialRequestStatus(id, status){
 function renderMaterialRequests(){
   const tbody = document.getElementById('mreq-tbody');
   if(!tbody) return;
+  updatePurchKpis();
   const statusF = document.getElementById('mreq-f-status')?.value||'';
   const search  = (document.getElementById('mreq-f-search')?.value||'').toLowerCase();
   const rows = materialRequestsData.filter(r=>{
@@ -33457,6 +33326,152 @@ function renderMaterialRequests(){
       <td>${nextStatus?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="updateMaterialRequestStatus(${r.id},'${nextStatus}')">${nextLabel} →</button>`:''}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Заявок нет</td></tr>`;
+}
+
+function updatePurchKpis(){
+  const byStatus = {requested:0, in_purchase:0, received:0};
+  materialRequestsData.forEach(r=>{ if(byStatus[r.status]!==undefined) byStatus[r.status]++; });
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('pk-requested', byStatus.requested);
+  set('pk-inpurchase', byStatus.in_purchase);
+  set('pk-received', byStatus.received);
+  const sum = goodsReceiptsData.reduce((s,r)=>s+(r.items||[]).reduce((s2,it)=>s2+(it.amount||0),0),0);
+  set('pk-sum', '₸'+Math.round(sum).toLocaleString('ru-RU'));
+}
+
+// Канбан-вид — те же самые заявки, просто карточками по статусу, а не
+// строками таблицы (обе вкладки дополняют друг друга на одних данных)
+function renderMaterialRequestsKanban(){
+  const cols = {requested:[], in_purchase:[], received:[]};
+  materialRequestsData.forEach(r=>{ if(cols[r.status]) cols[r.status].push(r); });
+  Object.entries(cols).forEach(([status, items])=>{
+    const el = document.getElementById('mk-col-'+status);
+    const countEl = document.getElementById('mk-count-'+status);
+    if(countEl) countEl.textContent = items.length;
+    if(!el) return;
+    const nextStatus = status==='requested' ? 'in_purchase' : status==='in_purchase' ? 'received' : null;
+    const nextLabel = status==='requested' ? 'Взять в закупку' : status==='in_purchase' ? 'Пришло на склад' : null;
+    el.innerHTML = items.length ? items.map(r=>`<div class="card" style="padding:10px 12px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">${r.material_name}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${r.qty||0} ${r.unit||''} ${r.order_num?'· '+r.order_num:''}</div>
+      ${nextStatus?`<button class="btn btn-ghost btn-sm" style="width:100%;font-size:11px" onclick="updateMaterialRequestStatus(${r.id},'${nextStatus}')">${nextLabel} →</button>`:''}
+    </div>`).join('') : `<div style="text-align:center;color:var(--text3);font-size:12px;padding:16px">Пусто</div>`;
+  });
+}
+
+// ---------- План-факт (включает "Дефицит" как фильтр) ----------
+function renderPlanFact(){
+  const tbody = document.getElementById('pf-tbody');
+  if(!tbody) return;
+  const deficitOnly = document.getElementById('pf-deficit-only')?.checked;
+
+  // "Нужно" — по открытым заявкам (ещё не пришедшим на склад)
+  const open = materialRequestsData.filter(r=>r.status!=='received');
+  const byMaterial = {};
+  open.forEach(r=>{
+    const key = r.material_name;
+    if(!byMaterial[key]) byMaterial[key] = {name:key, unit:r.unit||'', need:0, deadline:''};
+    byMaterial[key].need += r.qty||0;
+  });
+  // "Куплено" — по всем накладным (сумма количества по совпадающему названию заявки)
+  goodsReceiptsData.forEach(r=>{
+    (r.items||[]).forEach(it=>{
+      const key = it.request_name;
+      if(!key) return;
+      if(!byMaterial[key]) byMaterial[key] = {name:key, unit:it.unit||'', need:0, deadline:''};
+      byMaterial[key].bought = (byMaterial[key].bought||0) + (it.qty||0);
+    });
+  });
+
+  const rows = Object.values(byMaterial).map(m=>{
+    const whItem = warehouseData.find(w=>w.name===m.name);
+    const stock = whItem ? whItem.qty : 0;
+    const toBuy = Math.max(0, m.need - stock);
+    return {...m, bought:m.bought||0, stock, toBuy};
+  }).filter(m=>!deficitOnly || m.toBuy>0)
+    .sort((a,b)=>b.toBuy-a.toBuy);
+
+  tbody.innerHTML = rows.length ? rows.map(m=>`<tr>
+    <td style="font-weight:500">${m.name}</td>
+    <td style="font-size:12px;color:var(--text3)">${m.unit||whItem_unit(m.name)}</td>
+    <td style="text-align:right;font-family:monospace">${m.need.toLocaleString('ru-RU')}</td>
+    <td style="text-align:right;font-family:monospace">${m.bought.toLocaleString('ru-RU')}</td>
+    <td style="text-align:right;font-family:monospace">${m.stock.toLocaleString('ru-RU')}</td>
+    <td style="text-align:right;font-family:monospace;font-weight:700;color:${m.toBuy>0?'var(--red)':'var(--green)'}">${m.toBuy>0?m.toBuy.toLocaleString('ru-RU'):'✅'}</td>
+    <td style="font-size:12px;color:var(--text3)">—</td>
+  </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">${deficitOnly?'Дефицита нет':'Нет данных'}</td></tr>`;
+}
+function whItem_unit(name){
+  const w = warehouseData.find(x=>x.name===name);
+  return w ? (w.unit||'') : '';
+}
+
+// ---------- Нормы расхода — привязаны к Технологическим картам ----------
+function renderNormsGrid(){
+  const grid = document.getElementById('norms-grid');
+  if(!grid) return;
+  if(!techCardsData || !techCardsData.length){
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text3)">
+      Технологических карт пока нет — заведите их в разделе Производство → Технологические карты, затем здесь можно будет задать нормы расхода для каждой.
+    </div>`;
+    return;
+  }
+  grid.innerHTML = techCardsData.filter(c=>c.link_type==='item'||c.link_type==='category').map(c=>{
+    const norms = c.materials_norms||[];
+    return `<div class="card" style="padding:14px 16px;cursor:pointer" onclick="openNormsModal(${c.id})">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-weight:600;font-size:13px">${c.name||c.link_key}</span>
+        <span class="badge ${c.link_type==='item'?'badge-green':'badge-purple'}" style="font-size:10px">${c.link_type==='item'?'Изделие':'Категория'}</span>
+      </div>
+      ${norms.length
+        ? norms.map(n=>`<div style="font-size:12px;color:var(--text2);display:flex;justify-content:space-between"><span>${n.name}</span><span style="font-family:monospace">${n.qty} ${n.unit||''}</span></div>`).join('')
+        : `<div style="font-size:12px;color:var(--text3)">Нормы не заданы — нажмите, чтобы добавить</div>`}
+    </div>`;
+  }).join('') || `<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text3)">Нет технологических карт с привязкой к изделию или категории</div>`;
+}
+let normsEditCardId = null;
+let normsEditRows = [];
+function openNormsModal(cardId){
+  const c = techCardsData.find(x=>x.id===cardId);
+  if(!c) return;
+  normsEditCardId = cardId;
+  normsEditRows = (c.materials_norms||[]).map(n=>({...n}));
+  document.getElementById('norms-modal-title').textContent = 'Нормы расхода — '+(c.name||c.link_key);
+  renderNormsRows();
+  showModal('normsModal');
+}
+function addNormRow(){
+  normsEditRows.push({name:'', qty:0, unit:''});
+  renderNormsRows();
+}
+function updateNormRow(idx, field, val){
+  const r = normsEditRows[idx];
+  if(field==='qty') r.qty = parseFloat(val)||0;
+  else r[field] = val;
+}
+function removeNormRow(idx){
+  normsEditRows.splice(idx,1);
+  renderNormsRows();
+}
+function renderNormsRows(){
+  const el = document.getElementById('norms-rows');
+  if(!el) return;
+  el.innerHTML = normsEditRows.length ? normsEditRows.map((r,idx)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+    <input list="norms-mat-names" value="${(r.name||'').replace(/"/g,'&quot;')}" placeholder="Материал" style="flex:1;font-size:12px" onchange="updateNormRow(${idx},'name',this.value)">
+    <input type="number" step="0.01" value="${r.qty||0}" placeholder="Кол-во на 1 ед." style="width:100px;font-size:12px" onchange="updateNormRow(${idx},'qty',this.value)">
+    <input type="text" value="${r.unit||''}" placeholder="ед." style="width:60px;font-size:12px" onchange="updateNormRow(${idx},'unit',this.value)">
+    <span style="cursor:pointer;color:var(--red)" onclick="removeNormRow(${idx})">✕</span>
+  </div>`).join('') : `<div style="color:var(--text3);font-size:12px">Материалы не добавлены</div>`;
+  el.innerHTML += `<datalist id="norms-mat-names">${warehouseData.map(w=>`<option value="${w.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>`;
+}
+async function saveNorms(){
+  try{
+    await sbPatch('tech_cards', `id=eq.${normsEditCardId}`, {materials_norms: normsEditRows, updated_at:new Date().toISOString()});
+    const c = techCardsData.find(x=>x.id===normsEditCardId);
+    if(c) c.materials_norms = normsEditRows;
+    closeModal('normsModal');
+    renderNormsGrid();
+  } catch(e){ alert('Не удалось сохранить нормы: '+e.message); }
 }
 
 // ---------- Журнал поступления ----------
