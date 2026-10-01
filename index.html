@@ -17705,6 +17705,11 @@ function renderOrphanSuppliers(){
 async function createSupplierFromOrphan(i){
   const o=window._currentOrphanSuppliers?.[i];
   if(!o) return;
+  const existing = findSupplierForName(o.name, o.bin);
+  if(existing){
+    alert(`Поставщик «${existing.name}» уже есть в справочнике — отдельную карточку создавать не нужно.`);
+    return;
+  }
   try{
     const created=await sbInsert('suppliers', {
       name:o.name, category:'', status:'active', contact:'', phone:'', email:'', bin:'',
@@ -18079,6 +18084,14 @@ async function saveSupplierCard(){
   const name=document.getElementById('sup-card-name').value.trim();
   const err=document.getElementById('sup-card-error');
   if(!name){err.textContent='Укажите название поставщика';return;}
+  const binVal = document.getElementById('sup-card-bin').value.trim();
+  if(!editId){
+    const dup = findSupplierForName(name, binVal);
+    if(dup){
+      err.textContent = `Поставщик «${dup.name}» с таким БИН/названием уже есть в справочнике — откройте его карточку вместо создания новой.`;
+      return;
+    }
+  }
   const oldName = editId ? (suppliersData.find(s=>s.id===editId)?.name || '') : '';
   const localExtra={
     leadtime:parseFloat(document.getElementById('sup-card-leadtime').value)||0,
@@ -29273,6 +29286,13 @@ function orderTotal(order){
   return order.items.reduce((sum,it)=>sum + (it.qty * it.price), 0);
 }
 
+// Строит дату ГГГГ-ММ-ДД из локальных компонентов, НЕ через toISOString() —
+// тот переводит в UTC и из-за часового пояса (Казахстан, UTC+5) сдвигает
+// дату на день назад
+function localISODate(y, m, d){
+  const dt = new Date(y, m, d);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
 function setOrderYear(year){
   const fromEl = document.getElementById('ord-date-from');
   const toEl   = document.getElementById('ord-date-to');
@@ -29280,7 +29300,7 @@ function setOrderYear(year){
   const month = document.getElementById('ord-month')?.value||'';
   if(year && month){
     fromEl.value = `${year}-${String(month).padStart(2,'0')}-01`;
-    toEl.value   = new Date(year, +month, 0).toISOString().slice(0,10);
+    toEl.value   = localISODate(year, +month, 0);
   } else if(year){
     fromEl.value = `${year}-01-01`;
     toEl.value   = `${year}-12-31`;
@@ -29771,8 +29791,8 @@ function setSjPeriod(period){
     renderSalesJournal();
     return;
   }
-  document.getElementById('sj-date-from').value = from.toISOString().slice(0,10);
-  document.getElementById('sj-date-to').value   = to.toISOString().slice(0,10);
+  document.getElementById('sj-date-from').value = localISODate(from.getFullYear(), from.getMonth(), from.getDate());
+  document.getElementById('sj-date-to').value   = localISODate(to.getFullYear(), to.getMonth(), to.getDate());
   renderSalesJournal();
 }
 
@@ -29781,10 +29801,8 @@ function setSjMonthYear(){
   const month = document.getElementById('sj-month')?.value;
   const year  = document.getElementById('sj-year')?.value;
   if(!month || !year) return;
-  const from = new Date(+year, +month-1, 1);
-  const to   = new Date(+year, +month, 0);
-  document.getElementById('sj-date-from').value = from.toISOString().slice(0,10);
-  document.getElementById('sj-date-to').value   = to.toISOString().slice(0,10);
+  document.getElementById('sj-date-from').value = localISODate(+year, +month-1, 1);
+  document.getElementById('sj-date-to').value   = localISODate(+year, +month, 0);
   renderSalesJournal();
 }
 
@@ -29810,8 +29828,8 @@ function renderSalesJournal(){
   const toEl   = document.getElementById('sj-date-to');
   if(fromEl && !fromEl.value){
     const now = new Date();
-    fromEl.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
-    toEl.value   = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+    fromEl.value = localISODate(now.getFullYear(), now.getMonth(), 1);
+    toEl.value   = localISODate(now.getFullYear(), now.getMonth()+1, 0);
   }
 
   const dateFrom  = fromEl?.value || '';
