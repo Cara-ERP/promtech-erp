@@ -3964,12 +3964,9 @@ window.onerror = function(msg, src, line, col){
       </div>
       <div class="orders-tab" id="orders-sales-journal" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('month')" style="font-size:11px">Месяц</button>
-            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('quarter')" style="font-size:11px">Квартал</button>
-            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('year')" style="font-size:11px">Год</button>
-            <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('all')" style="font-size:11px">Всё</button>
-          </div>
+          <select id="sj-month" onchange="setSjMonthYear()" style="font-size:13px"></select>
+          <select id="sj-year" onchange="setSjMonthYear()" style="font-size:13px"></select>
+          <button class="btn btn-ghost btn-sm" onclick="setSjPeriod('all')" style="font-size:11px">Все даты</button>
           <input type="date" id="sj-date-from" onchange="renderSalesJournal()" style="font-size:13px">
           <span style="color:var(--text3)">—</span>
           <input type="date" id="sj-date-to" onchange="renderSalesJournal()" style="font-size:13px">
@@ -4030,6 +4027,7 @@ window.onerror = function(msg, src, line, col){
           <span style="color:var(--text3);font-size:13px">—</span>
           <input type="date" id="ord-date-to" onchange="renderOrders()"
             style="font-size:13px" title="Дата по">
+          <select id="ord-month" onchange="setOrderMonth(this.value)" style="font-size:13px"></select>
           <select id="ord-year" onchange="setOrderYear(this.value)" style="font-size:13px">
             <option value="">Все годы</option>
           </select>
@@ -15922,6 +15920,10 @@ function showPage(id, el){
         [...years].sort().reverse().forEach(y=>{
           yearSel.innerHTML+=`<option value="${y}">${y}</option>`;
         });
+      }
+      const monthSel = document.getElementById('ord-month');
+      if(monthSel && !monthSel.options.length){
+        monthSel.innerHTML = '<option value="">Все месяцы</option>'+PL_MONTH_LABELS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
       }
       // Заполняем продавцов
       const sellers = [...new Set(ordersData.map(o=>o.seller).filter(Boolean))].sort();
@@ -29275,7 +29277,11 @@ function setOrderYear(year){
   const fromEl = document.getElementById('ord-date-from');
   const toEl   = document.getElementById('ord-date-to');
   if(!fromEl||!toEl) return;
-  if(year){
+  const month = document.getElementById('ord-month')?.value||'';
+  if(year && month){
+    fromEl.value = `${year}-${String(month).padStart(2,'0')}-01`;
+    toEl.value   = new Date(year, +month, 0).toISOString().slice(0,10);
+  } else if(year){
     fromEl.value = `${year}-01-01`;
     toEl.value   = `${year}-12-31`;
   } else {
@@ -29283,6 +29289,12 @@ function setOrderYear(year){
     toEl.value   = '';
   }
   renderOrders();
+}
+function setOrderMonth(month){
+  const year = document.getElementById('ord-year')?.value || String(new Date().getFullYear());
+  const yearSel = document.getElementById('ord-year');
+  if(yearSel && !yearSel.value) yearSel.value = year;
+  setOrderYear(year);
 }
 
 function clearOrderFilters(){
@@ -29764,7 +29776,35 @@ function setSjPeriod(period){
   renderSalesJournal();
 }
 
+// Выбор конкретного месяца/года из выпадающих списков (а не всегда "текущий")
+function setSjMonthYear(){
+  const month = document.getElementById('sj-month')?.value;
+  const year  = document.getElementById('sj-year')?.value;
+  if(!month || !year) return;
+  const from = new Date(+year, +month-1, 1);
+  const to   = new Date(+year, +month, 0);
+  document.getElementById('sj-date-from').value = from.toISOString().slice(0,10);
+  document.getElementById('sj-date-to').value   = to.toISOString().slice(0,10);
+  renderSalesJournal();
+}
+
 function renderSalesJournal(){
+  // Заполняем выпадающие списки месяца/года один раз
+  const monthSel = document.getElementById('sj-month');
+  const yearSel  = document.getElementById('sj-year');
+  if(monthSel && !monthSel.options.length){
+    monthSel.innerHTML = PL_MONTH_LABELS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
+    monthSel.value = String(new Date().getMonth()+1);
+  }
+  if(yearSel && !yearSel.options.length){
+    const years = new Set();
+    (realizationsData||[]).forEach(r=>{ if(r.date) years.add(String(r.date).slice(0,4)); });
+    const curYear = new Date().getFullYear();
+    years.add(String(curYear));
+    yearSel.innerHTML = [...years].sort().reverse().map(y=>`<option value="${y}">${y}</option>`).join('');
+    yearSel.value = String(curYear);
+  }
+
   // Устанавливаем даты по умолчанию если пустые
   const fromEl = document.getElementById('sj-date-from');
   const toEl   = document.getElementById('sj-date-to');
