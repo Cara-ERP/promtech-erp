@@ -6346,7 +6346,7 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div class="form-row" style="grid-column:1/-1">
             <label class="label">Категория</label>
-            <select id="tx-category" style="font-size:13px" onchange="updateTxSubcategory()"></select>
+            <select id="tx-category" style="font-size:13px" onchange="updateTxSubcategory();updateTxForm()"></select>
             <div id="tx-subcategory-row" style="display:none;margin-top:6px">
               <select id="tx-subcategory" style="font-size:13px;width:100%" onchange="onTxSubcatChange()">
                 <option value="">— выберите статью —</option>
@@ -13877,6 +13877,12 @@ function saveMoneyTx(){
   const advEmp = document.getElementById('tx-advance-emp')?.value||'';
   // Для всех категорий с сотрудником — берём из селекта сотрудников
   const empCats = ['salary','advance_out','advance_return'];
+  // Если категория требует сотрудника, а он не выбран — не сохраняем молча
+  // с тем, что осталось в текстовом поле контрагента от прежней категории
+  if(flow==='expense' && ['advance_out','advance_return'].includes(category) && !advEmp){
+    alert('Выберите сотрудника (подотчётное лицо) — без этого операцию сохранить нельзя.');
+    return;
+  }
   const counterparty = (empCats.includes(category) && advEmp)
     ? advEmp
     : document.getElementById('tx-counterparty').value.trim();
