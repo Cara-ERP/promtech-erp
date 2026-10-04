@@ -5616,6 +5616,7 @@ window.onerror = function(msg, src, line, col){
               <th style="min-width:200px">Статья затрат</th>
               <th>Категория</th>
               <th style="text-align:right">План (₸)</th>
+              <th style="text-align:center">День оплаты</th>
               <th style="text-align:right">Факт (₸)</th>
               <th style="text-align:right">Откл. (₸)</th>
               <th style="text-align:center">✓ Проведено</th>
@@ -10014,9 +10015,13 @@ function renderPayCalendar(){
     const monthlyPayroll=fcPlanData.filter(f=>f.category==='payroll'&&f.approved&&f.plan>0).reduce((s,f)=>s+(f.plan||0),0);
     const weeklyPayroll=monthlyPayroll/4;
     const otherFC=fcPlanData.filter(f=>f.category!=='payroll'&&f.approved&&f.plan>0);
+    // Статьи с указанным "Днём оплаты" ставятся точно на эту дату каждый
+    // месяц — остальные, как раньше, по категории (1 число / равномерно)
+    const withPayDay=otherFC.filter(f=>f.pay_day);
+    const withoutPayDay=otherFC.filter(f=>!f.pay_day);
     const FIXED_ON_FIRST=['rent','utility','telecom','bank','insurance'];
-    const fixedOnFirst=otherFC.filter(f=>FIXED_ON_FIRST.includes(f.category));
-    const fixedEvenly=otherFC.filter(f=>!FIXED_ON_FIRST.includes(f.category));
+    const fixedOnFirst=withoutPayDay.filter(f=>FIXED_ON_FIRST.includes(f.category));
+    const fixedEvenly=withoutPayDay.filter(f=>!FIXED_ON_FIRST.includes(f.category));
     let workDays=0;
     for(let d=0;d<days;d++){ const dt=new Date(today.getTime()+d*86400000); if(dt.getDay()!==0&&dt.getDay()!==6) workDays++; }
     const dailyAmt=workDays>0?fixedEvenly.reduce((s,f)=>s+(f.plan||0),0)/workDays:0;
@@ -10029,6 +10034,7 @@ function renderPayCalendar(){
       const isWeekend=dt.getDay()===0||dt.getDay()===6;
       if(dt.getDay()===5&&weeklyPayroll>0) addEvent(iso,{emoji:'👷',label:'ЗП еженедельная',amount:-weeklyPayroll,type:'planned'});
       if(dt.getDate()===1) fixedOnFirst.forEach(f=>addEvent(iso,{emoji:'📋',label:f.name,amount:-(f.plan||0),type:'planned'}));
+      withPayDay.filter(f=>f.pay_day===dt.getDate()).forEach(f=>addEvent(iso,{emoji:'📅',label:f.name,amount:-(f.plan||0),type:'planned'}));
       if(!isWeekend&&dailyAmt>100) addEvent(iso,{emoji:'📊',label:'Текущие расходы',amount:-dailyAmt,type:'planned'});
     }
     const inProd=ordersData.filter(o=>o.status==='queue'||o.status==='production');
@@ -20042,6 +20048,7 @@ async function loadFixedCostsPeriod(){
         period:   fcCurrentPeriod,
         plan:     r.plan,
         approved: false,
+        pay_day:  r.pay_day||null,
       }));
     } else {
       // Первый раз для этого месяца — берём реальные статьи с признаком
@@ -20138,6 +20145,11 @@ function renderFCPlanTable(){
           oninput="fcPlanData[${i}].plan=parseFloat(this.value)||0;fcAutoSave()"
           style="width:110px;text-align:right;font-family:monospace;font-size:13px;background:transparent;border:none;border-bottom:1px solid var(--border)">
       </td>
+      <td style="text-align:center">
+        <input type="number" min="1" max="31" value="${row.pay_day||''}" placeholder="авто"
+          onchange="fcPlanData[${i}].pay_day=parseInt(this.value)||null;fcAutoSave()"
+          style="width:60px;text-align:center;font-family:monospace;font-size:13px;background:transparent;border:none;border-bottom:1px solid var(--border)">
+      </td>
       <td style="text-align:right;font-family:monospace;color:var(--text2)">${fmt(fact)}</td>
       <td style="text-align:right;font-family:monospace;color:${diffColor};font-weight:600">
         ${diff===0?'—':(diff>0?'+':'')+fmt(Math.abs(diff))}
@@ -20152,7 +20164,7 @@ function renderFCPlanTable(){
           onclick="fcPlanData.splice(${i},1);renderFCPlanTable()">✕</button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text3)">Нет статей. Нажмите «+ Статья»</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--text3)">Нет статей. Нажмите «+ Статья»</td></tr>';
 
   if(tfoot) tfoot.innerHTML = `<tr style="background:var(--bg3);font-weight:700">
     <td colspan="2" style="padding:8px 12px">Итого:</td>
@@ -20197,6 +20209,7 @@ async function saveAllFixedCosts(){
       period:   fcCurrentPeriod,
       plan:     row.plan||0,
       approved: row.approved||false,
+      pay_day:  row.pay_day||null,
     }));
 
     if(payload.length){
