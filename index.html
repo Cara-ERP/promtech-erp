@@ -6255,7 +6255,7 @@ window.onerror = function(msg, src, line, col){
 
       <!-- TAB: Платёжный календарь -->
       <div id="money-tab-calendar" style="display:none">
-        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;border:2px solid blue">
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
           <select id="pc-days" onchange="renderPayCalendar()" style="font-size:13px">
             <option value="14">2 недели</option>
             <option value="30" selected>30 дней</option>
@@ -9992,23 +9992,20 @@ function renderPayCalendar(){
   };
 
   if(showOrd){
-    const toISO = d=>{ if(!d) return null; if(d.includes('-')) return d.slice(0,10); const p=d.split('.'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:null; };
+    // Приход по плану = остаток долга по заказу, ожидаемый на день отправки.
+    // Салон (Армада/Назарбаева) и офис — весь остаток; дилеры — только 50%
+    // остатка (принято с запасом, раз дилеры обычно платят не сразу полностью)
     ordersData.filter(o=>o.status!=='done'&&o.status!=='cancelled').forEach(o=>{
       const total=orderTotal(o); if(total<1000) return;
       const paid=total*(o.payment||0)/100, debt=Math.max(0,total-paid); if(debt<1000) return;
-      if((o.payment||0)<50&&o.status==='queue'){
-        const d=toISO(o.createdDate||o.date||'')||todayISO;
-        const exp=d<todayISO?todayISO:d;
-        addEvent(exp,{emoji:'💛',label:`Аванс 50% ${o.num} (${o.customer})`,amount:total*0.5-paid,type:'expected'});
-      }
-      if(['ready','delivered'].includes(o.status)&&(o.payment||0)<100){
-        const exp=new Date(today.getTime()+3*86400000).toISOString().slice(0,10);
-        addEvent(exp,{emoji:'✅',label:`Финал ${o.num} (${o.customer})`,amount:debt,type:'expected'});
-      }
-      if(o.status==='production'&&(o.payment||0)<100){
-        const d=toISO(o.date||'');
-        if(d&&d>todayISO&&d<=maxISO) addEvent(d,{emoji:'🔨',label:`Ожидаем ${o.num} (${o.customer})`,amount:debt,type:'expected'});
-      }
+      const channel = marginChannelForOrder(o);
+      const isDealer = channel && channel.startsWith('dealer_');
+      const expectedAmount = isDealer ? debt*0.5 : debt;
+      const dispatchIso = parseDMY(o.deliveryDate||o.date||'');
+      const exp = (dispatchIso && dispatchIso>todayISO) ? dispatchIso : todayISO;
+      if(exp>maxISO) return;
+      const chLabel = PL_CHANNEL_LABELS[channel]||channel||'канал не определён';
+      addEvent(exp,{emoji:isDealer?'💼':'🏬', label:`${isDealer?'50% остатка':'Остаток'} по ${o.num} (${o.customer}, ${chLabel})`, amount:expectedAmount, type:'expected'});
     });
   }
 
@@ -16043,6 +16040,11 @@ function showPage(id, el){
       renderCashTx();
     });
     ensureEsfLinksLoaded().then(()=>{ renderCashTx(); renderBankTx(); if(typeof renderAllTx==='function') renderAllTx(); });
+    // Платёжный календарь считает ожидаемые поступления по заказам — без
+    // этого вкладка молча показывала бы пусто, если зайти в Деньги первым делом
+    if(!ordersData.length && typeof loadOrdersFromDB==='function'){
+      loadOrdersFromDB().then(()=>{ if(window._activeCashTab==='calendar') renderPayCalendar(); });
+    }
   }
   if(id==='wages'){
     const wagesDeps = [];
