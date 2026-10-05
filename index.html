@@ -4956,6 +4956,17 @@ window.onerror = function(msg, src, line, col){
 
         <div class="form-row cols-2">
           <div>
+            <label class="label">Номер заказа <span style="color:var(--text3);font-size:11px">(пусто — присвоить автоматически)</span></label>
+            <input id="co-num" type="text" placeholder="например НФНФ-000514">
+          </div>
+          <div>
+            <label class="label">Дата заказа</label>
+            <input id="co-created" type="date">
+          </div>
+        </div>
+
+        <div class="form-row cols-2">
+          <div>
             <label class="label">Дата доставки</label>
             <input id="co-date" type="date">
             <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;cursor:pointer">
@@ -5238,8 +5249,12 @@ window.onerror = function(msg, src, line, col){
               list="eo-end-client-list" style="font-size:13px">
             <datalist id="eo-end-client-list"></datalist>
           </div>
+          <div class="form-row">
+            <div><label class="label">Номер заказа <span style="color:var(--text3);font-size:11px">(при изменении обновляется во всех связанных документах)</span></label>
+              <input id="eo-num" type="text"></div>
+          </div>
           <div class="form-row cols-2">
-            <div><label class="label">Дата возникновения</label><input id="eo-created-date" type="date"></div>
+            <div><label class="label">Дата заказа (возникновения)</label><input id="eo-created-date" type="date"></div>
             <div><label class="label">Срок выполнения</label><input id="eo-date" type="date"></div>
           </div>
         <div class="form-row cols-2">
@@ -36355,6 +36370,8 @@ function openNewOrderModalReset(){
   document.getElementById('co-items').innerHTML='';
   document.getElementById('co-type').value='';
   document.getElementById('co-date').value='';
+  const coNumEl=document.getElementById('co-num'); if(coNumEl) coNumEl.value='';
+  const coCreatedEl=document.getElementById('co-created'); if(coCreatedEl) coCreatedEl.value=localISODate(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
   document.getElementById('co-payment').value='0';
   document.getElementById('custorder-form-error').textContent='';
   const cliSellerEl=document.getElementById('co-client-seller');
@@ -36524,6 +36541,16 @@ function onCoDesignerChange(){
   }
 }
 
+// Следующий свободный номер вида МО-N: больше всех существующих МО-номеров
+// и не занят ни одним заказом
+function nextAutoOrderNum(){
+  let max = orderSeqNum - 1;
+  ordersData.forEach(o=>{ const m=/^МО-(\d+)$/.exec(o.num||''); if(m) max=Math.max(max,+m[1]); });
+  let n = max+1;
+  while(ordersData.some(o=>o.num==='МО-'+n)) n++;
+  return 'МО-'+n;
+}
+
 function saveCustOrder(){
   const date=document.getElementById('co-date').value;
   const resp=document.getElementById('co-resp').value;
@@ -36585,10 +36612,19 @@ function saveCustOrder(){
   }
   err.textContent='';
 
-  const num='МО-'+orderSeqNum++;
+  // Номер: введённый вручную или присвоенный автоматически. Раньше счётчик
+  // был зашит в программу (МО-2245) и после каждой перезагрузки начинался
+  // заново — новый заказ с совпавшим номером перезаписывал уже существующий.
+  const typedNum=(document.getElementById('co-num')?.value||'').trim();
+  if(typedNum && ordersData.some(o=>o.num===typedNum)){
+    err.textContent='Заказ с номером '+typedNum+' уже существует — укажите другой номер или оставьте поле пустым';
+    return;
+  }
+  const num = typedNum || nextAutoOrderNum();
   const dateStr=new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
   const rawDate=date; // ISO yyyy-mm-dd for period filtering
-  const createdDate=new Date().toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}); // дата возникновения заказа
+  const createdIso=document.getElementById('co-created')?.value||'';
+  const createdDate=(createdIso?new Date(createdIso):new Date()).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}); // дата заказа (возникновения)
 
   // Данные дизайнера (для салонов)
   const designerSel2 = document.getElementById('co-designer');
@@ -36904,6 +36940,7 @@ function openEditOrderModal(orderNum, targetItemIdx){
       dl.innerHTML = clients.map(c=>`<option value="${c}">`).join('');
     }
   }
+  const eoNumEl=document.getElementById('eo-num'); if(eoNumEl) eoNumEl.value=order.num;
   document.getElementById('eo-created-date').value=isoFromDisplayDate(order.createdDate||order.date);
   document.getElementById('eo-date').value=isoFromDisplayDate(order.date);
   document.getElementById('eo-delivery-date').value=isoFromDisplayDate(order.deliveryDate||'');
@@ -37082,10 +37119,68 @@ function onEoStatusChange(){
   }
 }
 
-function saveEditedOrder(){
+// Переименование заказа: номер — ключ, на который ссылаются позиции, платежи,
+// реализация, рабочий лист производства и заявки на материал. Порядок такой,
+// чтобы при сбое не остаться с «осиротевшими» позициями: сначала заказ и его
+// позиции (если позиции не перенеслись — номер заказа возвращается назад),
+// остальные связанные таблицы — по возможности, с перечнем того, что не удалось.
+async function renameOrderNumber(oldNum, newNum){
+  const enc = encodeURIComponent;
+  const warnings = [];
+  await sbPatch('orders', `num=eq.${enc(oldNum)}`, {num:newNum});
+  try{
+    await sbPatch('order_items', `order_num=eq.${enc(oldNum)}`, {order_num:newNum});
+  } catch(e){
+    try{ await sbPatch('orders', `num=eq.${enc(newNum)}`, {num:oldNum}); }catch(_){}
+    throw new Error('не удалось перенести позиции заказа ('+e.message+'), номер оставлен прежним');
+  }
+  for(const table of ['order_payments','money_tx','realizations','material_requests','production_worksheet']){
+    try{ await sbPatch(table, `order_num=eq.${enc(oldNum)}`, {order_num:newNum}); }
+    catch(e){ warnings.push(table); }
+  }
+  try{
+    const rows = await sbFetch('production_progress', `select=id,item_idx&order_num=eq.${enc(oldNum)}`);
+    for(const r of (rows||[])){
+      await sbPatch('production_progress', `id=eq.${r.id}`, {order_num:newNum, item_key:`${newNum}|${r.item_idx}`});
+    }
+  } catch(e){ warnings.push('production_progress'); }
+
+  // Локальные копии в памяти
+  moneyTx.forEach(t=>{ if(t.orderNum===oldNum) t.orderNum=newNum; if(t.order_num===oldNum) t.order_num=newNum; });
+  (realizationsData||[]).forEach(r=>{ if(r.order_num===oldNum) r.order_num=newNum; });
+  (materialRequestsData||[]).forEach(r=>{ if(r.order_num===oldNum) r.order_num=newNum; });
+  (prodWbRows||[]).forEach(r=>{ if(r.orderNum===oldNum){ r.orderNum=newNum; r.itemKey=itemKeyOf(newNum,r.itemIdx); } });
+  Object.keys(prodProgress).forEach(k=>{
+    if(k.startsWith(oldNum+'|')){ prodProgress[newNum+k.slice(oldNum.length)] = prodProgress[k]; delete prodProgress[k]; }
+  });
+  return warnings;
+}
+
+async function saveEditedOrder(){
   const order=ordersData.find(o=>o.num===editingOrderNum);
   if(!order) return;
   const err=document.getElementById('editorder-form-error');
+
+  // Смена номера заказа
+  const newNumVal=(document.getElementById('eo-num')?.value||'').trim();
+  if(!newNumVal){err.textContent='Номер заказа не может быть пустым';return;}
+  if(newNumVal!==order.num){
+    if(ordersData.some(o=>o.num===newNumVal)){err.textContent='Заказ с номером '+newNumVal+' уже существует';return;}
+    if(!confirm('Изменить номер заказа '+order.num+' на '+newNumVal+'?\n\nНомер будет обновлён и во всех связанных документах: позиции, платежи, реализация, производство.')) return;
+    err.style.color='var(--text3)'; err.textContent='Меняю номер заказа...';
+    try{
+      const warnings = await renameOrderNumber(order.num, newNumVal);
+      order.num = newNumVal;
+      editingOrderNum = newNumVal; window._editingOrderNum = newNumVal;
+      document.getElementById('eo-num-label').textContent = newNumVal;
+      if(warnings.length) alert('Номер заказа изменён, но в этих таблицах номер обновить не удалось: '+warnings.join(', ')+'.\nПроверьте связанные записи.');
+    } catch(e){
+      err.style.color='var(--red)';
+      err.textContent='Не удалось изменить номер: '+e.message;
+      return;
+    }
+    err.style.color='var(--red)'; err.textContent='';
+  }
 
   const createdDateVal=document.getElementById('eo-created-date').value;
   const date=document.getElementById('eo-date').value;
