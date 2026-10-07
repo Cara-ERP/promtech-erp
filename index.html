@@ -11011,6 +11011,7 @@ function onSupplierSelChange(value){
 
 // ── Зарплатная ведомость ────────────────────────────────────────────────────
 let _payrollData = null;
+document.addEventListener('DOMContentLoaded',()=>{try{fillPayrollMonthSelects()}catch(e){}});
 
 // ── Входящие ЭСФ ─────────────────────────────────────────────────────────────
 let _esfData = null;
@@ -12802,6 +12803,8 @@ async function initSalaryLedgerPage(){
       }
 
       _payrollData = { accruals, payments };
+      ['payroll-month','accrual-month-filter','sc-month'].forEach(i=>{const e=document.getElementById(i);if(e&&!e.dataset.touched)delete e.dataset.filled;});
+      fillPayrollMonthSelects();
       console.log(`✅ ЗП: ${accruals.length} начислений, ${payments.length} выдач`);
     } catch(e){ console.warn('⚠️ Ошибка загрузки ЗП:', e.message); return; }
   }
@@ -12873,6 +12876,39 @@ function showEmpPayrollHistory(empName){
     const searchEl = document.getElementById('accrual-search');
     if(searchEl){ searchEl.value = empName; renderAccrualsList(); }
   }, 300);
+}
+
+
+// Динамический список месяцев для ЗП: с 2025-11 до max(текущий месяц, последний месяц с данными)
+function fillPayrollMonthSelects(){
+  const MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const now=new Date();
+  let last=now.getFullYear()*12+now.getMonth();
+  let latestData=null;
+  const rows=[...((_payrollData&&_payrollData.accruals)||[]),...((_payrollData&&_payrollData.payments)||[])];
+  rows.forEach(r=>{
+    const m=/^(\d{4})-(\d{2})/.exec(r.date||'');
+    if(m){const v=(+m[1])*12+(+m[2])-1; if(latestData===null||v>latestData) latestData=v; if(v>last) last=v;}
+  });
+  const start=2025*12+10; // Ноябрь 2025
+  let opts='';
+  for(let v=last; v>=start; v--){
+    const y=Math.floor(v/12), mo=v%12;
+    opts+=`<option value="${y}-${String(mo+1).padStart(2,'0')}">${MN[mo]} ${y}</option>`;
+  }
+  const defV=(latestData!==null?latestData:last);
+  const defKey=Math.floor(defV/12)+'-'+String(defV%12+1).padStart(2,'0');
+  [['payroll-month','<option value="">— Произвольный период —</option>',true],
+   ['accrual-month-filter','<option value="">Все периоды</option>',false],
+   ['sc-month','',true]].forEach(([id,first,pickDefault])=>{
+    const el=document.getElementById(id); if(!el) return;
+    const prev=el.value, hadFilled=el.dataset.filled==='1';
+    el.innerHTML=first+opts;
+    if(hadFilled) el.value=prev;
+    else el.value=pickDefault?defKey:'';
+    if(el.value!==(hadFilled?prev:(pickDefault?defKey:''))) el.value=pickDefault?defKey:'';
+    el.dataset.filled='1';
+  });
 }
 
 function onPayrollMonthChange(){
