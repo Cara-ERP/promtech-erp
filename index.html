@@ -743,6 +743,7 @@ async function loadStaffFromDB(){
             status:     s.status||'active',
             fired_date: s.fired_date||null,
             pieceGoal:  s.piece_goal||400,
+            pin: s.pin||null,
             initials:s.name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(),
             color:'rgba(79,142,247,.15)', tc:'var(--accent)',
           });
@@ -756,6 +757,7 @@ async function loadStaffFromDB(){
           exists.deduction_osms_fixed = s.deduction_osms_fixed||0;
           exists.status     = s.status||'active';
           exists.fired_date = s.fired_date||null;
+          exists.pin        = s.pin||null;
         }
         // Обновляем PIN если есть
         if(s.pin){
@@ -1642,7 +1644,8 @@ function updateLoginPinDisplay(){
   el.textContent=[...filled,...empty].join(' ');
 }
 
-function checkLoginPin(){
+async function checkLoginPin(){
+  if(!employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
   const pins=getPins();
   const u=pins[parseInt(loginPinVal)];
   if(u){
@@ -8114,49 +8117,54 @@ window.onerror = function(msg, src, line, col){
           </div>
         </div>
 
-        <!-- Блок выработки — только для производственных -->
+        <!-- Личный кабинет: ЗП по месяцам (только просмотр) -->
         <div id="cab-wage-section">
-          <div class="kpi-grid">
-            <div class="kpi">
-              <div class="kpi-label">Начислено</div>
-              <div class="kpi-value" style="color:var(--green)" id="cab-earned">₸0</div>
-            </div>
-            <div class="kpi">
-              <div class="kpi-label">Выработка (шт)</div>
-              <div class="kpi-value" id="cab-output">0</div>
-            </div>
-            <div class="kpi">
-              <div class="kpi-label">Смен отработано</div>
-              <div class="kpi-value" id="cab-shifts">0</div>
-            </div>
-            <div class="kpi">
-              <div class="kpi-label">% от цели</div>
-              <div class="kpi-value" id="cab-goal" style="color:var(--amber)">0%</div>
-            </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+            <label style="font-size:13px;color:var(--text3)">Месяц:</label>
+            <select id="cab-month" style="font-size:13px" onchange="cabRenderMonth()"></select>
+            <span id="cab-loading" style="font-size:12px;color:var(--text3)"></span>
           </div>
+          <div class="kpi-grid" id="cab-kpi"></div>
+
           <div class="card" style="margin-top:16px">
-            <div class="card-header">
-              <span class="card-title">Прогресс к цели</span>
-            </div>
-            <div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:13px">
-              <span id="cab-earn-label">₸0</span>
-              <span style="color:var(--text3)">цель месяца</span>
-            </div>
-            <div class="progress" style="height:8px">
-              <div class="progress-fill green" id="cab-progress" style="width:0%"></div>
-            </div>
+            <div class="card-header"><span class="card-title">Из чего состоит начисление</span></div>
+            <div id="cab-breakdown" style="padding:4px 2px"></div>
           </div>
-          <!-- История операций из wageEmployees -->
+
           <div class="card" style="margin-top:16px">
-            <div class="card-header"><span class="card-title">Мои операции</span></div>
-            <table class="data-table" id="cab-history">
-              <thead><tr>
-                <th>Дата</th><th>Операция</th><th>Заказ</th>
-                <th style="text-align:right">Кол-во</th>
-                <th style="text-align:right;color:var(--green)">Сумма</th>
-              </tr></thead>
-              <tbody id="cab-history-tbody"></tbody>
-            </table>
+            <div class="card-header"><span class="card-title">Полученные деньги за месяц</span></div>
+            <div style="overflow:auto"><table class="data-table">
+              <thead><tr><th>Дата</th><th>Комментарий</th><th style="text-align:right">Сумма</th></tr></thead>
+              <tbody id="cab-pay-tbody"></tbody>
+            </table></div>
+          </div>
+
+          <div class="card" id="cab-piece-card" style="margin-top:16px;display:none">
+            <div class="card-header"><span class="card-title">Выполненные работы (сдельная)</span>
+              <span id="cab-piece-total" style="font-size:13px;color:var(--green);font-weight:600"></span></div>
+            <div style="overflow:auto"><table class="data-table">
+              <thead><tr><th>Дата</th><th>Цех</th><th>Заказ</th><th>Изделие</th><th>Работа</th><th style="text-align:right">Моя сумма</th></tr></thead>
+              <tbody id="cab-piece-tbody"></tbody>
+            </table></div>
+          </div>
+
+          <div class="card" id="cab-tasks-card" style="margin-top:16px;display:none">
+            <div class="card-header"><span class="card-title">Мои задания</span>
+              <span style="font-size:12px;color:var(--text3)">назначены в рабочем листе производства</span></div>
+            <div style="overflow:auto"><table class="data-table">
+              <thead><tr><th>Статус</th><th>Заказ</th><th>Изделие</th><th>Работа</th><th>Цех</th><th style="text-align:right">Моя доля</th></tr></thead>
+              <tbody id="cab-tasks-tbody"></tbody>
+            </table></div>
+          </div>
+
+          <div class="card" style="margin-top:16px">
+            <div class="card-header"><span class="card-title">По месяцам</span>
+              <span style="font-size:12px;color:var(--text3)">нажмите на строку, чтобы открыть месяц</span></div>
+            <div style="overflow:auto"><table class="data-table">
+              <thead><tr><th>Месяц</th><th style="text-align:right">Начислено</th><th style="text-align:right">Удержано</th>
+                <th style="text-align:right">К выдаче</th><th style="text-align:right">Получено</th><th style="text-align:right">Остаток</th></tr></thead>
+              <tbody id="cab-summary-tbody"></tbody>
+            </table></div>
           </div>
         </div>
 
@@ -16168,27 +16176,19 @@ let pinVal='';
 // Генерируем объект pins динамически
 function getPins(){
   const result={};
-  payrollStaff.forEach(s=>{
-    if(!s.pin) return;
-    const initials=s.name.split(' ').map(w=>w[0]).join('').slice(0,2);
-    const wagEmp=wageEmployees.find(e=>e.name===s.name);
-    const earned=wagEmp?(wagEmp.items||[]).reduce((t,it)=>t+it.qty*it.rate,0)||wagEmp.earned:0;
-    const output=wagEmp?(wagEmp.items||[]).reduce((t,it)=>t+it.qty,0)||wagEmp.output:0;
-    const goal=wagEmp?wagEmp.goal:400;
-    const prog=goal>0?Math.min(100,Math.round(output/goal*100)):0;
-    result[s.pin]={
-      name:s.name,
-      pos:s.pos,
-      initials:initials,
-      color:s.color,
-      tc:s.tc,
-      earned:'₸'+Math.round(earned).toLocaleString('ru-RU'),
-      output:output,
-      shifts:22,
-      goal:prog+'%',
-      prog:prog,
-    };
+  const palette={color:'rgba(79,142,247,.15)',tc:'var(--accent)'};
+  const mk=(name,pos,pin,type,color,tc)=>{
+    if(!pin) return;
+    result[pin]={name, pos:pos||'', initials:name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
+      color:color||palette.color, tc:tc||palette.tc, type:type||''};
+  };
+  // Если сотрудник уже загружен из БД — берём PIN только оттуда
+  const dbNames=new Set(employeesData.map(e=>e.name));
+  employeesData.forEach(e=>{
+    const ps=payrollStaff.find(x=>x.name===e.name);
+    mk(e.name,e.pos,e.pin,e.type,ps?.color,ps?.tc);
   });
+  payrollStaff.forEach(st=>{ if(!dbNames.has(st.name)) mk(st.name,st.pos,st.pin,'',st.color,st.tc); });
   return result;
 }
 function pinPress(d){if(pinVal.length>=4)return;pinVal+=d;updatePinDisplay();if(pinVal.length===4)setTimeout(checkPin,200)}
@@ -16205,201 +16205,267 @@ function checkPin(){
     document.getElementById('cab-avatar').textContent=u.initials;
     document.getElementById('cab-avatar').style.background=u.color;
     document.getElementById('cab-avatar').style.color=u.tc;
-
-    const hasWage = u.output > 0;
-    const wageSection = document.getElementById('cab-wage-section');
-    const aupSection  = document.getElementById('cab-aup-section');
-    if(wageSection) wageSection.style.display = hasWage ? '' : 'none';
-    if(aupSection)  aupSection.style.display  = hasWage ? 'none' : '';
-
-    if(hasWage){
-      document.getElementById('cab-earned').textContent = u.earned;
-      document.getElementById('cab-output').textContent = u.output+' шт';
-      document.getElementById('cab-shifts').textContent = u.shifts;
-      document.getElementById('cab-goal').textContent   = u.goal;
-      document.getElementById('cab-progress').style.width = u.prog+'%';
-      const earnLbl=document.getElementById('cab-earn-label');
-      if(earnLbl) earnLbl.textContent=u.earned;
-
-      // История операций из wageEmployees
-      const wageEmp=wageEmployees.find(e=>e.name===u.name);
-      const tbody=document.getElementById('cab-history-tbody');
-      if(tbody && wageEmp){
-        const fmt=n=>'₸'+Math.round(n).toLocaleString('ru-RU');
-        tbody.innerHTML=(wageEmp.items||[])
-          .slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-          .map(it=>`<tr>
-            <td style="font-size:12px">${it.date||'—'}</td>
-            <td style="font-weight:500">${it.op}</td>
-            <td style="font-size:12px;color:var(--accent)">${it.orderNum||'—'}</td>
-            <td style="text-align:right;font-family:monospace">${it.qty} шт</td>
-            <td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(it.qty*it.rate)}</td>
-          </tr>`).join('')
-          ||'<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Операций нет</td></tr>';
-      }
-    } else {
-      // АУП — показываем имя
-      const aupName=document.getElementById('cab-aup-name');
-      if(aupName) aupName.textContent=u.name;
-    }
-
+    const aupSection=document.getElementById('cab-aup-section');
+    if(aupSection) aupSection.style.display = (window._currentUser==='__pin__') ? 'none' : '';
+    const aupName=document.getElementById('cab-aup-name');
+    if(aupName) aupName.textContent=u.name;
     document.getElementById('pin-screen').style.display='none';
     document.getElementById('cabinet-content').style.display='block';
+    cabOpen(u);
   } else {
     document.getElementById('pin-error').textContent='Неверный PIN-код';
     pinVal='';
     updatePinDisplay();
   }
 }
-// КАБИНЕТ — ПЕЧАТЬ / EXCEL / EMAIL
-function cabGetData(){
-  var name=document.getElementById('cab-name')?.textContent||'—';
-  var pos=document.getElementById('cab-pos')?.textContent||'—';
-  var earned=document.getElementById('cab-earned')?.textContent||'0';
-  var output=document.getElementById('cab-output')?.textContent||'0';
-  var shifts=document.getElementById('cab-shifts')?.textContent||'0';
-  var goal=document.getElementById('cab-goal')?.textContent||'0%';
-  var period=new Date().toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
-  var rows=[];
-  document.querySelectorAll('#cab-history-tbody tr').forEach(function(tr){
-    var cells=[...tr.querySelectorAll('td')].map(function(td){return td.textContent.trim();});
-    if(cells.length>=5) rows.push(cells);
+
+// ══════════════════════════════════════════════════════════════════════
+// ЛИЧНЫЙ КАБИНЕТ СОТРУДНИКА — ТОЛЬКО ПРОСМОТР
+// Данные запрашиваются только по имени вошедшего сотрудника.
+// ══════════════════════════════════════════════════════════════════════
+const CAB_MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+window._cab={name:'',pos:'',month:'',acc:[],pay:[],months:[]};
+const cabEsc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cabFmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
+const cabMonthLabel=m=>{const [y,mo]=m.split('-');return CAB_MN[+mo-1]+' '+y;};
+
+async function cabOpen(u){
+  const C=window._cab;
+  C.name=u.name; C.pos=u.pos; C.acc=[]; C.pay=[]; C.months=[];
+  const load=document.getElementById('cab-loading');
+  if(load) load.textContent='Загрузка...';
+  try{
+    const enc=encodeURIComponent(u.name);
+    const rows=await sbFetchAllPages('salary_accruals',`select=*&emp_name=eq.${enc}&order=date`);
+    (rows||[]).forEach(r=>{ if(r.type==='payment') C.pay.push(r); else C.acc.push(r); });
+  }catch(e){
+    if(load) load.textContent='⚠️ Не удалось загрузить данные: '+e.message;
+    return;
+  }
+  // Данные производства — для сдельных работ и заданий
+  try{
+    const jobs=[];
+    if(!ordersData.length && typeof loadOrdersFromDB==='function') jobs.push(loadOrdersFromDB());
+    jobs.push(sbFetchAllPages('production_progress','select=*').then(pr=>{
+      (pr||[]).forEach(p=>{ prodProgress[p.item_key]={id:p.id,version:1,stages:p.stages||[],materials:p.materials||[],completed:p.completed||false}; });
+    }));
+    await Promise.all(jobs);
+  }catch(e){ console.warn('Кабинет: нет данных производства', e.message); }
+
+  const set=new Set();
+  [...C.acc,...C.pay].forEach(r=>{ if(r.date) set.add(String(r.date).slice(0,7)); });
+  const now=new Date(); set.add(now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0'));
+  C.months=[...set].sort().reverse();
+  const sel=document.getElementById('cab-month');
+  sel.innerHTML=C.months.map(m=>`<option value="${m}">${cabMonthLabel(m)}</option>`).join('');
+  // по умолчанию — последний месяц, где есть данные
+  const lastData=[...new Set([...C.acc,...C.pay].map(r=>String(r.date).slice(0,7)))].sort().pop();
+  sel.value=lastData||C.months[0];
+  if(load) load.textContent='';
+  cabRenderMonth();
+}
+
+// Итоги за месяц + остаток на конец месяца
+function cabCalcMonth(m){
+  const C=window._cab;
+  const start=m+'-01';
+  const inM=r=>String(r.date).slice(0,7)===m;
+  const accM=C.acc.filter(inM), payM=C.pay.filter(inM);
+  const sum=(arr,f)=>arr.reduce((t,x)=>t+(+x[f]||0),0);
+  const amount=sum(accM,'amount'), deducted=sum(accM,'deducted'), net=sum(accM,'net');
+  const received=sum(payM,'amount');
+  const prevNet=C.acc.filter(r=>String(r.date)<start).reduce((t,x)=>t+(+x.net||0),0);
+  const prevPay=C.pay.filter(r=>String(r.date)<start).reduce((t,x)=>t+(+x.amount||0),0);
+  const opening=prevNet-prevPay;
+  return {m,accM,payM,amount,deducted,net,received,opening,closing:opening+net-received};
+}
+
+function cabRenderMonth(){
+  const C=window._cab;
+  const m=document.getElementById('cab-month').value;
+  C.month=m;
+  const r=cabCalcMonth(m);
+  C._cur=r;
+
+  // KPI
+  document.getElementById('cab-kpi').innerHTML=`
+    <div class="kpi"><div class="kpi-label">Начислено</div><div class="kpi-value" style="color:var(--green)">${cabFmt(r.amount)}</div></div>
+    <div class="kpi"><div class="kpi-label">Удержано</div><div class="kpi-value" style="color:var(--amber)">${cabFmt(r.deducted)}</div></div>
+    <div class="kpi"><div class="kpi-label">К выдаче</div><div class="kpi-value">${cabFmt(r.net)}</div></div>
+    <div class="kpi"><div class="kpi-label">Получено</div><div class="kpi-value" style="color:var(--accent)">${cabFmt(r.received)}</div></div>
+    <div class="kpi"><div class="kpi-label">Остаток на конец месяца</div>
+      <div class="kpi-value" style="color:${r.closing>0?'var(--amber)':r.closing<0?'var(--red)':'var(--green)'}">${cabFmt(r.closing)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">${r.closing>0?'компания должна вам':r.closing<0?'вы получили больше начисленного':'расчёт закрыт'}${r.opening?` · на начало месяца ${cabFmt(r.opening)}`:''}</div></div>`;
+
+  // Состав начисления и удержаний
+  const accT={}, dedT={};
+  r.accM.forEach(a=>{
+    const det=a.details&&typeof a.details==='object'?a.details:{};
+    (det.accruals||[]).forEach(x=>{accT[x.type||'Начисление']=(accT[x.type||'Начисление']||0)+(+x.amount||0);});
+    (det.deductions||[]).forEach(x=>{dedT[x.type||'Удержание']=(dedT[x.type||'Удержание']||0)+(+x.amount||0);});
   });
-  return {name:name,pos:pos,earned:earned,output:output,shifts:shifts,goal:goal,period:period,rows:rows};
+  const line=(k,v,c)=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid var(--border)"><span>${cabEsc(k)}</span><span style="font-family:'IBM Plex Mono',monospace;color:${c}">${cabFmt(v)}</span></div>`;
+  let bd='';
+  const accKeys=Object.keys(accT), dedKeys=Object.keys(dedT);
+  if(!accKeys.length && r.amount) bd+=line('Начислено (без детализации)',r.amount,'var(--green)');
+  accKeys.forEach(k=>bd+=line(k,accT[k],'var(--green)'));
+  dedKeys.forEach(k=>bd+=line('− '+k,dedT[k],'var(--amber)'));
+  document.getElementById('cab-breakdown').innerHTML=bd||'<div style="padding:12px;color:var(--text3);font-size:13px">Начислений за этот месяц нет</div>';
+
+  // Выплаты
+  document.getElementById('cab-pay-tbody').innerHTML=r.payM.length?r.payM.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(p=>
+    `<tr><td style="font-size:12px">${cabEsc(p.date)}</td><td>${cabEsc(p.comment||'Выплата')}</td><td style="text-align:right;font-family:monospace;color:var(--accent)">${cabFmt(p.amount)}</td></tr>`).join('')
+    :'<tr><td colspan="3" style="text-align:center;padding:14px;color:var(--text3)">Выплат за месяц нет</td></tr>';
+
+  // Сдельные работы и задания (берутся из рабочего листа производства)
+  let work=[];
+  try{ work=collectWorkLogEntries().filter(e=>e.exec===C.name); }catch(e){}
+  const tasks=cabCollectTasks();
+  const pieceCard=document.getElementById('cab-piece-card');
+  const tasksCard=document.getElementById('cab-tasks-card');
+  const showPiece=work.length>0||tasks.length>0;
+  pieceCard.style.display=showPiece?'':'none';
+  tasksCard.style.display=tasks.length?'':'none';
+  const wm=work.filter(e=>String(e.date).slice(0,7)===m).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  C._work=wm;
+  const wsName=id=>{const w=(typeof PIECE_WORKSHOPS!=='undefined'?PIECE_WORKSHOPS:[]).find(x=>x.id===id);return w?(w.icon||'')+' '+w.name:(id||'—');};
+  document.getElementById('cab-piece-tbody').innerHTML=wm.length?wm.map(e=>
+    `<tr><td style="font-size:12px">${cabEsc(e.date)}</td><td>${cabEsc(wsName(e.workshop))}</td><td style="color:var(--accent);font-size:12px">${cabEsc(e.orderNum)}</td><td>${cabEsc(e.itemName)}</td><td>${cabEsc(e.stage)}</td><td style="text-align:right;font-family:monospace;color:var(--green)">${cabFmt(e.amount)}</td></tr>`).join('')
+    :'<tr><td colspan="6" style="text-align:center;padding:14px;color:var(--text3)">Проведённых работ за месяц нет</td></tr>';
+  document.getElementById('cab-piece-total').textContent=wm.length?('Итого: '+cabFmt(wm.reduce((t,e)=>t+e.amount,0))):'';
+
+  const tm=tasks.filter(t=>!t.posted || String(t.postedDate||'').slice(0,7)===m);
+  C._tasks=tm;
+  const stCell=t=>t.posted?`<span class="badge badge-green">Завершено ${cabEsc(t.postedDate||'')}</span>`:t.started?`<span class="badge badge-blue">В работе${t.startedDate?' с '+cabEsc(t.startedDate):''}</span>`:'<span class="badge badge-amber">Назначено</span>';
+  document.getElementById('cab-tasks-tbody').innerHTML=tm.length?tm.map(t=>
+    `<tr><td>${stCell(t)}</td><td style="color:var(--accent);font-size:12px">${cabEsc(t.orderNum)}</td><td>${cabEsc(t.itemName)}</td><td>${cabEsc(t.stage)}</td><td>${cabEsc(wsName(t.workshop))}</td><td style="text-align:right;font-family:monospace">${t.share?cabFmt(t.share):'—'}${t.ktu&&t.ktu!==1?` <span style="font-size:11px;color:var(--text3)">КТУ ${t.ktu}</span>`:''}</td></tr>`).join('')
+    :'<tr><td colspan="6" style="text-align:center;padding:14px;color:var(--text3)">Заданий нет</td></tr>';
+
+  // Сводка по месяцам
+  document.getElementById('cab-summary-tbody').innerHTML=C.months.map(mm=>{
+    const x=cabCalcMonth(mm);
+    if(!x.accM.length&&!x.payM.length&&mm!==m) return '';
+    return `<tr style="cursor:pointer;${mm===m?'background:var(--bg3)':''}" onclick="document.getElementById('cab-month').value='${mm}';cabRenderMonth()">
+      <td style="font-weight:500">${cabMonthLabel(mm)}</td>
+      <td style="text-align:right;font-family:monospace">${cabFmt(x.amount)}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--amber)">${cabFmt(x.deducted)}</td>
+      <td style="text-align:right;font-family:monospace">${cabFmt(x.net)}</td>
+      <td style="text-align:right;font-family:monospace;color:var(--accent)">${cabFmt(x.received)}</td>
+      <td style="text-align:right;font-family:monospace">${cabFmt(x.closing)}</td></tr>`;
+  }).join('');
+}
+
+// Этапы рабочего листа, где сотрудник назначен исполнителем
+function cabCollectTasks(){
+  const C=window._cab, out=[];
+  try{
+    Object.entries(prodProgress).forEach(([itemKey,p])=>{
+      const [orderNum,idxStr]=itemKey.split('|');
+      const order=ordersData.find(o=>o.num===orderNum);
+      const item=order?.items?.[+idxStr];
+      if(!item) return;
+      (p.stages||[]).forEach(s=>{
+        const me=(s.assignees||[]).find(a=>a.name===C.name);
+        if(!me) return;
+        const ktuSum=(s.assignees||[]).reduce((t,a)=>t+(a.ktu||1),0)||1;
+        const total=computeStageAmountFor(s,item);
+        out.push({orderNum,itemName:item.name+(item.qty>1?` ×${item.qty}`:''),stage:s.stage||'(без названия)',workshop:s.workshop||'',
+          posted:!!s.posted,postedDate:s.postedDate,started:!!s.started,startedDate:s.startedDate,
+          ktu:me.ktu||1,share:total*((me.ktu||1)/ktuSum)});
+      });
+    });
+  }catch(e){ console.warn('Кабинет: задания', e); }
+  // сначала незавершённые
+  return out.sort((a,b)=>(a.posted-b.posted)||String(b.startedDate||'').localeCompare(String(a.startedDate||'')));
+}
+
+// ── Печать / Excel / Email ──
+function cabGetData(){
+  const C=window._cab, r=C._cur||{};
+  return {name:C.name,pos:C.pos,period:C.month?cabMonthLabel(C.month):'',
+    amount:r.amount||0,deducted:r.deducted||0,net:r.net||0,received:r.received||0,closing:r.closing||0,
+    pays:(r.payM||[]).map(p=>[p.date,p.comment||'Выплата',+p.amount||0]),
+    work:(C._work||[]).map(e=>[e.date,e.orderNum,e.itemName,e.stage,Math.round(e.amount)])};
 }
 
 function cabPrint(){
-  var d=cabGetData();
-  var ops=d.rows.map(function(r){
-    return '<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td>'+r[2]+'</td>'+
-      '<td style="text-align:right">'+r[3]+'</td>'+
-      '<td style="text-align:right;color:#16a34a;font-weight:600">'+r[4]+'</td></tr>';
-  }).join('');
-  var html='<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px">'+
-    '<div style="display:flex;justify-content:space-between;border-bottom:3px solid #1e3a5f;padding-bottom:12px;margin-bottom:20px">'+
-      '<div><div style="font-size:22px;font-weight:700;color:#1e3a5f">PromTech</div>'+
-      '<div style="font-size:12px;color:#64748b">Расчётный листок · '+d.period+'</div></div>'+
-      '<div style="font-size:12px;color:#64748b">'+new Date().toLocaleDateString('ru-RU')+'</div>'+
-    '</div>'+
-    '<div style="background:#f8fafc;border-radius:8px;padding:16px;margin-bottom:20px">'+
-      '<div style="font-size:18px;font-weight:700">'+d.name+'</div>'+
-      '<div style="font-size:14px;color:#64748b">'+d.pos+'</div>'+
-    '</div>'+
-    '<table style="width:100%;border-collapse:collapse;margin-bottom:20px"><tr>'+
-      '<td style="padding:10px;background:#eff6ff;border-radius:6px;text-align:center;width:25%">'+
-        '<div style="font-size:11px;color:#64748b">Начислено</div>'+
-        '<div style="font-size:20px;font-weight:700;color:#16a34a">'+d.earned+'</div></td>'+
-      '<td style="width:4%"></td>'+
-      '<td style="padding:10px;background:#f0fdf4;border-radius:6px;text-align:center;width:25%">'+
-        '<div style="font-size:11px;color:#64748b">Выработка</div>'+
-        '<div style="font-size:20px;font-weight:700">'+d.output+'</div></td>'+
-      '<td style="width:4%"></td>'+
-      '<td style="padding:10px;background:#fefce8;border-radius:6px;text-align:center;width:25%">'+
-        '<div style="font-size:11px;color:#64748b">Смен</div>'+
-        '<div style="font-size:20px;font-weight:700">'+d.shifts+'</div></td>'+
-      '<td style="width:4%"></td>'+
-      '<td style="padding:10px;background:#fdf4ff;border-radius:6px;text-align:center;width:25%">'+
-        '<div style="font-size:11px;color:#64748b">% от цели</div>'+
-        '<div style="font-size:20px;font-weight:700;color:#7c3aed">'+d.goal+'</div></td>'+
-    '</tr></table>'+
-    '<div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#1e3a5f">Детализация операций</div>'+
-    '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-      '<thead><tr style="background:#1e3a5f;color:#fff">'+
-        '<th style="padding:8px;text-align:left">Дата</th>'+
-        '<th style="padding:8px;text-align:left">Операция</th>'+
-        '<th style="padding:8px;text-align:left">Заказ</th>'+
-        '<th style="padding:8px;text-align:right">Кол-во</th>'+
-        '<th style="padding:8px;text-align:right">Сумма</th>'+
-      '</tr></thead>'+
-      '<tbody>'+(ops||'<tr><td colspan="5" style="text-align:center;padding:12px;color:#94a3b8">Нет операций</td></tr>')+'</tbody>'+
-    '</table>'+
-    '<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;text-align:center">'+
-      'PromTech ERP · '+new Date().toLocaleString('ru-RU')+'</div>'+
-  '</div>';
-
-  var area=document.getElementById('cab-print-area');
+  const d=cabGetData();
+  const td='style="padding:6px 8px;border-bottom:1px solid #e2e8f0"';
+  const pays=d.pays.map(x=>`<tr><td ${td}>${cabEsc(x[0])}</td><td ${td}>${cabEsc(x[1])}</td><td ${td} align="right">${cabFmt(x[2])}</td></tr>`).join('');
+  const work=d.work.map(x=>`<tr><td ${td}>${cabEsc(x[0])}</td><td ${td}>${cabEsc(x[1])}</td><td ${td}>${cabEsc(x[2])}</td><td ${td}>${cabEsc(x[3])}</td><td ${td} align="right">${cabFmt(x[4])}</td></tr>`).join('');
+  const html=`<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px">
+    <div style="border-bottom:3px solid #1e3a5f;padding-bottom:12px;margin-bottom:16px">
+      <div style="font-size:22px;font-weight:700;color:#1e3a5f">PromTech</div>
+      <div style="font-size:12px;color:#64748b">Расчётный листок · ${cabEsc(d.period)}</div></div>
+    <div style="font-size:18px;font-weight:700">${cabEsc(d.name)}</div>
+    <div style="font-size:13px;color:#64748b;margin-bottom:14px">${cabEsc(d.pos)}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
+      <tr><td ${td}>Начислено</td><td ${td} align="right"><b>${cabFmt(d.amount)}</b></td></tr>
+      <tr><td ${td}>Удержано</td><td ${td} align="right">${cabFmt(d.deducted)}</td></tr>
+      <tr><td ${td}>К выдаче</td><td ${td} align="right"><b>${cabFmt(d.net)}</b></td></tr>
+      <tr><td ${td}>Получено</td><td ${td} align="right">${cabFmt(d.received)}</td></tr>
+      <tr><td ${td}>Остаток на конец месяца</td><td ${td} align="right"><b>${cabFmt(d.closing)}</b></td></tr></table>
+    ${pays?`<div style="font-weight:700;margin:10px 0 4px">Получено</div><table style="width:100%;border-collapse:collapse;font-size:13px">${pays}</table>`:''}
+    ${work?`<div style="font-weight:700;margin:14px 0 4px">Выполненные работы</div><table style="width:100%;border-collapse:collapse;font-size:12px">${work}</table>`:''}
+    <div style="margin-top:20px;font-size:11px;color:#94a3b8;text-align:center">PromTech ERP · ${new Date().toLocaleString('ru-RU')}</div></div>`;
+  let area=document.getElementById('cab-print-area');
   if(!area){area=document.createElement('div');area.id='cab-print-area';area.style.display='none';document.body.appendChild(area);}
-  area.innerHTML=html;
-  area.style.display='block';
-  window.print();
-  area.style.display='none';
+  area.innerHTML=html; area.style.display='block'; window.print(); area.style.display='none';
 }
 
 function cabExcel(){
   if(typeof XLSX==='undefined'){alert('Excel загружается, попробуйте через несколько секунд');return;}
-  var d=cabGetData();
-  var wb=XLSX.utils.book_new();
-  var slip=[
-    ['РАСЧЁТНЫЙ ЛИСТОК'],
-    ['Сотрудник:',d.name],['Должность:',d.pos],
-    ['Период:',d.period],['Дата:',new Date().toLocaleDateString('ru-RU')],
-    [],['Начислено','Выработка','Смен','% от цели'],
-    [d.earned,d.output,d.shifts,d.goal]
-  ];
-  var ws1=XLSX.utils.aoa_to_sheet(slip);
-  ws1['!cols']=[{wch:25},{wch:20},{wch:12},{wch:12}];
-  XLSX.utils.book_append_sheet(wb,ws1,'Расчётный листок');
-  var ws2=XLSX.utils.aoa_to_sheet([
-    ['Детализация операций — '+d.name+' — '+d.period],[],
-    ['Дата','Операция','Заказ','Кол-во','Сумма']
-  ].concat(d.rows.map(function(r){return [r[0],r[1],r[2],r[3],r[4]];})));
-  ws2['!cols']=[{wch:12},{wch:25},{wch:12},{wch:10},{wch:14}];
-  XLSX.utils.book_append_sheet(wb,ws2,'Операции');
-  XLSX.writeFile(wb,'Кабинет_'+d.name.split(' ')[0]+'_'+new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')+'.xlsx');
+  const d=cabGetData();
+  const wb=XLSX.utils.book_new();
+  const ws1=XLSX.utils.aoa_to_sheet([['РАСЧЁТНЫЙ ЛИСТОК'],['Сотрудник:',d.name],['Должность:',d.pos],['Период:',d.period],[],
+    ['Начислено',d.amount],['Удержано',d.deducted],['К выдаче',d.net],['Получено',d.received],['Остаток на конец месяца',d.closing]]);
+  ws1['!cols']=[{wch:28},{wch:18}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Листок');
+  const ws2=XLSX.utils.aoa_to_sheet([['Дата','Комментарий','Сумма'],...d.pays]);
+  ws2['!cols']=[{wch:12},{wch:30},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Получено');
+  if(d.work.length){
+    const ws3=XLSX.utils.aoa_to_sheet([['Дата','Заказ','Изделие','Работа','Сумма'],...d.work]);
+    ws3['!cols']=[{wch:12},{wch:14},{wch:30},{wch:24},{wch:14}];
+    XLSX.utils.book_append_sheet(wb,ws3,'Работы');
+  }
+  XLSX.writeFile(wb,'ЗП_'+d.name.split(' ')[0]+'_'+(window._cab.month||'')+'.xlsx');
 }
 
 function cabSendEmail(){
-  var email=(document.getElementById('cab-email-input')?.value||'').trim();
-  if(!email||!email.includes('@')){
-    var st=document.getElementById('cab-email-status');
-    st.textContent='⚠️ Введите корректный email';
-    st.style.color='var(--red)';
-    return;
-  }
-  var d=cabGetData();
-  var sendSlip=document.getElementById('cab-email-slip')?.checked;
-  var sendOps=document.getElementById('cab-email-ops')?.checked;
-  var body='Расчётный листок\n\nСотрудник: '+d.name+'\nДолжность: '+d.pos+'\nПериод: '+d.period+'\n\n';
-  if(sendSlip) body+='Начислено: '+d.earned+'\nВыработка: '+d.output+'\nСмен: '+d.shifts+'\n% от цели: '+d.goal+'\n\n';
-  if(sendOps&&d.rows.length>0){
-    body+='Детализация операций:\n';
-    d.rows.forEach(function(r){body+=r[0]+' | '+r[1]+' | '+r[2]+' | '+r[3]+' | '+r[4]+'\n';});
+  const email=(document.getElementById('cab-email-input')?.value||'').trim();
+  const st=document.getElementById('cab-email-status');
+  if(!email||!email.includes('@')){st.textContent='⚠️ Введите корректный email';st.style.color='var(--red)';return;}
+  const d=cabGetData();
+  let body='Расчётный листок\n\nСотрудник: '+d.name+'\nДолжность: '+d.pos+'\nПериод: '+d.period+'\n\n';
+  if(document.getElementById('cab-email-slip')?.checked)
+    body+='Начислено: '+cabFmt(d.amount)+'\nУдержано: '+cabFmt(d.deducted)+'\nК выдаче: '+cabFmt(d.net)+'\nПолучено: '+cabFmt(d.received)+'\nОстаток: '+cabFmt(d.closing)+'\n\n';
+  if(document.getElementById('cab-email-ops')?.checked && d.work.length){
+    body+='Выполненные работы:\n'; d.work.forEach(x=>{body+=x.join(' | ')+'\n';});
   }
   window.open('mailto:'+email+'?subject='+encodeURIComponent('Расчётный листок — '+d.name+' — '+d.period)+'&body='+encodeURIComponent(body));
-  var st=document.getElementById('cab-email-status');
-  st.textContent='✅ Открыт почтовый клиент. Проверьте черновик и отправьте.';
-  st.style.color='var(--green)';
-  setTimeout(function(){closeModal('cabEmailModal');st.textContent='';},3000);
+  st.textContent='✅ Открыт почтовый клиент. Проверьте черновик и отправьте.';st.style.color='var(--green)';
+  setTimeout(()=>{closeModal('cabEmailModal');st.textContent='';},3000);
 }
 
 function cabLogout(){
-  // Если зашли через PIN с главного экрана — возвращаемся на логин
+  window._cab={name:'',pos:'',month:'',acc:[],pay:[],months:[]};
   if(window._currentUser==='__pin__'){
     window._currentUser=null;
-    // Восстанавливаем топбар и сайдбар
     const topbar=document.getElementById('main-topbar')||document.querySelector('.topbar');
     if(topbar) topbar.style.display='';
     const sidebar=document.getElementById('sidebar');
     if(sidebar) sidebar.style.display='';
-    // Сбрасываем инлайн стили всех страниц
-    // (чтобы не мешали при следующем входе через логин/пароль)
-    document.querySelectorAll('.page').forEach(p=>{
-      p.style.display='';
-      p.classList.remove('active');
-    });
-    // Показываем экран входа
+    document.querySelectorAll('.page').forEach(p=>{ p.style.display=''; p.classList.remove('active'); });
     document.getElementById('login-screen').style.display='flex';
-    // Сбрасываем PIN-форму на вкладку PIN
     loginPinVal='';
     switchLoginTab('pin');
     updateLoginPinDisplay();
     return;
   }
-  // Обычный выход из кабинета (зашли через логин/пароль)
   document.getElementById('pin-screen').style.display='block';
   document.getElementById('cabinet-content').style.display='none';
-  pinVal='';
-  updatePinDisplay();
+  pinVal=''; updatePinDisplay();
   document.getElementById('pin-error').textContent='';
 }
 
@@ -17175,15 +17241,6 @@ function saveWage(){
 
   const d=new Date(date);
   const dateStr=d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'});
-
-  // Also add to cabinet history if matching employee logged in
-  const cabName=document.getElementById('cab-name').textContent;
-  if(emp && document.getElementById('cabinet-content').style.display!=='none' && cabName.includes(emp.name.split(' ')[0])){
-    const cabTbody=document.querySelector('#cab-history tbody');
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${dateStr}</td><td>${opName}</td><td>${qty} шт</td><td style="font-family:'IBM Plex Mono',monospace;color:var(--green)">₸${amount.toLocaleString('ru')}</td>`;
-    cabTbody.insertBefore(tr,cabTbody.firstChild);
-  }
 
   // Clear form
   document.getElementById('wage-qty').value='';
@@ -21466,7 +21523,7 @@ function openEmployeeCard(id){
   if(canSeePIN){
     // Ищем PIN в payrollStaff по имени сотрудника
     const staffEntry = payrollStaff.find(s=>s.name===(emp?.name||''));
-    document.getElementById('emp-card-pin').value = staffEntry?.pin||'';
+    document.getElementById('emp-card-pin').value = emp?.pin||staffEntry?.pin||'';
   }
 
   // Цех/Вид деятельности
@@ -21532,9 +21589,13 @@ function saveEmployeeCard(){
 
   // Сохраняем PIN (только если HR или директор)
   const canSeePIN=['director','hr'].includes(window._currentUser);
+  let _newPin=null;
   if(canSeePIN){
     const pinVal=parseInt(document.getElementById('emp-card-pin').value)||null;
     if(pinVal && String(pinVal).length===4){
+      const holder=getPins()[pinVal];
+      if(holder && holder.name!==name){ err.style.color='var(--red)'; err.textContent='PIN '+pinVal+' уже занят: '+holder.name; return; }
+      _newPin=pinVal;
       // Обновляем PIN в payrollStaff
       const staffEntry=payrollStaff.find(s=>s.name===name);
       if(staffEntry){
@@ -21554,8 +21615,9 @@ function saveEmployeeCard(){
   }
   if(editId){
     const idx=employeesData.findIndex(e=>e.id===editId);
-    if(idx>=0) employeesData[idx]={...employeesData[idx],...obj};
+    if(idx>=0) employeesData[idx]={...employeesData[idx],...obj,...(_newPin?{pin:_newPin}:{})};
     sbPatch('staff',`name=eq.${encodeURIComponent(name)}`,{
+      ...(_newPin?{pin:_newPin}:{}),
       pos:obj.pos, type:obj.type, ws:obj.ws,
       salary:obj.salary, phone:obj.phone, iin:obj.iin,
       hired:obj.hired, comment:obj.comment,
@@ -21565,7 +21627,7 @@ function saveEmployeeCard(){
     }).catch(e=>console.warn('⚠️ Ошибка обновления сотрудника:', e.message));
   } else {
     const pinVal2=parseInt(document.getElementById('emp-card-pin')?.value)||null;
-    employeesData.push({id:empSeq++,...obj});
+    employeesData.push({id:empSeq++,...obj,pin:pinVal2||null});
     sbInsert('staff',{
       name:obj.name, pos:obj.pos, type:obj.type,
       ws:obj.ws, salary:obj.salary, phone:obj.phone,
