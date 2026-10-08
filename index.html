@@ -3833,9 +3833,49 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showSalesTab('progress',this)">🔧 В работе (<span id="s-count-progress">0</span>)</div>
         <div class="tab" onclick="showSalesTab('done',this)">✅ Завершено (<span id="s-count-done">0</span>)</div>
         <div class="tab" onclick="showSalesTab('sales-journal',this)">📒 Реализация</div>
+        <div class="tab" id="sw-tab-btn" onclick="showSalesTab('worksheet',this)">📝 Рабочий лист реализации</div>
         <div class="tab" onclick="showSalesTab('report',this)">📈 Отчёт</div>
       </div>
     
+      <!-- ===== Рабочий лист реализации (черновик; проводки — по кнопке «Провести») ===== -->
+      <div class="orders-tab" id="orders-worksheet" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end">
+          <div><label class="label">С</label><input type="date" id="sw-from" onchange="swReload()" style="font-size:13px"></div>
+          <div><label class="label">По</label><input type="date" id="sw-to" onchange="swReload()" style="font-size:13px"></div>
+          <button class="btn btn-ghost btn-sm" onclick="swQuick('today')">Сегодня</button>
+          <button class="btn btn-ghost btn-sm" onclick="swQuick('yesterday')">Вчера</button>
+          <button class="btn btn-ghost btn-sm" onclick="swQuick('week')">Неделя</button>
+          <button class="btn btn-ghost btn-sm" onclick="swQuick('month')">Месяц</button>
+          <input id="sw-search" type="search" placeholder="🔍 № накладной, заказ, покупатель, товар" oninput="swRender()" style="font-size:13px;width:260px">
+          <select id="sw-status" onchange="swRender()" style="font-size:13px;width:auto">
+            <option value="">Все статусы</option>
+            <option value="draft">Черновик</option>
+            <option value="posted">Проведено</option>
+            <option value="undelivered">Не доставлено</option>
+            <option value="delivered">Доставлено</option>
+          </select>
+          <select id="sw-driver-filter" onchange="swRender()" style="font-size:13px;width:auto"><option value="">Все водители</option></select>
+          <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="swPrintJournal()" title="Печатает отмеченные строки, а если ничего не отмечено — все строки по фильтру">🖨 Печать журнала</button>
+            <button class="btn btn-primary btn-sm" id="sw-new-btn" onclick="swOpenDoc()">+ Новая накладная</button>
+          </div>
+        </div>
+        <div id="sw-msg" style="font-size:12px;color:var(--text3);margin-bottom:6px"></div>
+        <div style="overflow:auto;max-height:calc(100vh - 300px)">
+          <table class="data-table" id="sw-table">
+            <thead><tr>
+              <th style="width:26px"><input type="checkbox" id="sw-check-all" onchange="swToggleAll(this.checked)"></th>
+              <th>№ накл.</th><th>Дата</th><th>Заказ</th><th>Покупатель</th><th>Товар</th><th>Характеристики</th>
+              <th style="text-align:right">Кол-во</th><th style="text-align:right">Цена</th><th style="text-align:right">Сумма</th>
+              <th>Водитель</th><th>Статус</th><th></th>
+            </tr></thead>
+            <tbody id="sw-tbody"></tbody>
+            <tfoot id="sw-tfoot"></tfoot>
+          </table>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px">Строки — черновик и проводок не дают. «Провести» переносит накладную в реестр «Реализация» (выручка, P&amp;L, автозавершение заказов). В день создания строки редактирует только исполнитель или администратор, на следующий день — только администратор.</div>
+      </div>
+
       <div class="orders-tab" id="orders-report" style="display:none">
         <!-- Фильтры -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
@@ -8223,6 +8263,53 @@ window.onerror = function(msg, src, line, col){
 
   </div><!-- /content -->
 </div><!-- /main -->
+
+
+<!-- MODAL: Накладная реализации -->
+<div class="modal-overlay" id="swDocModal">
+  <div class="modal" style="max-width:1100px;width:96vw;max-height:92vh;overflow:auto">
+    <div class="modal-header">
+      <div class="modal-title" id="sw-modal-title">Новая накладная</div>
+      <button class="modal-close" onclick="closeModal('swDocModal')">✕</button>
+    </div>
+    <div id="sw-doc-error" style="color:var(--red);font-size:13px;margin-bottom:8px;min-height:18px"></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+      <div><label class="label">№ накладной *</label><input id="sw-doc-num" type="text"></div>
+      <div><label class="label">Дата *</label><input id="sw-doc-date" type="date"></div>
+      <div><label class="label">Покупатель (заказчик) *</label><input id="sw-customer" type="text" list="sw-customers-dl" autocomplete="off" onchange="swCustomerChanged()"><datalist id="sw-customers-dl"></datalist></div>
+      <div><label class="label">Водитель</label><input id="sw-driver" type="text" list="sw-drivers-dl" autocomplete="off"><datalist id="sw-drivers-dl"></datalist></div>
+    </div>
+    <div style="margin-top:8px"><label class="label">Примечание</label><input id="sw-note" type="text" style="width:100%"></div>
+
+    <div style="display:flex;gap:8px;margin:14px 0 6px;flex-wrap:wrap;align-items:center">
+      <span style="font-weight:600;font-size:13px">Позиции накладной</span>
+      <button class="btn btn-ghost btn-sm" onclick="swOpenOrderPicker()">+ Из заказа</button>
+      <button class="btn btn-ghost btn-sm" onclick="swAddFreeLine()">+ Строка без заказа</button>
+      <label style="font-size:12px;color:var(--text3);display:flex;gap:4px;align-items:center;margin-left:auto"><input type="checkbox" id="sw-all-short" onchange="swSetAllShort(this.checked)"> сократить все характеристики</label>
+    </div>
+
+    <div id="sw-picker" style="display:none;border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--bg3)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="sw-ord-input" type="text" list="sw-orders-dl" placeholder="№ заказа" autocomplete="off" style="font-size:13px;width:200px" onchange="swLoadOrderItems()"><datalist id="sw-orders-dl"></datalist>
+        <button class="btn btn-ghost btn-sm" onclick="swLoadOrderItems()">Показать позиции</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('sw-picker').style.display='none'">Закрыть</button>
+      </div>
+      <div id="sw-picker-body" style="margin-top:8px"></div>
+    </div>
+
+    <div style="overflow:auto">
+      <table class="data-table">
+        <thead><tr><th style="width:110px">Заказ</th><th>Наименование</th><th>Характеристики</th><th style="width:60px">Кратко</th><th style="width:70px">Ед.</th><th style="width:80px">Кол-во</th><th style="width:100px">Цена</th><th style="width:110px;text-align:right">Сумма</th><th style="width:30px"></th></tr></thead>
+        <tbody id="sw-lines"></tbody>
+        <tfoot><tr style="font-weight:700"><td colspan="7" style="text-align:right">Итого:</td><td style="text-align:right" id="sw-total">0</td><td></td></tr></tfoot>
+      </table>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('swDocModal')">Отмена</button>
+      <button class="btn btn-primary" onclick="swSaveDoc()">💾 Сохранить</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL: New Order -->
 <div class="modal-overlay" id="newOrderModal">
@@ -16005,6 +16092,7 @@ function showPage(id, el){
     if(pc) pc.textContent=purchasesData.filter(r=>purStatus(r)!=='paid').length||'';
   }
   if(id==='sales'){
+    setTimeout(()=>{ if(typeof swApplyRole==='function') swApplyRole(); },0);
     loadOrdersFromDB().then(()=>{
       // Заполняем список годов
       const years = new Set();
@@ -29817,6 +29905,490 @@ function updateOrderTabCounts(){
   setC('tab-count-done',   statusCounts.done||0);
 }
 
+
+// ══════════════════════════════════════════════════════════════════════
+// РАБОЧИЙ ЛИСТ РЕАЛИЗАЦИИ — черновик; проводки (в реестр realizations) только по кнопке «Провести»
+// Таблица: sales_worksheet (одна строка = одна позиция; накладная = общий doc_id)
+// ══════════════════════════════════════════════════════════════════════
+let swRows = [];
+let swSel = new Set();
+let swLastClicked = null;
+let _swEdit = null;        // {docId, header, lines, keep}
+let _swOrderItems = [];    // позиции выбранного заказа в пикере
+const SW_ADMINS = ['director'];
+const swEsc = v => String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const swFmt = n => Math.round(+n||0).toLocaleString('ru-RU');
+const swNum = v => { const x=parseFloat(String(v).replace(',','.').replace(/\s/g,'')); return isNaN(x)?0:x; };
+function swToday(){ const d=new Date(); return localISODate(d.getFullYear(),d.getMonth(),d.getDate()); }
+function swIsoToRu(iso){ const p=String(iso||'').slice(0,10).split('-'); return p.length===3?`${p[2]}.${p[1]}.${p[0]}`:(iso||''); }
+function swUser(){ return window._currentUser||''; }
+function swIsAdmin(){ return SW_ADMINS.includes(swUser()); }
+function swIsDriverUser(){ const r=window._currentRole; return !!(r && /водител/i.test((r.label||'')+' '+(r.name||''))); }
+function swDriverMatches(driver){
+  const r=window._currentRole; if(!r||!driver) return false;
+  const a=String(driver).toLowerCase().trim(), b=String(r.name||'').toLowerCase().trim();
+  return !!a && !!b && (a.includes(b)||b.includes(a));
+}
+function swCreatedToday(row){
+  if(!row.created_at) return true;
+  const d=new Date(row.created_at);
+  return localISODate(d.getFullYear(),d.getMonth(),d.getDate())===swToday();
+}
+function swDocRows(docId){ return swRows.filter(r=>r.doc_id===docId).sort((a,b)=>(a.line_no||0)-(b.line_no||0)); }
+function swIsAuthor(rows){ return rows.length && rows[0].created_by===swUser(); }
+function swCanEdit(rows){
+  if(!rows.length || rows[0].posted) return false;
+  if(swIsAdmin()) return true;
+  return swIsAuthor(rows) && swCreatedToday(rows[0]);
+}
+function swCanPost(rows){ return rows.length && !rows[0].posted && (swIsAdmin() || swIsAuthor(rows)); }
+function swCanUnpost(rows){ return rows.length && rows[0].posted && (swIsAdmin() || (swIsAuthor(rows) && swCreatedToday(rows[0]))); }
+function swCanDeliver(rows){ return rows.length && (swIsAdmin() || swIsAuthor(rows) || swDriverMatches(rows[0].driver)); }
+
+// Ограничения по роли: салоны/дилеры вкладку не видят; водитель видит только свою вкладку
+function swApplyRole(){
+  const r=window._currentRole; if(!r) return;
+  const btn=document.getElementById('sw-tab-btn');
+  if(r.channel && btn){ btn.style.display='none'; return; }
+  if(swIsDriverUser()){
+    document.querySelectorAll('#sales-tabs .tab').forEach(t=>{ if(t!==btn) t.style.display='none'; });
+    const nb=document.getElementById('sw-new-btn'); if(nb) nb.style.display='none';
+    document.querySelectorAll('#page-sales .section-header button').forEach(b=>b.style.display='none');
+    if(btn){ showSalesTab('worksheet',btn); }
+  }
+}
+
+function swOpen(){
+  const f=document.getElementById('sw-from'), t=document.getElementById('sw-to');
+  if(f && !f.value){ f.value=swToday(); t.value=swToday(); }
+  swReload();
+}
+function swQuick(kind){
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth(), d=now.getDate();
+  let a=swToday(), b=swToday();
+  if(kind==='yesterday'){ a=b=localISODate(y,m,d-1); }
+  if(kind==='week'){ a=localISODate(y,m,d-6); }
+  if(kind==='month'){ a=localISODate(y,m,1); b=localISODate(y,m+1,0); }
+  document.getElementById('sw-from').value=a; document.getElementById('sw-to').value=b;
+  swReload();
+}
+async function swReload(){
+  const from=document.getElementById('sw-from').value||swToday();
+  const to=document.getElementById('sw-to').value||from;
+  const msg=document.getElementById('sw-msg');
+  msg.textContent='⏳ Загрузка...';
+  try{
+    swRows = await sbFetchAllPages('sales_worksheet',`select=*&doc_date=gte.${from}&doc_date=lte.${to}&order=doc_date.desc,doc_num.desc,line_no.asc`);
+    msg.textContent='';
+  }catch(e){
+    swRows=[];
+    msg.innerHTML='⚠️ Не удалось загрузить рабочий лист: '+swEsc(e.message)+'. Если вы ещё не выполняли SQL <b>sales_worksheet.sql</b> в Supabase — сделайте это.';
+  }
+  swSel.clear();
+  if(!ordersData.length && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+  swRender();
+}
+
+function swStatusOf(rows){
+  const r=rows[0];
+  return {posted:!!r.posted, delivered:!!r.delivered};
+}
+function swFiltered(){
+  const q=(document.getElementById('sw-search')?.value||'').toLowerCase().trim();
+  const st=document.getElementById('sw-status')?.value||'';
+  const dr=document.getElementById('sw-driver-filter')?.value||'';
+  const driverUser=swIsDriverUser();
+  return swRows.filter(r=>{
+    if(driverUser && !swDriverMatches(r.driver)) return false;
+    if(dr && (r.driver||'')!==dr) return false;
+    if(st==='draft' && r.posted) return false;
+    if(st==='posted' && !r.posted) return false;
+    if(st==='delivered' && !r.delivered) return false;
+    if(st==='undelivered' && r.delivered) return false;
+    if(q){
+      const hay=[r.doc_num,r.order_num,r.customer,r.item_name,r.attrs,r.driver].join(' ').toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function swAttrsShort(full){
+  const parts=String(full||'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{ const i=x.indexOf(':'); return i>=0?x.slice(i+1).trim():x; });
+  const txt=parts.join(', ');
+  return txt.length>40 ? txt.slice(0,40).trim()+'…' : txt;
+}
+function swAttrsView(r){ return r.attrs_short ? swAttrsShort(r.attrs) : (r.attrs||''); }
+
+function swRender(){
+  const tbody=document.getElementById('sw-tbody'); if(!tbody) return;
+  // водители в фильтре
+  const dsel=document.getElementById('sw-driver-filter');
+  if(dsel){
+    const cur=dsel.value, set=[...new Set(swRows.map(r=>r.driver).filter(Boolean))].sort();
+    dsel.innerHTML='<option value="">Все водители</option>'+set.map(d=>`<option value="${swEsc(d)}">${swEsc(d)}</option>`).join('');
+    dsel.value=set.includes(cur)?cur:'';
+  }
+  const rows=swFiltered();
+  const seen=new Set(); let total=0;
+  const html=[];
+  rows.forEach((r,i)=>{
+    const first=!seen.has(r.doc_id); seen.add(r.doc_id);
+    const docRows=swDocRows(r.doc_id);
+    total+=+r.amount||0;
+    let status='', actions='';
+    if(first){
+      const badges=[];
+      badges.push(r.posted?'<span class="badge badge-green">Проведено</span>':'<span class="badge badge-amber">Черновик</span>');
+      if(r.delivered) badges.push(`<span class="badge badge-blue" title="${swEsc((r.delivered_by||'')+' '+(r.delivered_at?new Date(r.delivered_at).toLocaleString('ru-RU'):''))}">🚚 Доставлено</span>`);
+      status=badges.join(' ');
+      const b=[];
+      const id=`'${r.doc_id}'`;
+      b.push(`<button class="btn btn-ghost btn-sm" title="Печать накладной" onclick="swPrintDoc(${id})">🖨</button>`);
+      if(swCanDeliver(docRows)) b.push(`<button class="btn btn-ghost btn-sm" title="${r.delivered?'Снять отметку о доставке':'Отметить: доставлено'}" onclick="swToggleDelivered(${id})">${r.delivered?'↩🚚':'🚚'}</button>`);
+      if(swCanEdit(docRows)) b.push(`<button class="btn btn-ghost btn-sm" title="Редактировать" onclick="swOpenDoc(${id})">✏️</button>`);
+      if(swCanPost(docRows)) b.push(`<button class="btn btn-primary btn-sm" title="Провести в реестр «Реализация»" onclick="swPost(${id})">✅ Провести</button>`);
+      if(swCanUnpost(docRows)) b.push(`<button class="btn btn-ghost btn-sm" title="Снять с проведения" onclick="swUnpost(${id})">↩ Снять</button>`);
+      if(swCanEdit(docRows)) b.push(`<button class="btn btn-ghost btn-sm" title="Удалить" onclick="swDeleteDoc(${id})">🗑</button>`);
+      actions=`<div style="display:flex;gap:4px;flex-wrap:wrap">${b.join('')}</div>`;
+    }
+    html.push(`<tr style="${first&&i>0?'border-top:2px solid var(--border)':''}">
+      <td><input type="checkbox" ${swSel.has(r.id)?'checked':''} onclick="swRowCheck(event,'${r.id}')"></td>
+      <td style="font-weight:600;white-space:nowrap">${swEsc(r.doc_num)}</td>
+      <td style="white-space:nowrap;font-size:12px">${swEsc(swIsoToRu(r.doc_date))}</td>
+      <td style="font-size:12px;color:var(--accent)">${swEsc(r.order_num||'—')}</td>
+      <td>${first?swEsc(r.customer):''}</td>
+      <td style="font-weight:500">${swEsc(r.item_name)}</td>
+      <td style="font-size:12px;color:var(--text2);max-width:260px">${swEsc(swAttrsView(r))}</td>
+      <td style="text-align:right;font-family:monospace">${swEsc(r.qty)} ${swEsc(r.unit||'')}</td>
+      <td style="text-align:right;font-family:monospace">${swFmt(r.price)}</td>
+      <td style="text-align:right;font-family:monospace;font-weight:600">${swFmt(r.amount)}</td>
+      <td>${first?swEsc(r.driver||'—'):''}</td>
+      <td>${status}</td><td>${actions}</td></tr>`);
+    const nextSame = rows[i+1] && rows[i+1].doc_id===r.doc_id;
+    if(!nextSame && docRows.length>1){
+      const sum=docRows.reduce((t,x)=>t+(+x.amount||0),0);
+      html.push(`<tr style="background:var(--bg3)"><td colspan="9" style="text-align:right;font-size:12px;color:var(--text3)">Итого по накладной ${swEsc(r.doc_num)}:</td><td style="text-align:right;font-family:monospace;font-weight:700">${swFmt(sum)}</td><td colspan="3"></td></tr>`);
+    }
+  });
+  tbody.innerHTML=html.join('')||'<tr><td colspan="13" style="text-align:center;padding:24px;color:var(--text3)">За выбранный период записей нет</td></tr>';
+  const tf=document.getElementById('sw-tfoot');
+  if(tf) tf.innerHTML=rows.length?`<tr style="font-weight:700;background:var(--bg3)"><td colspan="9" style="text-align:right">ИТОГО (${new Set(rows.map(r=>r.doc_id)).size} накл., ${rows.length} поз.):</td><td style="text-align:right;font-family:monospace">${swFmt(total)}</td><td colspan="3"></td></tr>`:'';
+  const ca=document.getElementById('sw-check-all'); if(ca) ca.checked=rows.length>0 && rows.every(r=>swSel.has(r.id));
+}
+function swRowCheck(ev,id){
+  const rows=swFiltered().map(r=>r.id);
+  if(ev.shiftKey && swLastClicked){
+    const a=rows.indexOf(swLastClicked), b=rows.indexOf(id);
+    if(a>=0&&b>=0){ const [lo,hi]=a<b?[a,b]:[b,a]; for(let i=lo;i<=hi;i++) swSel.add(rows[i]); }
+  } else if(ev.target.checked) swSel.add(id); else swSel.delete(id);
+  swLastClicked=id;
+  swRender();
+}
+function swToggleAll(on){ swFiltered().forEach(r=>{ if(on) swSel.add(r.id); else swSel.delete(r.id); }); swRender(); }
+
+// ── Печать ──
+function swPrintHtml(html){
+  let f=document.getElementById('sw-print-frame'); if(f) f.remove();
+  f=document.createElement('iframe'); f.id='sw-print-frame';
+  f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(f);
+  const d=f.contentWindow.document; d.open(); d.write(html); d.close();
+  setTimeout(()=>{ f.contentWindow.focus(); f.contentWindow.print(); },300);
+}
+const SW_PRINT_CSS='<style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;font-size:11px;color:#111}h2{margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #444;padding:4px 6px;vertical-align:top}th{background:#eee;text-align:left}td.r,th.r{text-align:right}.sign{display:flex;justify-content:space-between;margin-top:28px;font-size:12px}.sign div{width:45%;border-top:1px solid #000;padding-top:4px}</style>';
+function swPrintDoc(docId){
+  const rows=swDocRows(docId); if(!rows.length) return;
+  const h=rows[0];
+  const total=rows.reduce((t,x)=>t+(+x.amount||0),0);
+  const orders=[...new Set(rows.map(r=>r.order_num).filter(Boolean))];
+  const body=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${swEsc(r.item_name)}${r.order_num?`<div style="font-size:9px;color:#555">заказ ${swEsc(r.order_num)}</div>`:''}</td><td>${swEsc(swAttrsView(r))}</td><td>${swEsc(r.unit||'шт')}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td></tr>`).join('');
+  const html=`<html><head><meta charset="utf-8">${SW_PRINT_CSS}</head><body>
+    <h2>Накладная на отгрузку № ${swEsc(h.doc_num)} от ${swEsc(swIsoToRu(h.doc_date))}</h2>
+    <div>Покупатель: <b>${swEsc(h.customer)}</b></div>
+    ${orders.length?`<div>Основание: заказ ${orders.map(swEsc).join(', ')}</div>`:''}
+    ${h.driver?`<div>Водитель: ${swEsc(h.driver)}</div>`:''}
+    ${h.note?`<div>Примечание: ${swEsc(h.note)}</div>`:''}
+    <table><thead><tr><th>№</th><th>Наименование</th><th>Характеристики</th><th>Ед.</th><th class="r">Кол-во</th><th class="r">Цена, ₸</th><th class="r">Сумма, ₸</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td colspan="6" class="r"><b>Итого:</b></td><td class="r"><b>${swFmt(total)}</b></td></tr></tfoot></table>
+    <div class="sign"><div>Отпустил: ____________________</div><div>Получил: ____________________</div></div>
+    </body></html>`;
+  swPrintHtml(html);
+}
+function swPrintJournal(){
+  let rows=swFiltered();
+  const sel=rows.filter(r=>swSel.has(r.id));
+  if(sel.length) rows=sel;
+  if(!rows.length){ alert('Нет строк для печати'); return; }
+  const from=document.getElementById('sw-from').value, to=document.getElementById('sw-to').value;
+  const total=rows.reduce((t,x)=>t+(+x.amount||0),0);
+  const body=rows.map(r=>`<tr><td>${swEsc(r.doc_num)}</td><td>${swEsc(swIsoToRu(r.doc_date))}</td><td>${swEsc(r.order_num||'')}</td><td>${swEsc(r.customer)}</td><td>${swEsc(r.item_name)}</td><td>${swEsc(swAttrsView(r))}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td><td>${swEsc(r.driver||'')}</td><td>${r.delivered?'✓':''}</td></tr>`).join('');
+  const html=`<html><head><meta charset="utf-8">${SW_PRINT_CSS}<style>@page{size:A4 landscape;margin:10mm}body{font-size:10px}</style></head><body>
+    <h2>Журнал реализации${sel.length?' (выбранные строки)':''}</h2>
+    <div>Период: ${swEsc(swIsoToRu(from))} — ${swEsc(swIsoToRu(to))} · строк: ${rows.length}</div>
+    <table><thead><tr><th>№ накл.</th><th>Дата</th><th>Заказ</th><th>Покупатель</th><th>Товар</th><th>Характеристики</th><th class="r">Кол-во</th><th class="r">Цена</th><th class="r">Сумма</th><th>Водитель</th><th>Дост.</th></tr></thead>
+    <tbody>${body}</tbody><tfoot><tr><td colspan="8" class="r"><b>Итого:</b></td><td class="r"><b>${swFmt(total)}</b></td><td colspan="2"></td></tr></tfoot></table></body></html>`;
+  swPrintHtml(html);
+}
+
+// ── Форма накладной ──
+function swNextDocNum(){
+  const year=String(new Date().getFullYear()).slice(2);
+  let max=0;
+  [...swRows.map(r=>r.doc_num), ...(realizationsData||[]).map(r=>r.doc_num)].forEach(n=>{
+    const m=/^РН-(\d{2})-(\d+)$/.exec(String(n||'')); if(m && m[1]===year) max=Math.max(max,+m[2]);
+  });
+  return `РН-${year}-${String(max+1).padStart(4,'0')}`;
+}
+function swFillLists(){
+  const customers=new Set();
+  (ordersData||[]).forEach(o=>{ try{ const n=resolveCustomerName(o); if(n && n!=='—') customers.add(n); }catch(e){} });
+  document.getElementById('sw-customers-dl').innerHTML=[...customers].sort().map(c=>`<option value="${swEsc(c)}">`).join('');
+  const drivers=new Set(swRows.map(r=>r.driver).filter(Boolean));
+  (employeesData||[]).forEach(e=>{ if(/водител/i.test(e.pos||'')) drivers.add(e.name); });
+  document.getElementById('sw-drivers-dl').innerHTML=[...drivers].sort().map(c=>`<option value="${swEsc(c)}">`).join('');
+}
+function swOpenDoc(docId){
+  document.getElementById('sw-doc-error').textContent='';
+  document.getElementById('sw-picker').style.display='none';
+  document.getElementById('sw-all-short').checked=false;
+  swFillLists();
+  if(docId){
+    const rows=swDocRows(docId);
+    if(!swCanEdit(rows)){ alert('Эту накладную редактировать нельзя (проведена, либо день создания уже прошёл).'); return; }
+    const h=rows[0];
+    _swEdit={docId, keep:{created_by:h.created_by, created_by_name:h.created_by_name, created_at:h.created_at, delivered:h.delivered, delivered_at:h.delivered_at, delivered_by:h.delivered_by},
+      lines:rows.map(r=>({order_num:r.order_num||'',item_name:r.item_name||'',attrs:r.attrs||'',attrs_short:!!r.attrs_short,unit:r.unit||'шт',qty:+r.qty||0,price:+r.price||0}))};
+    document.getElementById('sw-modal-title').textContent='Накладная '+h.doc_num;
+    document.getElementById('sw-doc-num').value=h.doc_num||'';
+    document.getElementById('sw-doc-date').value=String(h.doc_date).slice(0,10);
+    document.getElementById('sw-customer').value=h.customer||'';
+    document.getElementById('sw-driver').value=h.driver||'';
+    document.getElementById('sw-note').value=h.note||'';
+  } else {
+    _swEdit={docId:null,keep:null,lines:[]};
+    document.getElementById('sw-modal-title').textContent='Новая накладная';
+    document.getElementById('sw-doc-num').value=swNextDocNum();
+    document.getElementById('sw-doc-date').value=swToday();
+    document.getElementById('sw-customer').value='';
+    document.getElementById('sw-driver').value='';
+    document.getElementById('sw-note').value='';
+  }
+  swRenderLines();
+  showModal('swDocModal');
+}
+function swCustomerChanged(){
+  const dl=document.getElementById('sw-orders-dl');
+  const c=(document.getElementById('sw-customer').value||'').trim().toLowerCase();
+  const list=(ordersData||[]).filter(o=>o.status!=='cancelled' && (!c || String(resolveCustomerName(o)).toLowerCase()===c))
+    .sort((a,b)=>String(b.num).localeCompare(String(a.num))).slice(0,300);
+  dl.innerHTML=list.map(o=>`<option value="${swEsc(o.num)}">${swEsc(resolveCustomerName(o))}</option>`).join('');
+}
+function swOpenOrderPicker(){
+  swCustomerChanged();
+  document.getElementById('sw-picker').style.display='block';
+  document.getElementById('sw-picker-body').innerHTML='<div style="font-size:12px;color:var(--text3)">Введите или выберите № заказа (в списке — заказы выбранного покупателя). Можно добавить позиции из нескольких заказов одного покупателя.</div>';
+  document.getElementById('sw-ord-input').value='';
+  document.getElementById('sw-ord-input').focus();
+}
+function swShippedQty(orderNum,itemName){
+  const n=plNormProductName(itemName);
+  let q=0;
+  (realizationsData||[]).forEach(r=>{ if(r.order_num===orderNum && plNormProductName(r.name)===n) q+=+r.qty||0; });
+  // черновики других накладных (не проведённые — иначе уже учтены в реестре)
+  swRows.forEach(r=>{ if(!r.posted && r.order_num===orderNum && plNormProductName(r.item_name)===n && r.doc_id!==(_swEdit&&_swEdit.docId)) q+=+r.qty||0; });
+  return q;
+}
+function swLoadOrderItems(){
+  const num=(document.getElementById('sw-ord-input').value||'').trim();
+  const body=document.getElementById('sw-picker-body');
+  if(!num) return;
+  let order=ordersData.find(o=>o.num===num);
+  if(!order){
+    // как в рабочем листе производства: 185 → НФНФ-00185
+    const digits=num.replace(/\D/g,'');
+    if(digits) order=ordersData.find(o=>String(o.num).replace(/\D/g,'').replace(/^0+/,'')===digits.replace(/^0+/,''));
+  }
+  if(!order){ body.innerHTML='<div style="color:var(--red);font-size:13px">Заказ не найден</div>'; return; }
+  const cust=resolveCustomerName(order);
+  const curCust=(document.getElementById('sw-customer').value||'').trim();
+  if(curCust && curCust.toLowerCase()!==String(cust).toLowerCase()){
+    body.innerHTML=`<div style="color:var(--red);font-size:13px">Заказ ${swEsc(order.num)} — покупатель «${swEsc(cust)}», а в накладной «${swEsc(curCust)}». В одну накладную можно брать заказы только одного покупателя.</div>`;
+    return;
+  }
+  _swOrderItems=(order.items||[]).map((it,idx)=>{
+    const shipped=swShippedQty(order.num,it.name);
+    const rest=Math.max((+it.qty||0)-shipped,0);
+    return {order, idx, it, shipped, rest};
+  });
+  body.innerHTML=`<div style="font-size:13px;margin-bottom:6px"><b>${swEsc(order.num)}</b> · ${swEsc(cust)}</div>
+    <table class="data-table"><thead><tr><th style="width:30px"></th><th>Товар</th><th>Характеристики</th><th style="text-align:right">В заказе</th><th style="text-align:right">Уже отгружено</th><th style="width:90px">Отгрузить</th><th style="text-align:right">Цена</th></tr></thead><tbody>
+    ${_swOrderItems.map((x,i)=>`<tr><td><input type="checkbox" id="swp-c-${i}" ${x.rest>0?'checked':''}></td>
+      <td>${swEsc(x.it.name)}</td><td style="font-size:12px;color:var(--text3)">${swEsc(swAttrsFromItem(x.it))}</td>
+      <td style="text-align:right">${swEsc(x.it.qty)}</td><td style="text-align:right;color:${x.shipped?'var(--amber)':'var(--text3)'}">${x.shipped||'—'}</td>
+      <td><input type="number" id="swp-q-${i}" value="${x.rest||x.it.qty||1}" min="0" style="width:80px;font-size:13px"></td>
+      <td style="text-align:right">${swFmt(x.it.price)}</td></tr>`).join('')}
+    </tbody></table>
+    <div style="margin-top:8px"><button class="btn btn-primary btn-sm" onclick="swAddPickedItems()">Добавить выбранные в накладную</button></div>`;
+}
+function swAttrsFromItem(it){
+  const a=it.attributes||{};
+  return Object.entries(a).filter(([k,v])=>v!==''&&v!=null).map(([k,v])=>k+': '+v).join('; ');
+}
+function swAddPickedItems(){
+  if(!_swOrderItems.length) return;
+  swSyncHeaderFromInputs();
+  let added=0;
+  _swOrderItems.forEach((x,i)=>{
+    if(!document.getElementById('swp-c-'+i)?.checked) return;
+    const qty=swNum(document.getElementById('swp-q-'+i).value);
+    if(qty<=0) return;
+    _swEdit.lines.push({order_num:x.order.num,item_name:x.it.name,attrs:swAttrsFromItem(x.it),attrs_short:false,unit:x.it.unit||'шт',qty,price:+x.it.price||0});
+    added++;
+  });
+  if(!added){ alert('Отметьте хотя бы одну позицию с количеством больше 0'); return; }
+  const cust=document.getElementById('sw-customer');
+  if(!cust.value.trim()) cust.value=resolveCustomerName(_swOrderItems[0].order);
+  document.getElementById('sw-picker-body').innerHTML='<div style="font-size:13px;color:var(--green)">✓ Добавлено позиций: '+added+'. Можно выбрать следующий заказ.</div>';
+  document.getElementById('sw-ord-input').value='';
+  _swOrderItems=[];
+  swRenderLines();
+}
+function swSyncHeaderFromInputs(){}
+function swAddFreeLine(){
+  _swEdit.lines.push({order_num:'',item_name:'',attrs:'',attrs_short:false,unit:'шт',qty:1,price:0});
+  swRenderLines();
+}
+function swSetAllShort(on){ _swEdit.lines.forEach(l=>l.attrs_short=on); swRenderLines(); }
+function swRenderLines(){
+  const tb=document.getElementById('sw-lines');
+  tb.innerHTML=_swEdit.lines.map((l,i)=>`<tr>
+    <td><input value="${swEsc(l.order_num)}" style="width:100%;font-size:12px" placeholder="без заказа" oninput="swLineSet(${i},'order_num',this.value)"></td>
+    <td><input value="${swEsc(l.item_name)}" style="width:100%;font-size:13px" oninput="swLineSet(${i},'item_name',this.value)"></td>
+    <td><input value="${swEsc(l.attrs)}" style="width:100%;font-size:12px" oninput="swLineSet(${i},'attrs',this.value)">
+        ${l.attrs_short?`<div style="font-size:11px;color:var(--text3)">в печати: ${swEsc(swAttrsShort(l.attrs))}</div>`:''}</td>
+    <td style="text-align:center"><input type="checkbox" ${l.attrs_short?'checked':''} onchange="swLineSet(${i},'attrs_short',this.checked);swRenderLines()"></td>
+    <td><input value="${swEsc(l.unit)}" style="width:100%;font-size:13px" oninput="swLineSet(${i},'unit',this.value)"></td>
+    <td><input type="number" value="${l.qty}" min="0" step="any" style="width:100%;font-size:13px" oninput="swLineSet(${i},'qty',this.value)"></td>
+    <td><input type="number" value="${l.price}" min="0" step="any" style="width:100%;font-size:13px" oninput="swLineSet(${i},'price',this.value)"></td>
+    <td style="text-align:right;font-family:monospace" id="sw-amt-${i}">${swFmt(l.qty*l.price)}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="swRemoveLine(${i})">✕</button></td></tr>`).join('')
+    || '<tr><td colspan="9" style="text-align:center;padding:14px;color:var(--text3)">Добавьте позиции из заказа или строку без заказа</td></tr>';
+  swUpdateTotal();
+}
+function swLineSet(i,f,v){
+  const l=_swEdit.lines[i]; if(!l) return;
+  l[f]=(f==='qty'||f==='price')?swNum(v):v;
+  const c=document.getElementById('sw-amt-'+i); if(c) c.textContent=swFmt(l.qty*l.price);
+  swUpdateTotal();
+}
+function swRemoveLine(i){ _swEdit.lines.splice(i,1); swRenderLines(); }
+function swUpdateTotal(){ const t=document.getElementById('sw-total'); if(t) t.textContent=swFmt(_swEdit.lines.reduce((s,l)=>s+l.qty*l.price,0)); }
+
+async function swSaveDoc(){
+  const err=document.getElementById('sw-doc-error'); err.textContent='';
+  const num=document.getElementById('sw-doc-num').value.trim();
+  const date=document.getElementById('sw-doc-date').value;
+  const customer=document.getElementById('sw-customer').value.trim();
+  const driver=document.getElementById('sw-driver').value.trim();
+  const note=document.getElementById('sw-note').value.trim();
+  const lines=_swEdit.lines.filter(l=>l.item_name.trim() && l.qty>0);
+  if(!num){ err.textContent='Укажите № накладной'; return; }
+  if(!date){ err.textContent='Укажите дату'; return; }
+  if(!customer){ err.textContent='Укажите покупателя'; return; }
+  if(!lines.length){ err.textContent='Добавьте хотя бы одну позицию (наименование и количество больше 0)'; return; }
+  // Предупреждение о дубле номера (в этом же журнале или в реестре реализации)
+  const dupSw=swRows.find(r=>r.doc_num===num && r.doc_id!==_swEdit.docId);
+  const dupReg=(realizationsData||[]).find(r=>String(r.doc_num)===num);
+  if((dupSw||dupReg) && !confirm(`Накладная с номером ${num} уже есть ${dupSw?'в рабочем листе':'в реестре «Реализация»'}. Сохранить всё равно?`)) return;
+  const docId=_swEdit.docId || (crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&3|8)).toString(16);}));
+  const keep=_swEdit.keep||{};
+  const role=window._currentRole||{};
+  const payload=lines.map((l,i)=>({
+    doc_id:docId, doc_num:num, doc_date:date, line_no:i+1,
+    order_num:l.order_num.trim()||null, customer, item_name:l.item_name.trim(),
+    attrs:l.attrs.trim(), attrs_short:!!l.attrs_short, unit:l.unit.trim()||'шт',
+    qty:l.qty, price:l.price, amount:Math.round(l.qty*l.price*100)/100,
+    driver:driver||null, note:note||null, posted:false,
+    delivered:!!keep.delivered, delivered_at:keep.delivered_at||null, delivered_by:keep.delivered_by||null,
+    created_by: keep.created_by||swUser(), created_by_name: keep.created_by_name||role.name||'',
+    ...(keep.created_at?{created_at:keep.created_at}:{}),
+  }));
+  try{
+    if(_swEdit.docId) await sbDelete('sales_worksheet',`doc_id=eq.${docId}`);
+    await sbInsertMany('sales_worksheet',payload);
+    closeModal('swDocModal');
+    await swReload();
+  }catch(e){ err.textContent='Не удалось сохранить: '+e.message; }
+}
+async function swDeleteDoc(docId){
+  const rows=swDocRows(docId);
+  if(!swCanEdit(rows)){ alert('Эту накладную удалить нельзя.'); return; }
+  if(!confirm(`Удалить накладную ${rows[0].doc_num} (${rows.length} поз.)?`)) return;
+  try{ await sbDelete('sales_worksheet',`doc_id=eq.${docId}`); await swReload(); }
+  catch(e){ alert('Не удалось удалить: '+e.message); }
+}
+async function swToggleDelivered(docId){
+  const rows=swDocRows(docId);
+  if(!swCanDeliver(rows)) return;
+  const on=!rows[0].delivered;
+  const role=window._currentRole||{};
+  try{
+    await sbPatch('sales_worksheet',`doc_id=eq.${docId}`,{delivered:on, delivered_at:on?new Date().toISOString():null, delivered_by:on?(role.name||swUser()):null});
+    rows.forEach(r=>{ r.delivered=on; r.delivered_at=on?new Date().toISOString():null; r.delivered_by=on?(role.name||swUser()):null; });
+    swRender();
+  }catch(e){ alert('Не удалось сохранить отметку: '+e.message); }
+}
+
+// ── Проведение: строки накладной → реестр «Реализация» ──
+async function swPost(docId){
+  const rows=swDocRows(docId);
+  if(!swCanPost(rows)) return;
+  const h=rows[0];
+  if(!_cacheLoaded_realiz || !realizationsData.length){ try{ await loadRealizationsFromDB(); }catch(e){} }
+  if((realizationsData||[]).some(r=>String(r.doc_num)===String(h.doc_num)) &&
+     !confirm(`В реестре «Реализация» уже есть документ № ${h.doc_num}. Провести всё равно? (возможен дубль выручки)`)) return;
+  const over=[];
+  rows.forEach(r=>{
+    if(!r.order_num) return;
+    const o=ordersData.find(x=>x.num===r.order_num);
+    const it=o&&(o.items||[]).find(x=>plNormProductName(x.name)===plNormProductName(r.item_name));
+    if(!it) return;
+    const shipped=(realizationsData||[]).filter(z=>z.order_num===r.order_num && plNormProductName(z.name)===plNormProductName(r.item_name)).reduce((t,z)=>t+(+z.qty||0),0);
+    if(shipped+(+r.qty||0) > (+it.qty||0)) over.push(`${r.order_num} · ${r.item_name}: в заказе ${it.qty}, уже реализовано ${shipped}, в накладной ${r.qty}`);
+  });
+  if(over.length && !confirm('Количество превышает заказ:\n\n'+over.join('\n')+'\n\nПровести всё равно?')) return;
+  if(!confirm(`Провести накладную ${h.doc_num} на сумму ${swFmt(rows.reduce((t,x)=>t+(+x.amount||0),0))} ₸?\n\nСтроки попадут в реестр «Реализация» (выручка, P&L, автозавершение заказов).`)) return;
+  try{
+    const items=rows.map(r=>({doc_num:r.doc_num, doc_date:String(r.doc_date).slice(0,10), order_num:r.order_num||null, customer:r.customer, name:r.item_name, unit:r.unit||'шт', qty:+r.qty||0, revenue:+r.amount||0}));
+    const res=await sbInsertMany('realizations',items);
+    const now=new Date().toISOString();
+    for(let i=0;i<rows.length;i++){
+      await sbPatch('sales_worksheet',`id=eq.${rows[i].id}`,{posted:true,posted_at:now,realization_id:String(res[i]?.id||'')});
+      rows[i].posted=true; rows[i].posted_at=now; rows[i].realization_id=String(res[i]?.id||'');
+    }
+    (res||[]).forEach(z=>realizationsData.push(z));
+    _cacheLoaded_realiz=true;
+    if(typeof autoCompleteOrders==='function') autoCompleteOrders();
+    swRender();
+  }catch(e){ alert('Не удалось провести: '+e.message+'\n\nПроверьте, что строки не попали в реестр частично.'); }
+}
+async function swUnpost(docId){
+  const rows=swDocRows(docId);
+  if(!swCanUnpost(rows)) return;
+  if(!confirm(`Снять накладную ${rows[0].doc_num} с проведения? Строки будут удалены из реестра «Реализация». Статусы заказов, уже завершённых автоматически, сами не откатываются.`)) return;
+  try{
+    const ids=rows.map(r=>r.realization_id).filter(Boolean);
+    if(ids.length){
+      await sbDelete('realizations',`id=in.(${ids.join(',')})`);
+      realizationsData=realizationsData.filter(z=>!ids.includes(String(z.id)));
+    }
+    await sbPatch('sales_worksheet',`doc_id=eq.${docId}`,{posted:false,posted_at:null,realization_id:null});
+    rows.forEach(r=>{ r.posted=false; r.posted_at=null; r.realization_id=null; });
+    swRender();
+  }catch(e){ alert('Не удалось снять с проведения: '+e.message); }
+}
+
 function showSalesTab(tab, el){
   document.querySelectorAll('#sales-tabs .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
@@ -29824,6 +30396,7 @@ function showSalesTab(tab, el){
   const tabEl = document.getElementById('orders-'+tab);
   if(tabEl) tabEl.style.display='block';
   if(tab==='sales-journal') renderSalesJournal();
+  if(tab==='worksheet')     swOpen();
   if(tab==='report')        renderOrderReport();
   if(tab==='all-orders')    renderOrders();
   if(tab==='queue')         renderOrders();
