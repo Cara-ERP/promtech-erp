@@ -3849,7 +3849,7 @@ window.onerror = function(msg, src, line, col){
           </div>
           <div id="rep-month-wrap">
             <label class="label">Месяц</label>
-            <select id="rep-month-select" onchange="renderOrderReport()" style="font-size:13px;width:auto">
+            <select id="rep-month-select" onchange="document.getElementById('rep-period-type').value='month';toggleRepPeriod();renderOrderReport()" style="font-size:13px;width:auto">
               <option value="2026-06">Июнь 2026</option>
               <option value="2026-05">Май 2026</option>
               <option value="2026-04">Апрель 2026</option>
@@ -3857,8 +3857,8 @@ window.onerror = function(msg, src, line, col){
             </select>
           </div>
           <div id="rep-range-wrap" style="display:none;gap:8px;align-items:flex-end">
-            <div><label class="label">С</label><input id="rep-date-from" type="date" value="2026-06-01" onchange="renderOrderReport()" style="width:140px"></div>
-            <div><label class="label">По</label><input id="rep-date-to" type="date" value="2026-06-30" onchange="renderOrderReport()" style="width:140px"></div>
+            <div><label class="label">С</label><input id="rep-date-from" type="date" value="2026-06-01" onchange="document.getElementById('rep-period-type').value='range';toggleRepPeriod();renderOrderReport()" style="width:140px"></div>
+            <div><label class="label">По</label><input id="rep-date-to" type="date" value="2026-06-30" onchange="document.getElementById('rep-period-type').value='range';toggleRepPeriod();renderOrderReport()" style="width:140px"></div>
           </div>
           <div>
             <label class="label">Статус</label>
@@ -31203,7 +31203,7 @@ function convertLeadToClient(id){
 
 // ── Отчёт по заказам: сортировка ────────────────────────────────────────────
 let _repSortField = 'date';   // текущее поле сортировки
-let _repSortAsc   = true;
+let _repSortAsc   = false;  // по умолчанию новые сверху; клик по заголовку переключает
 let _orderSortCol = 'date';   // текущая колонка сортировки заказов
 let _orderSortAsc = false;    // по убыванию по умолчанию (новые сверху)
 
@@ -31307,12 +31307,17 @@ function getReportOrders(){
     }
     if(va < vb) return _repSortAsc ? -1 : 1;
     if(va > vb) return _repSortAsc ?  1 : -1;
-    return 0;
+    // при равных значениях (например, одна дата) — по номеру заказа в том же направлении
+    const na=parseInt((a.num||'').replace(/\D/g,''))||0, nb=parseInt((b.num||'').replace(/\D/g,''))||0;
+    return _repSortAsc ? na-nb : nb-na;
   });
 }
 
 function renderOrderReport(){
   fillRepMonths();
+  const _pt=document.getElementById('rep-period-type');
+  if(_pt && !_pt.dataset.init){ _pt.value='month'; _pt.dataset.init='1'; }
+  if(typeof toggleRepPeriod==='function') toggleRepPeriod();
   _updateSortIcons();
   const orders = getReportOrders();
   const tbody  = document.getElementById('rep-tbody');
