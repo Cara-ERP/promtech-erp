@@ -12506,7 +12506,7 @@ function openSalaryCalcModal(){
 }
 
 function loadSalaryCalc(){
-  const month    = document.getElementById('sc-month')?.value||'2026-08';
+  const month    = document.getElementById('sc-month')?.value||curYM();
   const workDays = parseInt(document.getElementById('sc-work-days')?.value)||22;
   const tbody    = document.getElementById('sc-tbody');
   const tfoot    = document.getElementById('sc-tfoot');
@@ -12579,7 +12579,7 @@ function recalcSalaries(){ loadSalaryCalc(); }
 
 async function createSalaryAccruals(){
   const rows = (window._scRows||[]).filter(r=>!r.exists && r.accrual>0);
-  const month = window._scMonth||'2026-08';
+  const month = window._scMonth||curYM();
   const [yr, mo] = month.split('-').map(Number);
   const lastDay = new Date(yr, mo, 0).getDate();
   const date = `${yr}-${String(mo).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
@@ -12886,6 +12886,38 @@ function showEmpPayrollHistory(empName){
   }, 300);
 }
 
+
+// ── Динамические периоды: месяцы/годы/даты не привязаны к конкретному месяцу ──
+function curYM(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function curMonthFirst(){return curYM()+'-01';}
+function curMonthLast(){const d=new Date();return curYM()+'-'+String(new Date(d.getFullYear(),d.getMonth()+1,0).getDate()).padStart(2,'0');}
+function initDynamicPeriods(){
+  const MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const now=new Date(), cy=now.getFullYear();
+  // Месяцы: с ноября 2025 по текущий
+  const ts=document.getElementById('hr-ts-month');
+  if(ts && !ts.dataset.dyn){
+    let opts='';
+    for(let v=cy*12+now.getMonth(); v>=2025*12+10; v--){
+      const y=Math.floor(v/12), m=v%12;
+      opts+=`<option value="${y}-${String(m+1).padStart(2,'0')}">${MN[m]} ${y}</option>`;
+    }
+    ts.innerHTML=opts; ts.value=curYM(); ts.dataset.dyn='1';
+  }
+  // Годы: с 2024 по текущий
+  ['sr-year','sr-ps-year','sr-hist-year'].forEach(id=>{
+    const el=document.getElementById(id); if(!el||el.dataset.dyn) return;
+    let opts=''; for(let y=cy;y>=2024;y--) opts+=`<option value="${y}">${y}</option>`;
+    el.innerHTML=opts; el.value=String(cy); el.dataset.dyn='1';
+  });
+  // Даты периода по умолчанию — текущий месяц
+  [['ch-date-from',curMonthFirst()],['ch-date-to',curMonthLast()],
+   ['reconcile-date-from',curMonthFirst()],['reconcile-date-to',curMonthLast()],
+   ['hr-pr-date-from',curMonthFirst()],['hr-pr-date-to',curMonthLast()]].forEach(([id,v])=>{
+    const el=document.getElementById(id); if(el&&!el.dataset.dyn){el.value=v;el.dataset.dyn='1';}
+  });
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',initDynamicPeriods); else initDynamicPeriods();
 
 // Динамический список месяцев для ЗП: с 2025-11 до max(текущий месяц, последний месяц с данными)
 function fillPayrollMonthSelects(){
@@ -15254,8 +15286,8 @@ function renderReconcile(){
 }
 
 function buildChannelPL(){
-  const dateFrom = document.getElementById('ch-date-from')?.value||'2026-07-01';
-  const dateTo   = document.getElementById('ch-date-to')?.value||'2026-07-31';
+  const dateFrom = document.getElementById('ch-date-from')?.value||curMonthFirst();
+  const dateTo   = document.getElementById('ch-date-to')?.value||curMonthLast();
   const chIds    = SALES_CHANNELS.map(c=>c.id);
 
   // 1. Выручка и кол-во заказов по каналам
@@ -21349,7 +21381,7 @@ function renderHRStaff(){
     const wage=wageEmployees.find(w=>w.name.split(' ')[0]===emp.name.split(' ')[0]);
     const earned=wage?.earned||emp.salary||0;
     // Явки в этом месяце
-    const ym='2026-07';
+    const ym=curYM();
     const days=Object.keys(timesheetData).filter(k=>k.startsWith(emp.id+'_'+ym)&&timesheetData[k]==='Я').length;
 
     return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer"
@@ -21653,7 +21685,7 @@ function renderTimesheet(){
   const head=document.getElementById('hr-ts-head');
   const body=document.getElementById('hr-ts-body');
   if(!head||!body) return;
-  const ym   = document.getElementById('hr-ts-month')?.value||'2026-07';
+  const ym   = document.getElementById('hr-ts-month')?.value||curYM();
   const mode = document.getElementById('hr-ts-mode')?.value||'marks';
   const norm = parseFloat(document.getElementById('hr-ts-norm')?.value||8); // норма часов/день
   const [yr,mo]=ym.split('-').map(Number);
@@ -22985,15 +23017,17 @@ function renderPayroll(){
   const container = document.getElementById('payroll-container');
   if(!container) return;
 
-  // Всегда перестраиваем HTML (вкладка могла быть скрыта)
+  // Всегда перестраиваем HTML (вкладка могла быть скрыта); выбранный период сохраняем
+  const _prFrom = document.getElementById('hr-pr-date-from')?.value || curMonthFirst();
+  const _prTo   = document.getElementById('hr-pr-date-to')?.value   || curMonthLast();
   container.innerHTML = `
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
         <div style="display:flex;gap:8px;align-items:center">
           <label class="label" style="margin:0">с</label>
-          <input type="date" id="hr-pr-date-from" value="2026-07-01"
+          <input type="date" id="hr-pr-date-from" value="${_prFrom}"
             onchange="renderPayroll()" style="font-size:13px">
           <label class="label" style="margin:0">по</label>
-          <input type="date" id="hr-pr-date-to" value="2026-07-31"
+          <input type="date" id="hr-pr-date-to" value="${_prTo}"
             onchange="renderPayroll()" style="font-size:13px">
           <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="setPayrollMonth(-1)">◀</button>
           <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="setPayrollMonth(0)">Текущий месяц</button>
@@ -23035,8 +23069,8 @@ function renderPayroll(){
         </div>
       </div>`;
 
-  const dateFrom = document.getElementById('hr-pr-date-from')?.value || '2026-07-01';
-  const dateTo   = document.getElementById('hr-pr-date-to')?.value   || '2026-07-31';
+  const dateFrom = document.getElementById('hr-pr-date-from')?.value || curMonthFirst();
+  const dateTo   = document.getElementById('hr-pr-date-to')?.value   || curMonthLast();
   // Для совместимости с payrollEntries (хранят YYYY-MM) берём YYYY-MM из dateFrom
   const period = dateFrom.slice(0,7);
 
@@ -23095,13 +23129,13 @@ function renderHRPayrollTable(rows, T, period){
   const tfoot = document.getElementById('hr-pr-tfoot');
   if(!tbody) return;
   tbody.innerHTML = rows.map((r,i)=>{
-    const dateFrom=document.getElementById('hr-pr-date-from')?.value||'2026-07-01';
-    const dateTo=document.getElementById('hr-pr-date-to')?.value||'2026-07-31';
+    const dateFrom=document.getElementById('hr-pr-date-from')?.value||curMonthFirst();
+    const dateTo=document.getElementById('hr-pr-date-to')?.value||curMonthLast();
     const debtCls = r.debt===0?'pr-paid-full':r.paid>0?'pr-paid-partial':'pr-paid-none';
     const baseLabel = r.staff.salary
       ? (r.piecework ? `₸${fmtCurrency(r.staff.salary)} + сдельно` : fmtCurrency(r.staff.salary))
       : (r.piecework ? fmtCurrency(r.piecework) : '—');
-    return `<tr style="cursor:pointer" onclick="openPayrollCard(${r.staff.id},'${period||'2026-07'}','${dateFrom}','${dateTo}')">
+    return `<tr style="cursor:pointer" onclick="openPayrollCard(${r.staff.id},'${period||curYM()}','${dateFrom}','${dateTo}')">
       <td style="color:var(--text3)">${i+1}</td>
       <td><div style="font-weight:600;color:var(--accent)">${r.staff.name}</div></td>
       <td style="font-size:12px;color:var(--text2)">${r.staff.pos}</td>
@@ -23120,7 +23154,7 @@ function renderHRPayrollTable(rows, T, period){
       </td>
       <td>
         <button class="btn btn-ghost btn-sm" style="font-size:10px;white-space:nowrap"
-          onclick="event.stopPropagation();openPayrollEntryModal(${r.staff.id},'${period||'2026-07'}')">
+          onclick="event.stopPropagation();openPayrollEntryModal(${r.staff.id},'${period||curYM()}')">
           ± Нач/Уд
         </button>
       </td>
@@ -23161,7 +23195,7 @@ function setPayrollMonth(offset){
 function openPayrollCard(staffId, period, dateFrom, dateTo){
   const staff = payrollStaff.find(s=>s.id===staffId);
   if(!staff) return;
-  period   = period   || '2026-07';
+  period   = period   || curYM();
   dateFrom = dateFrom || period+'-01';
   dateTo   = dateTo   || period+'-31';
   const [py, pm] = period.split('-').map(Number);
@@ -23510,7 +23544,7 @@ function openPayrollEntryModal(empId, period){
   const el = document.getElementById('pe-emp-name');
   if(el) el.textContent = staff.name + ' · ' + (period||'');
   document.getElementById('pe-emp-id').value = empId;
-  document.getElementById('pe-period').value = period||'2026-07';
+  document.getElementById('pe-period').value = period||curYM();
   document.getElementById('pe-type').value = 'accrual';
   document.getElementById('pe-amount').value = '';
   document.getElementById('pe-comment').value = '';
@@ -31192,6 +31226,32 @@ function _updateSortIcons(){
   });
 }
 
+function fillRepMonths(){
+  const MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const now=new Date();
+  const set=new Set([now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')]);
+  (ordersData||[]).forEach(o=>{
+    const str=o.createdDate||o.date; if(!str) return;
+    const p=String(str).split('.'); if(p.length<3) return;
+    const y=p[2].length===2?2000+parseInt(p[2]):parseInt(p[2]);
+    const m=parseInt(p[1]); if(y>2000&&y<2100&&m>=1&&m<=12) set.add(y+'-'+String(m).padStart(2,'0'));
+  });
+  const list=[...set].sort().reverse();
+  const key=list.join(',');
+  document.querySelectorAll('[id="rep-month-select"]').forEach(sel=>{
+    if(sel.dataset.key===key) return;
+    const prev=sel.dataset.key?sel.value:'';
+    sel.innerHTML=list.map(v=>{const [y,m]=v.split('-');return `<option value="${v}">${MN[+m-1]} ${y}</option>`;}).join('');
+    sel.value=list.includes(prev)?prev:list[0];
+    sel.dataset.key=key;
+  });
+  // даты «Период» по умолчанию — текущий месяц
+  const y=now.getFullYear(), m=now.getMonth();
+  const iso=(yy,mm,dd)=>yy+'-'+String(mm+1).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+  document.querySelectorAll('[id="rep-date-from"]').forEach(e=>{ if(!e.dataset.init){e.value=iso(y,m,1);e.dataset.init='1';} });
+  document.querySelectorAll('[id="rep-date-to"]').forEach(e=>{ if(!e.dataset.init){e.value=iso(y,m,new Date(y,m+1,0).getDate());e.dataset.init='1';} });
+}
+
 function toggleRepPeriod(){
   const v = document.getElementById('rep-period-type').value;
   document.getElementById('rep-month-wrap').style.display  = v==='month' ? '' : 'none';
@@ -31199,6 +31259,7 @@ function toggleRepPeriod(){
 }
 
 function getReportOrders(){
+  fillRepMonths();
   const period = document.getElementById('rep-period-type')?.value||'all';
   const status = document.getElementById('rep-status-filter')?.value||'all';
   function parseRu(str){
@@ -31251,6 +31312,7 @@ function getReportOrders(){
 }
 
 function renderOrderReport(){
+  fillRepMonths();
   _updateSortIcons();
   const orders = getReportOrders();
   const tbody  = document.getElementById('rep-tbody');
