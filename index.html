@@ -6113,6 +6113,7 @@ window.onerror = function(msg, src, line, col){
           <select id="cash-cat-filter" onchange="renderCashTx()" style="font-size:13px">
             <option value="all">Все категории</option>
           </select>
+          <button class="btn btn-ghost btn-sm" onclick="showCashByCounterparty()" title="Сколько выдано каждому сотруднику / контрагенту за выбранный период">👥 Выдано по сотрудникам</button>
           <span id="cash-filter-count" style="font-size:12px;color:var(--text3)"></span>
         </div>
 
@@ -9605,6 +9606,60 @@ function recalcOrderPayment(orderNum){
     sbPatch('orders', `num=eq.${encodeURIComponent(orderNum)}`, {payment: newPct})
       .catch(e=>console.warn('payment update:', e.message));
   }
+}
+
+
+// ── Свод по контрагентам для выбранной кассы: сколько выдано каждому сотруднику ──
+function cashCpRows(){
+  const cashId=document.getElementById('cash-account-select')?.value||'';
+  const catF=document.getElementById('cash-cat-filter')?.value||'all';
+  let txs=moneyFilteredTx(moneyTx).filter(t=>t.accountId===cashId);
+  if(catF!=='all') txs=txs.filter(t=>t.category===catF);
+  const by={};
+  txs.forEach(t=>{
+    const k=(t.counterparty||'').trim()||'— без контрагента —';
+    const r=(by[k]=by[k]||{name:k,out:0,inc:0,n:0,last:''});
+    if(t.flow==='expense') r.out+=+t.amount||0; else r.inc+=+t.amount||0;
+    r.n++; if(String(t.date)>r.last) r.last=t.date;
+  });
+  return Object.values(by).sort((a,b)=>b.out-a.out||a.name.localeCompare(b.name,'ru'));
+}
+function showCashByCounterparty(){
+  let m=document.getElementById('cashCpModal');
+  if(!m){
+    m=document.createElement('div'); m.className='modal-overlay'; m.id='cashCpModal';
+    m.innerHTML=`<div class="modal" style="max-width:760px;width:96vw;max-height:90vh;overflow:auto">
+      <div class="modal-header"><div class="modal-title" id="ccp-title">Выдано по сотрудникам</div><button class="modal-close" onclick="closeModal('cashCpModal')">✕</button></div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Учитывается выбранная касса, период сверху страницы и фильтр категории. Нажмите на строку — журнал отфильтруется по этому контрагенту.</div>
+      <div style="overflow:auto"><table class="data-table"><thead><tr><th>Контрагент / сотрудник</th><th style="text-align:right">Операций</th><th>Последняя</th><th style="text-align:right;color:var(--red)">Выдано</th><th style="text-align:right;color:var(--green)">Возврат/приход</th></tr></thead><tbody id="ccp-tbody"></tbody><tfoot id="ccp-tfoot"></tfoot></table></div>
+      <div style="margin-top:10px;text-align:right"><button class="btn btn-ghost btn-sm" onclick="exportCashCp()">📥 Excel</button></div></div>`;
+    document.body.appendChild(m);
+  }
+  const rows=cashCpRows();
+  const sel=document.getElementById('cash-account-select');
+  document.getElementById('ccp-title').textContent='Выдано по сотрудникам · '+(sel?.options[sel.selectedIndex]?.text||'касса');
+  const fmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
+  const esc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  document.getElementById('ccp-tbody').innerHTML=rows.map(r=>`<tr style="cursor:pointer" data-n="${esc(r.name)}" onclick="cashCpPick(this.dataset.n)">
+    <td>${esc(r.name)}</td><td style="text-align:right">${r.n}</td><td style="font-size:12px">${esc(r.last)}</td>
+    <td style="text-align:right;font-family:monospace;color:var(--red)">${r.out?fmt(r.out):'—'}</td>
+    <td style="text-align:right;font-family:monospace;color:var(--green)">${r.inc?fmt(r.inc):'—'}</td></tr>`).join('')
+    ||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Операций за период нет</td></tr>';
+  document.getElementById('ccp-tfoot').innerHTML=rows.length?`<tr style="font-weight:700;background:var(--bg3)"><td colspan="3" style="text-align:right">Итого:</td><td style="text-align:right;font-family:monospace;color:var(--red)">${fmt(rows.reduce((t,r)=>t+r.out,0))}</td><td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(rows.reduce((t,r)=>t+r.inc,0))}</td></tr>`:'';
+  showModal('cashCpModal');
+}
+function cashCpPick(name){
+  const el=document.getElementById('cash-search');
+  if(el){ el.value=name.startsWith('—')?'':name; renderCashTx(); }
+  closeModal('cashCpModal');
+}
+function exportCashCp(){
+  if(typeof XLSX==='undefined'){ alert('Excel загружается, попробуйте через несколько секунд'); return; }
+  const rows=cashCpRows();
+  const ws=XLSX.utils.aoa_to_sheet([['Контрагент','Операций','Последняя','Выдано','Возврат/приход'],...rows.map(r=>[r.name,r.n,r.last,r.out,r.inc])]);
+  ws['!cols']=[{wch:38},{wch:10},{wch:12},{wch:14},{wch:16}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Свод');
+  XLSX.writeFile(wb,'Касса_свод_по_контрагентам.xlsx');
 }
 
 function renderCashTx(){
