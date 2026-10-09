@@ -6455,6 +6455,15 @@ window.onerror = function(msg, src, line, col){
               <option value="">— выберите сотрудника —</option>
             </select>
           </div>
+          <div class="form-row" id="tx-salary-multi" style="display:none;grid-column:1/-1;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg3)">
+            <label class="label">👥 Выдача зарплаты сотрудникам <span style="color:var(--text3);font-size:11px">(можно нескольким сразу)</span></label>
+            <div id="tx-sal-rows"></div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+              <button type="button" class="btn btn-ghost btn-sm" onclick="txSalAddRow()">+ Добавить сотрудника</button>
+              <span style="margin-left:auto;font-size:13px">Итого: <b id="tx-sal-total">₸0</b></span>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">Сумма документа заполняется автоматически. Выплаты попадут в Зарплатную ведомость (колонка «Выдано») и в «Журнал выдач».</div>
+          </div>
           <div class="form-row" id="tx-advance-report-row" style="display:none;grid-column:1/-1">
             <label class="label">Авансовый отчёт</label>
             <select id="tx-advance-report-select" style="font-size:13px"
@@ -10731,6 +10740,80 @@ function filterTxOrders(query){
 }
 
 
+
+// ── Выдача ЗП нескольким сотрудникам одним расходным документом ──
+let _txSalRows = [];
+const TX_SALARY_CODES = /^(salary|salary_prod_fixed|salary_prod_piece|salary_office_fixed|salary_other|salary_cook|salary_reklamacia|con_salary|cook)$/;
+function txIsSalaryExpense(){
+  const flow=document.getElementById('tx-flow')?.value;
+  if(flow!=='expense') return false;
+  if(document.getElementById('tx-edit-id')?.value) return false;      // при редактировании разбивку не меняем
+  const cat=document.getElementById('tx-category')?.value||'';
+  const sub=document.getElementById('tx-subcategory')?.value||'';
+  return TX_SALARY_CODES.test(sub) || TX_SALARY_CODES.test(cat);
+}
+function txSalaryMultiUpdate(){
+  const box=document.getElementById('tx-salary-multi'); if(!box) return;
+  const on=txIsSalaryExpense();
+  box.style.display=on?'':'none';
+  if(on){
+    const adv=document.getElementById('tx-advance-emp-row'); if(adv) adv.style.display='none';
+    if(!_txSalRows.length) _txSalRows.push({emp:'',amount:''});
+    txSalRender();
+  }
+}
+function txSalEmployees(){
+  return (employeesData||[]).filter(e=>e.status!=='fired' && !e.fired_date).map(e=>e.name).sort((a,b)=>a.localeCompare(b,'ru'));
+}
+function txSalRender(){
+  const esc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const names=txSalEmployees();
+  document.getElementById('tx-sal-rows').innerHTML=_txSalRows.map((r,i)=>`<div style="display:flex;gap:6px;margin-bottom:4px">
+    <select style="flex:1;font-size:13px" onchange="txSalSet(${i},'emp',this.value)"><option value="">— сотрудник —</option>${names.map(n=>`<option value="${esc(n)}" ${n===r.emp?'selected':''}>${esc(n)}</option>`).join('')}</select>
+    <input type="number" min="0" step="any" value="${esc(r.amount)}" placeholder="Сумма" style="width:130px;font-size:13px" oninput="txSalSet(${i},'amount',this.value)">
+    <button type="button" class="btn btn-ghost btn-sm" onclick="txSalDel(${i})">✕</button></div>`).join('');
+  txSalTotal();
+}
+function txSalSet(i,f,v){ _txSalRows[i][f]=v; txSalTotal(); }
+function txSalAddRow(){ _txSalRows.push({emp:'',amount:''}); txSalRender(); }
+function txSalDel(i){ _txSalRows.splice(i,1); if(!_txSalRows.length) _txSalRows.push({emp:'',amount:''}); txSalRender(); }
+function txSalTotal(){
+  const sum=_txSalRows.reduce((t,r)=>t+(parseFloat(r.amount)||0),0);
+  const el=document.getElementById('tx-sal-total'); if(el) el.textContent='₸'+Math.round(sum).toLocaleString('ru-RU');
+  const am=document.getElementById('tx-amount'); if(am && sum>0) am.value=sum;
+  const cp=document.getElementById('tx-counterparty');
+  const filled=_txSalRows.filter(r=>r.emp && (parseFloat(r.amount)||0)>0);
+  if(cp) cp.value = filled.length>1 ? 'Сотрудники' : (filled[0]?.emp||'');
+  const ds=document.getElementById('tx-desc');
+  if(ds && (!ds.value.trim() || ds.dataset.auto==='1') && filled.length){
+    ds.value=`Выдача ЗП (${filled.length} чел.)`; ds.dataset.auto='1';
+  }
+}
+// Возвращает список выплат для сохранения или null (если нужно остановить сохранение)
+function txSalCollect(){
+  if(!txIsSalaryExpense()) return [];
+  const rows=_txSalRows.filter(r=>r.emp || parseFloat(r.amount));
+  if(!rows.length) return [];                       // обычный расход без разбивки
+  const bad=rows.find(r=>!r.emp || !(parseFloat(r.amount)>0));
+  if(bad){ alert('В списке выдачи ЗП у каждой строки должны быть выбран сотрудник и сумма больше 0.'); return null; }
+  const names=rows.map(r=>r.emp);
+  const dup=names.find((n,i)=>names.indexOf(n)!==i);
+  if(dup && !confirm(`Сотрудник «${dup}» указан в списке несколько раз. Продолжить?`)) return null;
+  return rows.map(r=>({emp:r.emp, amount:parseFloat(r.amount)}));
+}
+async function txSalSavePayments(txId, date, pays, label){
+  if(!pays || !pays.length) return;
+  try{
+    const body=pays.map(p=>({emp_name:p.emp, date, amount:p.amount, deducted:0, net:0, type:'payment',
+      comment:label, details:{source:'cash_expense', tx_id:txId}}));
+    const res=await sbInsertMany('salary_accruals', body);
+    if(_payrollData) (res||[]).forEach(r=>_payrollData.payments.push(r));
+    delete _txPayCache[String(date).slice(0,10)];
+  }catch(e){ alert('Расход сохранён, но выплаты по сотрудникам не записались в ведомость: '+e.message+'\nДобавьте их вручную или повторите.'); }
+}
+const _origUpdateTxForm = updateTxForm;
+updateTxForm = function(){ _origUpdateTxForm.apply(this, arguments); txSalaryMultiUpdate(); };
+
 // ── Разбивка расхода из кассы ЗП по сотрудникам ──
 // Расход в кассе — одна сумма («Сотрудники»), а кому именно выдано, лежит в выплатах
 // зарплатной ведомости (salary_accruals, type=payment) на ту же дату. Связываем:
@@ -10745,6 +10828,8 @@ async function txPayoutsFor(tx){
   }
   const all=_txPayCache[date]||[];
   const sum=a=>a.reduce((t,p)=>t+(+p.amount||0),0);
+  const byId=tx.sbId?all.filter(p=>p.details&&typeof p.details==='object'&&p.details.tx_id===tx.sbId):[];
+  if(byId.length) return {rows:byId, how:'id', total:sum(byId), all};
   const m=/(?:кассы|№|N)\s*(\d+)/i.exec(tx.desc||'');
   if(m){
     const byNum=all.filter(p=>new RegExp('(^|\\D)'+m[1]+'(\\D|$)').test(p.comment||''));
@@ -10803,6 +10888,7 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
     : null;
   document.getElementById('tx-edit-id').value=editId||'';
   document.getElementById('tx-delete-btn').style.display=tx?'':'none';
+  _txSalRows=[]; { const d=document.getElementById('tx-desc'); if(d) delete d.dataset.auto; }
   if(typeof txShowSalaryBreakdown==='function') txShowSalaryBreakdown(tx);
   document.getElementById('tx-date').value=tx?.date||new Date().toISOString().slice(0,10);
   document.getElementById('tx-amount').value=tx?.amount||'';
@@ -14275,6 +14361,15 @@ function saveMoneyTx(){
     bin:         document.getElementById('tx-counterparty-bin')?.value.trim()||'',
     orderNum:    document.getElementById('tx-order').value,
   };
+  // Выдача ЗП нескольким сотрудникам одним документом
+  const _salPays = txSalCollect();
+  if(_salPays===null) return;
+  if(_salPays.length){
+    const _sum=_salPays.reduce((t,x)=>t+x.amount,0);
+    obj.amount=_sum;
+    obj.counterparty=_salPays.length>1?'Сотрудники':_salPays[0].emp;
+    if(!obj.desc) obj.desc=`Выдача ЗП (${_salPays.length} чел.)`;
+  }
   if(!obj.amount){alert('Укажите сумму');return;}
 
   if(flow==='transfer'){
@@ -14390,6 +14485,7 @@ function saveMoneyTx(){
       console.log('✅ Транзакция сохранена в Supabase');
       if(res?.id){
         newTx.sbId = res.id;
+        if(_salPays.length) txSalSavePayments(res.id, obj.date, _salPays, obj.desc||'Выдача ЗП из кассы');
         // Сохраняем привязки к заказам
         if(_txOrderLines.length > 0){
           _txOrderLines.forEach(line=>{
