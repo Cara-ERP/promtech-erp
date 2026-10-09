@@ -6498,6 +6498,7 @@ window.onerror = function(msg, src, line, col){
             <input id="tx-desc" type="text" placeholder="Назначение платежа...">
           </div>
         </div>
+        <div id="tx-salary-breakdown" style="display:none;margin-top:10px"></div>
 
         <input type="hidden" id="tx-flow" value="income">
         <input type="hidden" id="tx-edit-id">
@@ -9785,6 +9786,7 @@ function renderCashTx(){
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--red)">${t.flow==='expense'?fmt(t.amount):'—'}</td>
       <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--text3)">${rowBal!==null?fmt(rowBal):'—'}</td>
       <td style="white-space:nowrap">
+        ${t.flow==='expense'?`<button class="btn btn-ghost btn-sm" style="font-size:11px" title="Кому выдано (разбивка по сотрудникам)" onclick="showTxPayouts('${t.sbId||t.id}')">👥</button>`:''}
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openMoneyTxModal(null,null,'${t.sbId||t.id}')">✏️</button>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" title="Копировать" onclick="copyMoneyTx('${t.sbId||t.id}')">📋</button>
       </td>
@@ -10728,6 +10730,72 @@ function filterTxOrders(query){
   }
 }
 
+
+// ── Разбивка расхода из кассы ЗП по сотрудникам ──
+// Расход в кассе — одна сумма («Сотрудники»), а кому именно выдано, лежит в выплатах
+// зарплатной ведомости (salary_accruals, type=payment) на ту же дату. Связываем:
+// 1) по номеру документа из описания («Расход из кассы 672») в комментарии выплаты;
+// 2) иначе — если сумма всех выплат за эту дату совпадает с суммой документа;
+// 3) иначе показываем выплаты за дату с пометкой, что суммы не сходятся.
+const _txPayCache = {};
+async function txPayoutsFor(tx){
+  const date=String(tx.date).slice(0,10);
+  if(!_txPayCache[date]){
+    _txPayCache[date]=await sbFetchAllPages('salary_accruals',`select=*&type=eq.payment&date=eq.${date}&order=emp_name`);
+  }
+  const all=_txPayCache[date]||[];
+  const sum=a=>a.reduce((t,p)=>t+(+p.amount||0),0);
+  const m=/(?:кассы|№|N)\s*(\d+)/i.exec(tx.desc||'');
+  if(m){
+    const byNum=all.filter(p=>new RegExp('(^|\\D)'+m[1]+'(\\D|$)').test(p.comment||''));
+    if(byNum.length) return {rows:byNum, how:'num', total:sum(byNum), all};
+  }
+  if(all.length && Math.abs(sum(all)-(+tx.amount||0))<1) return {rows:all, how:'sum', total:sum(all), all};
+  return {rows:all, how:'date', total:sum(all), all};
+}
+function txPayoutsHtml(tx,res){
+  const fmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
+  const esc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const diff=(+tx.amount||0)-res.total;
+  let note='';
+  if(!res.rows.length) return '<div style="padding:12px;color:var(--text3);font-size:13px">В зарплатной ведомости на эту дату выплат не найдено.</div>';
+  if(res.how==='date') note=`<div style="font-size:12px;color:var(--amber);margin-bottom:6px">⚠️ Выплаты найдены только по дате ${esc(tx.date)}; сумма выплат ${fmt(res.total)} не совпадает с документом ${fmt(tx.amount)} (разница ${fmt(diff)}). Возможно, в этот день было несколько расходов.</div>`;
+  else if(Math.abs(diff)>=1) note=`<div style="font-size:12px;color:var(--amber);margin-bottom:6px">⚠️ Выплаты по документу: ${fmt(res.total)}, сумма документа: ${fmt(tx.amount)} (разница ${fmt(diff)}).</div>`;
+  else note=`<div style="font-size:12px;color:var(--green);margin-bottom:6px">✓ Сумма выплат совпадает с документом.</div>`;
+  return note+`<table class="data-table"><thead><tr><th>Сотрудник</th><th>Комментарий</th><th style="text-align:right">Выдано</th></tr></thead><tbody>`+
+    res.rows.slice().sort((a,b)=>String(a.emp_name).localeCompare(String(b.emp_name),'ru')).map(p=>`<tr><td>${esc(p.emp_name)}</td><td style="font-size:12px;color:var(--text3)">${esc(p.comment||'')}</td><td style="text-align:right;font-family:monospace">${fmt(p.amount)}</td></tr>`).join('')+
+    `</tbody><tfoot><tr style="font-weight:700;background:var(--bg3)"><td colspan="2" style="text-align:right">Итого (${res.rows.length} чел.):</td><td style="text-align:right;font-family:monospace">${fmt(res.total)}</td></tr></tfoot></table>`;
+}
+async function txShowSalaryBreakdown(tx){
+  const box=document.getElementById('tx-salary-breakdown'); if(!box) return;
+  box.style.display='none'; box.innerHTML='';
+  if(!tx || tx.flow!=='expense') return;
+  const acc=(bankAccounts||[]).find(a=>a.id===tx.accountId);
+  const isZp=acc && /зарплат|зп/i.test((acc.name||'')+' '+(acc.bank||''));
+  const isSalaryCat=/salary|зарплат/i.test(String(tx.category||''));
+  if(!isZp && !isSalaryCat) return;
+  box.style.display='block';
+  box.innerHTML='<div style="font-size:12px;color:var(--text3)">⏳ Ищу, кому выдано...</div>';
+  try{
+    const res=await txPayoutsFor(tx);
+    box.innerHTML='<div style="font-weight:600;font-size:13px;margin-bottom:6px">👥 Кому выдано по этому документу</div>'+txPayoutsHtml(tx,res);
+  }catch(e){ box.innerHTML='<div style="color:var(--red);font-size:12px">Не удалось загрузить: '+e.message+'</div>'; }
+}
+async function showTxPayouts(id){
+  const tx=moneyTx.find(t=>t.sbId===id||t.id===id||String(t.id)===String(id)); if(!tx) return;
+  let m=document.getElementById('txPayModal');
+  if(!m){
+    m=document.createElement('div'); m.className='modal-overlay'; m.id='txPayModal';
+    m.innerHTML=`<div class="modal" style="max-width:700px;width:96vw;max-height:90vh;overflow:auto"><div class="modal-header"><div class="modal-title" id="txpay-title">Кому выдано</div><button class="modal-close" onclick="closeModal('txPayModal')">✕</button></div><div id="txpay-body"></div></div>`;
+    document.body.appendChild(m);
+  }
+  document.getElementById('txpay-title').textContent=`Кому выдано · ${tx.date} · ₸${Math.round(tx.amount).toLocaleString('ru-RU')}`;
+  document.getElementById('txpay-body').innerHTML='<div style="padding:12px;color:var(--text3)">⏳ Загрузка...</div>';
+  showModal('txPayModal');
+  try{ const res=await txPayoutsFor(tx); document.getElementById('txpay-body').innerHTML=`<div style="font-size:12px;color:var(--text3);margin-bottom:8px">${tx.desc||''}</div>`+txPayoutsHtml(tx,res); }
+  catch(e){ document.getElementById('txpay-body').innerHTML='<div style="color:var(--red)">Не удалось загрузить: '+e.message+'</div>'; }
+}
+
 function openMoneyTxModal(type, flow, editId, preOrderNum){
   // Ищем по sbId (UUID из Supabase) или по локальному id
   const tx = editId
@@ -10735,6 +10803,7 @@ function openMoneyTxModal(type, flow, editId, preOrderNum){
     : null;
   document.getElementById('tx-edit-id').value=editId||'';
   document.getElementById('tx-delete-btn').style.display=tx?'':'none';
+  if(typeof txShowSalaryBreakdown==='function') txShowSalaryBreakdown(tx);
   document.getElementById('tx-date').value=tx?.date||new Date().toISOString().slice(0,10);
   document.getElementById('tx-amount').value=tx?.amount||'';
   document.getElementById('tx-desc').value=tx?.desc||'';
