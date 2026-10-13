@@ -2195,8 +2195,9 @@ window.onerror = function(msg, src, line, col){
 
         <!-- ФОТ по месяцам -->
         <div class="card">
-          <div class="card-header"><span class="card-title">👷 ФОТ по месяцам</span></div>
-          <div id="dash-payroll-chart" style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 0"></div>
+          <div class="card-header"><span class="card-title">👷 ФОТ по месяцам</span>
+            <span style="font-size:11px;color:var(--text3)"><span style="color:var(--amber)">▮</span> Начислено &nbsp;<span style="color:var(--accent)">▮</span> Расход денег</span></div>
+          <div id="dash-payroll-chart" style="display:flex;align-items:flex-end;gap:6px;height:140px;padding:8px 0"></div>
           <div id="dash-payroll-labels" style="display:flex;gap:4px;font-size:10px;color:var(--text3)"></div>
         </div>
       </div>
@@ -24412,16 +24413,27 @@ async function renderDashboard(){
   }).join('');
   if(labEl) labEl.innerHTML = months.map(m=>`<div style="flex:1;text-align:center">${mNamesShort[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
 
-  // График ФОТ по месяцам
-  const fotMonths = Object.keys(fotByMonth).sort().slice(-8);
-  const maxFot = Math.max(...fotMonths.map(m=>fotByMonth[m]),1);
+  // График ФОТ по месяцам: два столбца — начислено и выплачено (расход денег)
+  const fotPaidByMonth = {};
+  moneyTx.forEach(t=>{
+    if(t.flow!=='expense') return;
+    const c=t.category||'';
+    if(!(c==='salary' || c.startsWith('salary_')) || c==='salary_transfer') return;
+    const m=(t.date||'').slice(0,7); if(!m) return;
+    fotPaidByMonth[m]=(fotPaidByMonth[m]||0)+(t.amount||0);
+  });
+  const fotMonths = [...new Set([...Object.keys(fotByMonth),...Object.keys(fotPaidByMonth)])].sort().slice(-8);
+  const maxFot = Math.max(...fotMonths.map(m=>Math.max(fotByMonth[m]||0,fotPaidByMonth[m]||0)),1);
   const pcEl = document.getElementById('dash-payroll-chart');
   const plEl = document.getElementById('dash-payroll-labels');
   if(pcEl) pcEl.innerHTML = fotMonths.map(m=>{
-    const h=Math.max(4,Math.round(fotByMonth[m]/maxFot*110));
-    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="${fmtK(fotByMonth[m])}">
-      <div style="font-size:9px;color:var(--text3)">${fmtK(fotByMonth[m])}</div>
-      <div style="background:var(--amber);opacity:0.7;border-radius:3px 3px 0 0;width:100%;height:${h}px"></div>
+    const acc=fotByMonth[m]||0, paid=fotPaidByMonth[m]||0;
+    const hA=Math.max(4,Math.round(acc/maxFot*100)), hP=Math.max(4,Math.round(paid/maxFot*100));
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="Начислено: ${fmtK(acc)} · Расход денег: ${fmtK(paid)}">
+      <div style="display:flex;gap:2px;align-items:flex-end;width:100%">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0"><div style="font-size:8px;color:var(--text3);white-space:nowrap">${acc?fmtK(acc):''}</div><div style="background:var(--amber);opacity:0.85;border-radius:2px 2px 0 0;width:100%;height:${hA}px"></div></div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0"><div style="font-size:8px;color:var(--text3);white-space:nowrap">${paid?fmtK(paid):''}</div><div style="background:var(--accent);opacity:0.85;border-radius:2px 2px 0 0;width:100%;height:${hP}px"></div></div>
+      </div>
     </div>`;
   }).join('');
   if(plEl) plEl.innerHTML = fotMonths.map(m=>`<div style="flex:1;text-align:center">${mNamesShort[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
