@@ -1626,29 +1626,51 @@ function switchLoginTab(tab){
 
 // PIN-ввод на экране входа
 let loginPinVal='';
+// ── Защита от подбора PIN: 5 ошибок подряд → блокировка 15 мин, затем 60 мин, затем 4 часа ──
+var PIN_MAX_FAILS=5, PIN_LOCK_MIN=[15,60,240];
+function _pinState(){ try{ var s=JSON.parse(localStorage.getItem('pt_pin_lock')||'null'); if(s) return s; }catch(e){} return window._pinMem||{fails:0,level:0,until:0}; }
+function _pinSave(s){ window._pinMem=s; try{ localStorage.setItem('pt_pin_lock',JSON.stringify(s)); }catch(e){} }
+function pinLockLeft(){ var left=_pinState().until-Date.now(); return left>0?Math.ceil(left/60000):0; }
+function pinFailed(){
+  var s=_pinState(); s.fails=(s.fails||0)+1;
+  if(s.fails>=PIN_MAX_FAILS){ s.until=Date.now()+PIN_LOCK_MIN[Math.min(s.level||0,PIN_LOCK_MIN.length-1)]*60000; s.level=(s.level||0)+1; s.fails=0; }
+  _pinSave(s);
+  var left=pinLockLeft();
+  return left ? 'Слишком много ошибок. Вход закрыт на '+left+' мин.' : 'Неверный PIN-код. Осталось попыток: '+(PIN_MAX_FAILS-s.fails);
+}
+function pinSucceeded(){ _pinSave({fails:0,level:0,until:0}); }
+function pinLockMsg(){ var l=pinLockLeft(); return l?'Слишком много ошибок. Повторите через '+l+' мин.':''; }
+
 function pinPadPress(k){
+  if(pinLockLeft()){ var e=document.getElementById('login-pin-error'); if(e) e.textContent=pinLockMsg(); return; }
   if(k==='⌫'){
     loginPinVal=loginPinVal.slice(0,-1);
-  } else if(String(k).match(/[0-9]/) && loginPinVal.length<4){
+  } else if(k==='OK'){
+    if(loginPinVal.length>=4) checkLoginPin();
+    return;
+  } else if(String(k).match(/[0-9]/) && loginPinVal.length<6){
     loginPinVal+=String(k);
   }
   updateLoginPinDisplay();
-  if(loginPinVal.length===4) checkLoginPin();
+  if(loginPinVal.length===6) checkLoginPin();
 }
 
 function updateLoginPinDisplay(){
   const el=document.getElementById('login-pin-display');
   if(!el) return;
   const filled=loginPinVal.split('').map(()=>'●');
-  const empty =Array(4-loginPinVal.length).fill('_');
+  const empty =Array(Math.max(0,6-loginPinVal.length)).fill('_');
   el.textContent=[...filled,...empty].join(' ');
 }
 
 async function checkLoginPin(){
+  var _lm=pinLockMsg();
+  if(_lm){ document.getElementById('login-pin-error').textContent=_lm; loginPinVal=''; updateLoginPinDisplay(); return; }
   if(!employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
   const pins=getPins();
   const u=pins[parseInt(loginPinVal)];
   if(u){
+    pinSucceeded();
     // Скрываем весь интерфейс входа
     document.getElementById('login-screen').style.display='none';
 
@@ -1683,14 +1705,49 @@ async function checkLoginPin(){
     checkPin();
 
   } else {
-    document.getElementById('login-pin-error').textContent='Неверный PIN-код';
+    document.getElementById('login-pin-error').textContent=pinFailed();
     loginPinVal='';
+    updateLoginPinDisplay();
     setTimeout(()=>{
-      updateLoginPinDisplay();
-      document.getElementById('login-pin-error').textContent='';
-    },1000);
+      if(!pinLockLeft()) document.getElementById('login-pin-error').textContent='';
+    },2500);
   }
 }
+
+// Пользователи из базы (app_users) накладываются на встроенных: можно менять пароли,
+// блокировать и заводить новых. Встроенные остаются как запасной вариант.
+function dbUsersApply(rows){
+  if(!window._BUILTIN_USERS){
+    window._BUILTIN_USERS=JSON.parse(JSON.stringify(_USERS));
+    window._BUILTIN_PWD=Object.assign({},_PWD);
+  }
+  // сброс к встроенным, затем наложение
+  Object.keys(_USERS).forEach(function(k){ if(!window._BUILTIN_USERS[k]) delete _USERS[k]; });
+  Object.keys(window._BUILTIN_USERS).forEach(function(k){ _USERS[k]=JSON.parse(JSON.stringify(window._BUILTIN_USERS[k])); _PWD[k]=window._BUILTIN_PWD[k]; });
+  (rows||[]).forEach(function(d){
+    var l=String(d.login||'').trim().toLowerCase(); if(!l) return;
+    var pages=d.pages; if(typeof pages==='string'){ try{pages=JSON.parse(pages);}catch(e){pages=[];} }
+    if(!Array.isArray(pages)) pages=[];
+    var base=_USERS[l]||{};
+    var nm=d.name||base.name||l;
+    _USERS[l]=Object.assign({},base,{
+      name:nm, label:d.label||d.role||base.label||'', pages:pages.length?pages:(base.pages||['mycabinet']),
+      initials:d.initials||base.initials||nm.split(' ').map(function(x){return x[0];}).join('').slice(0,2).toUpperCase()||'??',
+      color:d.color||base.color||'#4f8ef7', disabled:d.active===false
+    });
+    if(d.channel) _USERS[l].channel=d.channel;
+    if(d.password) _PWD[l]=d.password;
+    if(l==='director'){ // директора нельзя ни заблокировать, ни лишить разделов
+      _USERS[l].disabled=false;
+      _USERS[l].pages=Array.from(new Set(((window._BUILTIN_USERS[l]||{}).pages||[]).concat(pages)));
+    }
+  });
+}
+function dbUsersRefresh(){
+  if(typeof sbFetch!=='function') return Promise.resolve();
+  return sbFetch('app_users','select=*&order=created_at').then(function(rows){ dbUsersApply(rows||[]); }).catch(function(e){ console.warn('app_users:',e.message); }).then(function(){ window._dbUsersFresh=true; });
+}
+setTimeout(function(){ dbUsersRefresh(); },300);
 
 function doLogin(){
   diagLog('doLogin() вызвана');
@@ -1698,7 +1755,13 @@ function doLogin(){
   var p=document.getElementById('login-password').value||'';
   var err=document.getElementById('login-error');
   if(!u||!p){if(err)err.textContent='Введите логин и пароль';diagLog('Пустой логин/пароль',true);return;}
+  if(!window._dbUsersFresh && typeof dbUsersRefresh==='function'){
+    if(err) err.textContent='Проверяю…';
+    dbUsersRefresh().then(function(){ window._dbUsersFresh=true; doLogin(); });
+    return;
+  }
   var role=_USERS[u];
+  if(role && role.disabled && _PWD[u]===p){ if(err)err.textContent='Пользователь заблокирован'; return; }
   if(!role||_PWD[u]!==p){
     if(err)err.textContent='Неверный логин или пароль';
     diagLog('Неверный пароль для: '+u, true);
@@ -1907,13 +1970,13 @@ window.onerror = function(msg, src, line, col){
     <div id="login-pin-form" style="display:none">
       <div style="text-align:center;margin-bottom:16px">
         <div style="font-size:13px;color:var(--text3);margin-bottom:12px">
-          Введите ваш PIN-код (4 цифры)
+          Введите ваш код (6 цифр, затем вход автоматически)
         </div>
         <div id="login-pin-display"
-          style="font-size:36px;font-family:monospace;letter-spacing:12px;
+          style="font-size:36px;font-family:monospace;letter-spacing:6px;
             font-weight:700;color:var(--text1);margin-bottom:16px;
             min-height:48px">
-          ____
+          _ _ _ _ _ _
         </div>
         <!-- Цифровая клавиатура -->
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:240px;margin:0 auto">
@@ -1926,7 +1989,7 @@ window.onerror = function(msg, src, line, col){
           <button onclick="pinPadPress('7')" style="padding:14px;font-size:18px;font-weight:600;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text1);cursor:pointer">7</button>
           <button onclick="pinPadPress('8')" style="padding:14px;font-size:18px;font-weight:600;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text1);cursor:pointer">8</button>
           <button onclick="pinPadPress('9')" style="padding:14px;font-size:18px;font-weight:600;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text1);cursor:pointer">9</button>
-          <div></div>
+          <button onclick="pinPadPress('OK')" title="Для 4-значного кода" style="padding:14px;font-size:15px;font-weight:700;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--green);cursor:pointer">OK</button>
           <button onclick="pinPadPress('0')" style="padding:14px;font-size:18px;font-weight:600;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text1);cursor:pointer">0</button>
           <button onclick="pinPadPress('⌫')" style="padding:14px;font-size:18px;font-weight:600;border-radius:10px;border:1px solid var(--border);background:var(--bg3);color:var(--red);cursor:pointer">⌫</button>
         </div>
@@ -7288,16 +7351,34 @@ window.onerror = function(msg, src, line, col){
       <div id="hr-tab-salon_commissions" style="display:none"></div>
       <div id="hr-tab-users" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div style="font-size:13px;color:var(--text3)">Управление доступом пользователей системы</div>
+          <div style="font-size:13px;color:var(--text3)">Вход в систему (логин и пароль) и коды для личного кабинета (ЗП, задания)</div>
           <button class="btn btn-primary btn-sm" onclick="openUserModal(null)">+ Новый пользователь</button>
         </div>
-        <div class="card" style="padding:0">
+        <div id="users-db-error" style="font-size:12px;color:var(--red);margin-bottom:8px"></div>
+        <div class="card" style="padding:0;overflow-x:auto">
           <table class="data-table">
             <thead><tr>
               <th>Логин</th><th>Имя</th><th>Роль</th>
-              <th>Разделы</th><th>Статус</th><th></th>
+              <th>Разделы</th><th>Пароль</th><th>Код ЗП</th><th>Статус</th><th></th>
             </tr></thead>
             <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+
+        <div style="margin:22px 0 8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <b style="font-size:14px">👷 Сотрудники: коды ЗП и доступ в систему</b>
+          <span id="users-staff-sum" style="font-size:12px;color:var(--text3)"></span>
+          <span style="flex:1"></span>
+          <button class="btn btn-ghost btn-sm" onclick="usrReissuePins()" title="Выдать случайные 6-значные коды тем, у кого нет кода или он 4-значный">🔑 Выдать 6-значные коды</button>
+          <input id="users-staff-q" type="search" placeholder="🔍 Поиск…" style="font-size:12px;width:170px" oninput="renderUsersStaffBlock()">
+          <select id="users-staff-filter" onchange="renderUsersStaffBlock()" style="font-size:12px;width:auto">
+            <option value="all">Все</option><option value="nopin">Без кода ЗП</option><option value="old">Со старым 4-значным кодом</option><option value="nouser">Без входа в систему</option><option value="user">С входом в систему</option>
+          </select>
+        </div>
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table class="data-table">
+            <thead><tr><th>Сотрудник</th><th>Должность</th><th>Код ЗП</th><th>Вход в систему</th><th></th></tr></thead>
+            <tbody id="users-staff-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -7504,12 +7585,12 @@ window.onerror = function(msg, src, line, col){
           <div class="form-row" id="emp-pin-row" style="display:none">
             <label class="label">🔐 PIN-код для Личного кабинета</label>
             <div style="display:flex;gap:8px;align-items:center">
-              <input id="emp-card-pin" type="text" maxlength="4"
-                pattern="[0-9]{4}" placeholder="4 цифры"
-                style="width:100px;font-size:18px;letter-spacing:6px;font-family:monospace"
+              <input id="emp-card-pin" type="text" maxlength="6"
+                pattern="[0-9]{6}" placeholder="6 цифр"
+                style="width:130px;font-size:18px;letter-spacing:6px;font-family:monospace"
                 oninput="this.value=this.value.replace(/\D/g,'')">
               <button class="btn btn-ghost btn-sm" type="button"
-                onclick="document.getElementById('emp-card-pin').value=Math.floor(1000+Math.random()*9000)">
+                onclick="document.getElementById('emp-card-pin').value=genUniquePin()">
                 🎲 Случайный
               </button>
             </div>
@@ -8145,8 +8226,8 @@ window.onerror = function(msg, src, line, col){
     <div class="page" id="page-mycabinet">
       <div id="pin-screen" style="max-width:320px;margin:60px auto;text-align:center">
         <div style="font-size:20px;font-weight:500;margin-bottom:8px">Личный кабинет</div>
-        <div style="font-size:13px;color:var(--text3);margin-bottom:28px">Введите PIN-код для входа</div>
-        <div class="pin-display" id="pin-display">____</div>
+        <div style="font-size:13px;color:var(--text3);margin-bottom:28px">Введите код (6 цифр) для входа</div>
+        <div class="pin-display" id="pin-display">______</div>
         <div class="pin-pad">
           <div class="pin-btn" onclick="pinPress('1')">1</div>
           <div class="pin-btn" onclick="pinPress('2')">2</div>
@@ -8157,7 +8238,7 @@ window.onerror = function(msg, src, line, col){
           <div class="pin-btn" onclick="pinPress('7')">7</div>
           <div class="pin-btn" onclick="pinPress('8')">8</div>
           <div class="pin-btn" onclick="pinPress('9')">9</div>
-          <div class="pin-btn" onclick="pinClear()" style="font-size:14px;color:var(--text3)">CLR</div>
+          <div class="pin-btn" onclick="pinOk()" title="Для 4-значного кода" style="font-size:14px;color:var(--green);font-weight:700">OK</div>
           <div class="pin-btn" onclick="pinPress('0')">0</div>
           <div class="pin-btn" onclick="pinBack()" style="font-size:18px;color:var(--text3)">←</div>
         </div>
@@ -16627,14 +16708,18 @@ function getPins(){
   payrollStaff.forEach(st=>{ if(!dbNames.has(st.name)) mk(st.name,st.pos,st.pin,'',st.color,st.tc); });
   return result;
 }
-function pinPress(d){if(pinVal.length>=4)return;pinVal+=d;updatePinDisplay();if(pinVal.length===4)setTimeout(checkPin,200)}
+function pinPress(d){if(pinLockLeft()){document.getElementById('pin-error').textContent=pinLockMsg();return;}if(pinVal.length>=6)return;pinVal+=d;updatePinDisplay();if(pinVal.length===6)setTimeout(checkPin,200)}
+function pinOk(){if(pinVal.length>=4)checkPin();}
 function pinBack(){pinVal=pinVal.slice(0,-1);updatePinDisplay()}
 function pinClear(){pinVal='';updatePinDisplay()}
-function updatePinDisplay(){const s=pinVal.split('').map(_=>'●').join('');document.getElementById('pin-display').textContent=(s+('_'.repeat(4-pinVal.length)))||'____'}
+function updatePinDisplay(){const s=pinVal.split('').map(_=>'●').join('');document.getElementById('pin-display').textContent=(s+('_'.repeat(Math.max(0,6-pinVal.length))))||'______'}
 function checkPin(){
+  const _lm=pinLockMsg();
+  if(_lm){ document.getElementById('pin-error').textContent=_lm; pinVal=''; updatePinDisplay(); return; }
   const pins=getPins();
   const u=pins[parseInt(pinVal)];
   if(u){
+    pinSucceeded();
     document.getElementById('pin-error').textContent='';
     document.getElementById('cab-name').textContent=u.name;
     document.getElementById('cab-pos').textContent=u.pos;
@@ -16649,7 +16734,7 @@ function checkPin(){
     document.getElementById('cabinet-content').style.display='block';
     cabOpen(u);
   } else {
-    document.getElementById('pin-error').textContent='Неверный PIN-код';
+    document.getElementById('pin-error').textContent=pinFailed();
     pinVal='';
     updatePinDisplay();
   }
@@ -21371,53 +21456,249 @@ async function loadAppUsers(){
   }
 }
 
-async function renderUsersTable(){
-  await loadAppUsers();
-  const tbody = document.getElementById('users-tbody');
-  if(!tbody) return;
+// ═══════════════════════════════════════════════════════════════
+// ПОЛЬЗОВАТЕЛИ: встроенные (в коде) + из базы (app_users) + сотрудники с кодами ЗП
+// ═══════════════════════════════════════════════════════════════
+const usrEsc = v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const usrNorm = s=>String(s||'').toLowerCase().replace(/ё/g,'е').replace(/[.,]/g,' ').split(/\s+/).filter(Boolean);
+function usrSameName(a,b){
+  const x=usrNorm(a), y=usrNorm(b); if(!x.length||!y.length) return false;
+  if(x.join(' ')===y.join(' ')) return true;
+  return x[0]===y[0] && (x[1]||'')[0]===(y[1]||'')[0] && !!x[1];
+}
+function usrPages(u){
+  let p=u&&u.pages; if(typeof p==='string'){ try{ p=JSON.parse(p); }catch(e){ p=[]; } }
+  return Array.isArray(p)?p:[];
+}
+function usrEmployeeByName(name){ return (employeesData||[]).find(e=>usrSameName(e.name,name))||null; }
 
-  tbody.innerHTML = _appUsers.map(u=>{
-    const pages = (u.pages||[]);
-    const pageLabels = pages.slice(0,4).map(p=>ALL_PAGES.find(x=>x.id===p)?.label||p).join(', ');
-    const more = pages.length>4?` +${pages.length-4}`:'';
-    return `<tr>
-      <td style="font-family:monospace;font-weight:600">${u.login}</td>
-      <td>${u.name||'—'}</td>
-      <td style="font-size:12px;color:var(--text3)">${u.label||u.role||'—'}</td>
-      <td style="font-size:11px;color:var(--text3)">${pageLabels}${more}</td>
-      <td><span class="badge ${u.active?'badge-green':'badge-red'}">${u.active?'Активен':'Заблокирован'}</span></td>
-      <td>
-        <button class="btn btn-ghost btn-sm" onclick="openUserModal('${u.id}')">✏️</button>
-        <button class="btn btn-ghost btn-sm" style="color:var(--red)"
-          onclick="toggleUserActive('${u.id}',${!u.active})">${u.active?'🔒':'🔓'}</button>
-      </td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3)">Нет пользователей</td></tr>';
+async function renderUsersTable(){
+  const tbody = document.getElementById('users-tbody'); if(!tbody) return;
+  tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Загрузка…</td></tr>';
+  let dbErr='';
+  try{ _appUsers = (await sbFetch('app_users','select=*&order=created_at'))||[]; }
+  catch(e){ dbErr=e.message; _appUsers=[]; }
+  if(!(employeesData||[]).length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
+  const BU = window._BUILTIN_USERS || _USERS, BP = window._BUILTIN_PWD || _PWD;
+  const logins = [...new Set([...Object.keys(BU), ..._appUsers.map(u=>String(u.login||'').toLowerCase())])];
+  const rows = logins.map(login=>{
+    const b=BU[login]||null, d=_appUsers.find(u=>String(u.login||'').toLowerCase()===login)||null;
+    const name=(d&&d.name)||(b&&b.name)||login;
+    const pages=d?usrPages(d):((b&&b.pages)||[]);
+    const emp=usrEmployeeByName(name);
+    return {login,b,d,name,label:(d&&(d.label||d.role))||(b&&b.label)||'',pages,
+      active:d?d.active!==false:true, pwd:(d&&d.password)||BP[login]||'', emp,
+      src:d&&b?'код + база':d?'база':'встроенный'};
+  });
+  const pageLabels=r=>{ const l=r.pages.slice(0,4).map(p=>(ALL_PAGES.find(x=>x.id===p)||{}).label||p).join(', '); return l+(r.pages.length>4?` +${r.pages.length-4}`:''); };
+  tbody.innerHTML = rows.map(r=>`<tr>
+      <td style="font-family:monospace;font-weight:600">${usrEsc(r.login)}</td>
+      <td>${usrEsc(r.name)}</td>
+      <td style="font-size:12px;color:var(--text3)">${usrEsc(r.label||'—')}</td>
+      <td style="font-size:11px;color:var(--text3)">${usrEsc(pageLabels(r))}</td>
+      <td style="font-family:monospace;font-size:12px">${r.pwd?`<span style="cursor:pointer" title="Нажмите, чтобы показать" data-pw="${usrEsc(r.pwd)}" onclick="this.textContent=this.textContent==='••••••'?this.dataset.pw:'••••••'">••••••</span>`:'—'}</td>
+      <td style="font-family:monospace;font-size:12px">${r.emp?(r.emp.pin?usrEsc(r.emp.pin):'<span style="color:var(--red)">нет</span>'):'<span style="color:var(--text3)">—</span>'}</td>
+      <td><span class="badge ${r.active?'badge-green':'badge-red'}">${r.active?'Активен':'Заблокирован'}</span><div style="font-size:10px;color:var(--text3);margin-top:2px">${r.src}</div></td>
+      <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="openUserModal('login:${usrEsc(r.login)}')">✏️</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="toggleUserActive('login:${usrEsc(r.login)}',${!r.active})">${r.active?'🔒':'🔓'}</button></td>
+    </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Нет пользователей</td></tr>';
+  const errEl=document.getElementById('users-db-error');
+  if(errEl) errEl.innerHTML = dbErr ? `⚠️ Таблица пользователей в базе не загрузилась: ${usrEsc(dbErr)}. Показаны только встроенные пользователи.` : '';
+  window._usrRows = rows;
+  renderUsersStaffBlock();
+}
+
+function renderUsersStaffBlock(){
+  const box=document.getElementById('users-staff-tbody'); if(!box) return;
+  const q=(document.getElementById('users-staff-q')?.value||'').toLowerCase().trim();
+  const only=document.getElementById('users-staff-filter')?.value||'all';
+  const rows=window._usrRows||[];
+  let list=(employeesData||[]).filter(e=>(e.status||'active')!=='fired');
+  list=list.map(e=>({e, user:rows.find(r=>usrSameName(r.name,e.name))||null}));
+  const cNoPin=list.filter(x=>!x.e.pin).length, cNoUser=list.filter(x=>!x.user).length;
+  const sum=document.getElementById('users-staff-sum');
+  if(sum) sum.textContent=`Всего ${list.length} · без кода ЗП: ${cNoPin} · старый 4-значный код: ${list.filter(x=>x.e.pin&&String(x.e.pin).length!==6).length} · без входа в систему: ${cNoUser}`;
+  if(only==='nopin') list=list.filter(x=>!x.e.pin);
+  if(only==='old') list=list.filter(x=>x.e.pin && String(x.e.pin).length!==6);
+  if(only==='nouser') list=list.filter(x=>!x.user);
+  if(only==='user') list=list.filter(x=>x.user);
+  if(q) list=list.filter(x=>(x.e.name+' '+(x.e.pos||'')).toLowerCase().includes(q));
+  box.innerHTML = list.map(({e,user})=>`<tr>
+    <td>${usrEsc(e.name)}</td><td style="font-size:12px;color:var(--text3)">${usrEsc(e.pos||'—')}</td>
+    <td style="font-family:monospace;font-weight:600">${e.pin?usrEsc(e.pin):'<span style="color:var(--red)">нет</span>'}
+      <button class="btn btn-ghost btn-sm" style="padding:0 6px" title="Задать / сменить код" onclick="usrSetPin(${JSON.stringify(e.id).replace(/"/g,'&quot;')})">🔑</button></td>
+    <td>${user?`<span style="font-family:monospace">${usrEsc(user.login)}</span> <span style="font-size:11px;color:var(--text3)">· ${usrEsc(user.label||'')}</span>`:'<span style="color:var(--text3)">нет входа</span>'}</td>
+    <td>${user?`<button class="btn btn-ghost btn-sm" onclick="openUserModal('login:${usrEsc(user.login)}')">✏️ Доступ</button>`:`<button class="btn btn-ghost btn-sm" onclick="usrCreateFor(${JSON.stringify(e.id).replace(/"/g,'&quot;')})">＋ Создать вход</button>`}</td>
+  </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Нет сотрудников</td></tr>';
+}
+
+async function usrSetPin(empId){
+  const e=(employeesData||[]).find(x=>x.id===empId); if(!e) return;
+  const suggestion=genUniquePin();
+  const v=prompt(`Код для входа в личный кабинет (ЗП и задания)\n${e.name}\n\n6 цифр. Текущий: ${e.pin||'нет'}.\nПустое поле — предложенный случайный код:`, e.pin&&String(e.pin).length===6?e.pin:suggestion);
+  if(v===null) return;
+  const code=(v.trim()||suggestion);
+  if(!/^\d{6}$/.test(code) || code[0]==='0'){ alert('Код должен состоять ровно из 6 цифр и не начинаться с 0'); return; }
+  const holder=getPins()[parseInt(code)];
+  if(holder && holder.name!==e.name){ alert('Код '+code+' уже занят: '+holder.name); return; }
+  try{
+    await sbPatch('staff',`name=eq.${encodeURIComponent(e.name)}`,{pin:parseInt(code)});
+    e.pin=parseInt(code);
+    const ps=(payrollStaff||[]).find(s=>s.name===e.name); if(ps) ps.pin=e.pin;
+    renderUsersTable();
+    usrShowPinList([{name:e.name,pos:e.pos,pin:code}]);
+  }catch(err){ alert('Не удалось сохранить код: '+err.message); }
+}
+async function usrReissuePins(){
+  const list=(employeesData||[]).filter(e=>(e.status||'active')!=='fired' && String(e.pin||'').length!==6);
+  if(!list.length){ alert('У всех работающих сотрудников уже 6-значные коды.'); return; }
+  if(!confirm(`Выдать новые 6-значные случайные коды: ${list.length} чел. (у кого нет кода или он 4-значный).\n\nСтарые коды перестанут работать. После выдачи откроется список для печати — раздайте коды лично.\nПродолжить?`)) return;
+  const out=[]; let fail=0;
+  for(const e of list){
+    const code=genUniquePin();
+    try{
+      await sbPatch('staff',`name=eq.${encodeURIComponent(e.name)}`,{pin:parseInt(code)});
+      e.pin=parseInt(code); const ps=(payrollStaff||[]).find(s=>s.name===e.name); if(ps) ps.pin=e.pin;
+      out.push({name:e.name,pos:e.pos,pin:code});
+    }catch(err){ fail++; console.warn('pin',e.name,err.message); }
+  }
+  renderUsersTable();
+  if(out.length) usrShowPinList(out);
+  if(fail) alert('Не удалось сохранить коды для '+fail+' сотрудников (подробности в консоли).');
+}
+function usrShowPinList(list){
+  let m=document.getElementById('usrPinModal');
+  if(!m){ m=document.createElement('div'); m.className='modal-overlay'; m.id='usrPinModal'; document.body.appendChild(m); }
+  window._usrPinList=list;
+  m.innerHTML=`<div class="modal" style="max-width:640px;width:96vw;max-height:90vh;overflow:auto">
+    <div class="modal-header"><div class="modal-title">Новые коды для личного кабинета</div><button class="modal-close" onclick="closeModal('usrPinModal')">✕</button></div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Сохраните или распечатайте список сейчас: позже код можно увидеть только в этой вкладке. Каждому сотруднику сообщите только его код.</div>
+    <table class="data-table"><thead><tr><th>Сотрудник</th><th>Должность</th><th>Код</th></tr></thead><tbody>${list.map(x=>`<tr><td>${usrEsc(x.name)}</td><td style="font-size:12px">${usrEsc(x.pos||'')}</td><td style="font-family:monospace;font-weight:700;font-size:15px">${usrEsc(x.pin)}</td></tr>`).join('')}</tbody></table>
+    <div style="margin-top:10px;text-align:right"><button class="btn btn-primary btn-sm" onclick="usrPrintPins()">🖨 Печать (по одному на листке)</button></div></div>`;
+  m.classList.add('open');
+}
+function usrPrintPins(){
+  const w=window.open('','_blank'); if(!w){ alert('Разрешите всплывающие окна для печати'); return; }
+  const l=window._usrPinList||[];
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>Коды</title><style>body{font-family:Arial,sans-serif;margin:16px}.c{display:inline-block;width:46%;margin:1.5%;padding:12px;border:1px dashed #666;box-sizing:border-box;page-break-inside:avoid}.n{font-weight:700}.k{font-family:monospace;font-size:28px;letter-spacing:6px;margin:8px 0}.s{font-size:11px;color:#555}</style>`+
+    l.map(x=>`<div class="c"><div class="n">${usrEsc(x.name)}</div><div class="s">${usrEsc(x.pos||'')}</div><div class="s">Код для входа в личный кабинет (зарплата и задания):</div><div class="k">${usrEsc(x.pin)}</div><div class="s">Не сообщайте код другим.</div></div>`).join('')+`<script>setTimeout(function(){window.print()},300)<\/script>`);
+  w.document.close();
+}
+function genUniquePin(){
+  const used=new Set(Object.keys(getPins()));
+  for(let i=0;i<2000;i++){
+    const c=String(100000+Math.floor(Math.random()*900000));
+    if(used.has(c)) continue;
+    // без очевидных кодов: 111111, 123456, 000000-подобных, повторов и последовательностей
+    if(/^(\d)\1+$/.test(c) || '0123456789012345678909876543210'.includes(c)) continue;
+    return c;
+  }
+  return String(100000+Math.floor(Math.random()*900000));
+}
+function usrTranslit(s){
+  const m={а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ы:'y',э:'e',ю:'yu',я:'ya',ъ:'',ь:'',і:'i',ә:'a',ғ:'g',қ:'k',ң:'n',ө:'o',ұ:'u',ү:'u',һ:'h'};
+  return String(s||'').toLowerCase().split('').map(c=>m[c]!==undefined?m[c]:c).join('').replace(/[^a-z0-9]/g,'');
+}
+function usrCreateFor(empId){
+  const e=(employeesData||[]).find(x=>x.id===empId); if(!e) return;
+  openUserModal(null);
+  const t=usrNorm(e.name);
+  let login=usrTranslit(t[0]||'')+(t[1]?usrTranslit(t[1])[0]:''); 
+  const taken=new Set((window._usrRows||[]).map(r=>r.login)); let base=login, n=2; while(taken.has(login)) login=base+(n++);
+  document.getElementById('u-login').value=login;
+  document.getElementById('u-password').value=Math.random().toString(36).slice(2,10);
+  document.getElementById('u-name').value=e.name;
+  document.getElementById('u-label').value=e.pos||'';
+  document.querySelectorAll('#u-pages-grid input[type="checkbox"]').forEach(cb=>{ cb.checked = cb.dataset.page==='mycabinet'; });
 }
 
 function openUserModal(userId){
-  const u = userId ? _appUsers.find(x=>x.id===userId) : null;
-  document.getElementById('user-modal-title').textContent = u?'Редактировать пользователя':'Новый пользователь';
-  document.getElementById('u-login').value    = u?.login||'';
+  let u=null, builtin=null;
+  if(typeof userId==='string' && userId.startsWith('login:')){
+    const login=userId.slice(6);
+    u=_appUsers.find(x=>String(x.login||'').toLowerCase()===login)||null;
+    const BU=window._BUILTIN_USERS||_USERS, BP=window._BUILTIN_PWD||_PWD;
+    if(!u && BU[login]) builtin={login, ...BU[login], password:BP[login]||''};
+  } else if(userId){ u=_appUsers.find(x=>x.id===userId)||null; }
+  const src = u || builtin;
+  document.getElementById('user-modal-title').textContent = src?'Редактировать пользователя':'Новый пользователь';
+  document.getElementById('u-login').value    = src?.login||'';
+  document.getElementById('u-login').disabled = !!src;
   document.getElementById('u-password').value = '';
-  document.getElementById('u-name').value     = u?.name||'';
-  document.getElementById('u-label').value    = u?.label||'';
-  document.getElementById('u-channel').value  = u?.channel||'';
+  document.getElementById('u-password').placeholder = src ? 'пусто — не менять' : 'минимум 4 символа';
+  document.getElementById('u-name').value     = src?.name||'';
+  document.getElementById('u-label').value    = src?.label||'';
+  document.getElementById('u-channel').value  = src?.channel||'';
   document.getElementById('u-edit-id').value  = u?.id||'';
   document.getElementById('u-error').textContent='';
   document.getElementById('u-delete-btn').style.display = u?'':'none';
   document.getElementById('u-role-template').value='';
-
-  // Чекбоксы разделов
+  window._usrBuiltinEdit = builtin;
   const grid = document.getElementById('u-pages-grid');
-  const userPages = u?.pages||[];
+  const userPages = u ? usrPages(u) : (builtin?.pages||[]);
   grid.innerHTML = ALL_PAGES.map(p=>`
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
       <input type="checkbox" data-page="${p.id}" ${userPages.includes(p.id)?'checked':''}>
       ${p.label}
     </label>`).join('');
-
   showModal('userModal');
+}
+
+async function saveAppUser(){
+  const login    = document.getElementById('u-login').value.trim().toLowerCase();
+  const password = document.getElementById('u-password').value.trim();
+  const name     = document.getElementById('u-name').value.trim();
+  const label    = document.getElementById('u-label').value.trim();
+  const channel  = document.getElementById('u-channel').value;
+  const editId   = document.getElementById('u-edit-id').value;
+  const builtin  = window._usrBuiltinEdit||null;
+  const errEl    = document.getElementById('u-error');
+  if(!login){ errEl.textContent='Введите логин'; return; }
+  if(!editId && !builtin && !password){ errEl.textContent='Введите пароль'; return; }
+  if(password && password.length<4){ errEl.textContent='Пароль минимум 4 символа'; return; }
+  const pages = [...document.querySelectorAll('#u-pages-grid input:checked')].map(cb=>cb.dataset.page);
+  const initials = (name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase())||'??';
+  const obj = { login, name, label, channel, pages, initials, active: true };
+  if(password) obj.password = password;
+  else if(builtin && builtin.password) obj.password = builtin.password;
+  try{
+    if(editId){
+      delete obj.active;
+      await sbPatch('app_users', `id=eq.${editId}`, obj);
+    } else {
+      if(_appUsers.find(u=>String(u.login||'').toLowerCase()===login)){ errEl.textContent='Логин уже занят'; return; }
+      if(!builtin && (window._BUILTIN_USERS||_USERS)[login]){ errEl.textContent='Логин уже занят встроенным пользователем'; return; }
+      obj.color = (builtin&&builtin.color)||'#4f8ef7';
+      await sbInsert('app_users', obj);
+    }
+    if(typeof dbUsersApply==='function') await dbUsersRefresh();
+    closeModal('userModal');
+    await renderUsersTable();
+    const n=document.createElement('div');
+    n.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--green);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;font-weight:500';
+    n.textContent='✅ Пользователь сохранён'; document.body.appendChild(n); setTimeout(()=>n.remove(),2500);
+  }catch(e){ errEl.textContent='Ошибка: '+e.message; }
+}
+
+async function toggleUserActive(userId, active){
+  try{
+    let id=userId;
+    if(typeof userId==='string' && userId.startsWith('login:')){
+      const login=userId.slice(6);
+      let d=_appUsers.find(x=>String(x.login||'').toLowerCase()===login);
+      if(!d){
+        const BU=window._BUILTIN_USERS||_USERS, BP=window._BUILTIN_PWD||_PWD, b=BU[login];
+        if(!b) return;
+        if(!active && login===window._currentUser){ alert('Нельзя заблокировать самого себя'); return; }
+        d=await sbInsert('app_users',{login,name:b.name,label:b.label||'',channel:b.channel||'',pages:b.pages||[],password:BP[login]||'',initials:b.initials||'',color:b.color||'',active});
+      } else {
+        if(!active && login===window._currentUser){ alert('Нельзя заблокировать самого себя'); return; }
+        await sbPatch('app_users',`id=eq.${d.id}`,{active});
+      }
+    } else { await sbPatch('app_users',`id=eq.${id}`,{active}); }
+    if(typeof dbUsersRefresh==='function') await dbUsersRefresh();
+    renderUsersTable();
+  }catch(e){ alert('Ошибка: '+e.message); }
 }
 
 function applyUserRoleTemplate(){
@@ -21434,72 +21715,6 @@ function applyUserRoleTemplate(){
   document.querySelectorAll('#u-pages-grid input[type="checkbox"]').forEach(cb=>{
     cb.checked = pages.includes(cb.dataset.page);
   });
-}
-
-async function saveAppUser(){
-  const login    = document.getElementById('u-login').value.trim();
-  const password = document.getElementById('u-password').value.trim();
-  const name     = document.getElementById('u-name').value.trim();
-  const label    = document.getElementById('u-label').value.trim();
-  const channel  = document.getElementById('u-channel').value;
-  const editId   = document.getElementById('u-edit-id').value;
-  const errEl    = document.getElementById('u-error');
-
-  if(!login){ errEl.textContent='Введите логин'; return; }
-  if(!editId && !password){ errEl.textContent='Введите пароль'; return; }
-  if(password && password.length<4){ errEl.textContent='Пароль минимум 4 символа'; return; }
-
-  const pages = [...document.querySelectorAll('#u-pages-grid input:checked')]
-    .map(cb=>cb.dataset.page);
-
-  const obj = {
-    login, name, label, channel,
-    pages: JSON.stringify(pages),
-    active: true,
-  };
-  if(password) obj.password = password;
-
-  try {
-    if(editId){
-      await sbPatch('app_users', `id=eq.${editId}`, obj);
-      // Обновляем в _USERS если это существующая роль
-      _USERS[login] = {...(_USERS[login]||{}), name, label, channel, pages};
-    } else {
-      // Проверяем уникальность логина
-      if(_appUsers.find(u=>u.login===login)){
-        errEl.textContent='Логин уже занят';
-        return;
-      }
-      await sbInsert('app_users', obj);
-      // Добавляем в _USERS и _PWD динамически
-      _USERS[login] = {
-        name, label, channel, pages,
-        initials: name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()||'??',
-        color: '#4f8ef7',
-      };
-      _PWD[login] = password;
-    }
-    closeModal('userModal');
-    renderUsersTable();
-    // Показываем уведомление
-    const n=document.createElement('div');
-    n.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--green);color:#fff;'+
-      'padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;font-weight:500';
-    n.textContent='✅ Пользователь сохранён';
-    document.body.appendChild(n);
-    setTimeout(()=>n.remove(),2500);
-  } catch(e){
-    errEl.textContent='Ошибка: '+e.message;
-  }
-}
-
-async function toggleUserActive(userId, active){
-  try {
-    await sbPatch('app_users',`id=eq.${userId}`,{active});
-    renderUsersTable();
-  } catch(e){
-    console.warn('Ошибка:', e.message);
-  }
 }
 
 async function deleteAppUser(){
@@ -22028,7 +22243,11 @@ function saveEmployeeCard(){
   let _newPin=null;
   if(canSeePIN){
     const pinVal=parseInt(document.getElementById('emp-card-pin').value)||null;
-    if(pinVal && String(pinVal).length===4){
+    const _oldPin=(employeesData.find(e=>e.name===name)||{}).pin;
+    if(pinVal && String(pinVal).length!==6 && !(String(pinVal).length===4 && String(_oldPin)===String(pinVal))){
+      err.style.color='var(--red)'; err.textContent='Код должен состоять из 6 цифр (старые 4-значные коды можно оставить, но лучше заменить)'; return;
+    }
+    if(pinVal && (String(pinVal).length===6 || String(pinVal).length===4)){
       const holder=getPins()[pinVal];
       if(holder && holder.name!==name){ err.style.color='var(--red)'; err.textContent='PIN '+pinVal+' уже занят: '+holder.name; return; }
       _newPin=pinVal;
