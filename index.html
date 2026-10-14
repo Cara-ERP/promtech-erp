@@ -2259,7 +2259,7 @@ window.onerror = function(msg, src, line, col){
         <!-- ФОТ по месяцам -->
         <div class="card">
           <div class="card-header"><span class="card-title">👷 ФОТ по месяцам</span>
-            <span style="font-size:11px;color:var(--text3)"><span style="color:var(--amber)">▮</span> Начислено &nbsp;<span style="color:var(--accent)">▮</span> Расход денег</span></div>
+            <span style="font-size:11px;color:var(--text3)"><span style="color:var(--amber)">▮</span> Начислено &nbsp;<span style="color:var(--accent)" title="Кассовые расходы по ЗП (оклады, сдельная, производство, офис). ЗП салонов не входит — её нет в зарплатной ведомости">▮</span> Расход денег</span></div>
           <div id="dash-payroll-chart" style="display:flex;align-items:flex-end;gap:6px;height:140px;padding:8px 0"></div>
           <div id="dash-payroll-labels" style="display:flex;gap:4px;font-size:10px;color:var(--text3)"></div>
         </div>
@@ -24654,11 +24654,12 @@ async function renderDashboard(){
   if(labEl) labEl.innerHTML = months.map(m=>`<div style="flex:1;text-align:center">${mNamesShort[m.slice(5)]} ${m.slice(2,4)}</div>`).join('');
 
   // График ФОТ по месяцам: два столбца — начислено и выплачено (расход денег)
+  const FOT_EXPENSE_CATS=['salary','salary_prod_fixed','salary_prod_piece','salary_office_fixed'];
   const fotPaidByMonth = {};
   moneyTx.forEach(t=>{
     if(t.flow!=='expense') return;
-    const c=t.category||'';
-    if(!(c==='salary' || c.startsWith('salary_')) || c==='salary_transfer') return;
+    // Только то, что отражается в зарплатной ведомости (ЗП салонов в ведомость не входит)
+    if(!FOT_EXPENSE_CATS.includes(t.category||'')) return;
     const m=(t.date||'').slice(0,7); if(!m) return;
     fotPaidByMonth[m]=(fotPaidByMonth[m]||0)+(t.amount||0);
   });
