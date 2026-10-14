@@ -1558,7 +1558,7 @@ async function updateOrderInDB(num, fields){
   storekeeper:{name:'Угламова Халидам',  initials:'УХ', color:'#f5a623', label:'Кладовщик',
     pages:['dashboard','warehouse','purchases','suppliers','mycabinet']},
   foreman:    {name:'Алимов Шынгыс',     initials:'АШ', color:'#a78bfa', label:'Нач. цеха',
-    pages:['dashboard','mrp','warehouse','wages','mycabinet']},
+    pages:['dashboard','mrp','warehouse','wages','crm','mycabinet']},
   accountant: {name:'Болысбеков Ерлан',  initials:'БЕ', color:'#f43f5e', label:'Гл. бухгалтер',
     pages:['dashboard','finance','money','channels','reconcile','hr','wages','sales','customers','mycabinet']},
   hr:         {name:'Молдахова Сания Мактабековна', initials:'МС', color:'#10b981', label:'Бухгалтер/HR',
@@ -1578,19 +1578,19 @@ async function updateOrderInDB(num, fields){
     pages:['catalog','sales','crm','money_salon','salon_report','hr'],
     canCreateOrders:true, canCashIn:true, canViewRS:true},
   dealer_astana:  {name:'Дилер Астана',  initials:'АС', color:'#06b6d4', label:'Дилер — Астана',
-    channel:'dealer_astana',  pages:['catalog','sales','reconcile'],
+    channel:'dealer_astana',  pages:['catalog','sales','crm','reconcile'],
     canCreateOrders:true, canCashIn:false, canViewRS:false},
   dealer_aktau:   {name:'Дилер Актау',   initials:'АК', color:'#06b6d4', label:'Дилер — Актау',
-    channel:'dealer_aktau',   pages:['catalog','sales','reconcile'],
+    channel:'dealer_aktau',   pages:['catalog','sales','crm','reconcile'],
     canCreateOrders:true, canCashIn:false, canViewRS:false},
   dealer_shymkent:{name:'Дилер Шымкент', initials:'ШЫ', color:'#06b6d4', label:'Дилер — Шымкент',
-    channel:'dealer_shymkent',pages:['catalog','sales','reconcile'],
+    channel:'dealer_shymkent',pages:['catalog','sales','crm','reconcile'],
     canCreateOrders:true, canCashIn:false, canViewRS:false},
   dealer_atyrau:  {name:'Дилер Атырау',  initials:'АТ', color:'#06b6d4', label:'Дилер — Атырау',
-    channel:'dealer_atyrau',  pages:['catalog','sales','reconcile'],
+    channel:'dealer_atyrau',  pages:['catalog','sales','crm','reconcile'],
     canCreateOrders:true, canCashIn:false, canViewRS:false},
   dealer_aktobe:  {name:'Дилер Актобе',  initials:'АБ', color:'#06b6d4', label:'Дилер — Актобе',
-    channel:'dealer_aktobe',  pages:['catalog','sales','reconcile'],
+    channel:'dealer_aktobe',  pages:['catalog','sales','crm','reconcile'],
     canCreateOrders:true, canCashIn:false, canViewRS:false},
  };
 var _PWD={
@@ -4141,6 +4141,7 @@ window.onerror = function(msg, src, line, col){
       <div class="tabs" style="align-items:center">
         <div class="tab active" id="crm-tab-clients" onclick="showOrdersTab('clients',this)">👥 Клиенты (<span id="tab-count-clients">0</span>)</div>
         <div class="tab" id="crm-tab-leads" onclick="showOrdersTab('leads',this)">🎯 Лиды (<span id="tab-count-leads">0</span>)</div>
+        <div class="tab" id="crm-tab-projects" onclick="showOrdersTab('projects',this)">📐 Проекты (<span id="tab-count-projects">0</span>)</div>
         <div class="tab" onclick="showOrdersTab('funnel',this)">🎯 Воронка лидов</div>
         <div class="tab" onclick="showOrdersTab('orders-kanban-prod',this)">🏭 По производству</div>
         <div class="tab" onclick="showOrdersTab('orders-kanban-pay',this)">💳 По оплате</div>
@@ -4179,6 +4180,24 @@ window.onerror = function(msg, src, line, col){
       </div>
 
       <!-- TAB: CRM Kanban Funnel -->
+      <!-- TAB: Проекты -->
+      <div class="orders-tab" id="orders-projects" style="display:none">
+        <div class="section-header" style="margin-bottom:12px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="prj-q" type="search" placeholder="🔍 Поиск: номер, название, заказчик…" style="font-size:13px;min-width:230px" oninput="renderProjects()">
+            <select id="prj-st" onchange="renderProjects()" style="font-size:13px;width:auto">
+              <option value="open">Активные</option><option value="all">Все</option>
+              <option value="request">Запрос</option><option value="calc">В расчёте</option><option value="sent">Отправлен заказчику</option>
+              <option value="approved">Согласован</option><option value="order">Стал заказом</option><option value="closed">Закрыт</option>
+            </select>
+            <select id="prj-ch" onchange="renderProjects()" style="font-size:13px;width:auto"></select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="prjOpenNew()">+ Новый проект</button>
+        </div>
+        <div id="prj-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+        <div id="prj-list"></div>
+      </div>
+
       <div class="orders-tab" id="orders-funnel" style="display:none">
         <div class="section-header" style="margin-bottom:10px">
           <div style="font-size:13px;color:var(--text3)">Перетащите клиента на следующую стадию. Клик «⋯» — детали, история, теги.</div>
@@ -16510,6 +16529,7 @@ function showPage(id, el){
     const chRole = getCurrentRole();
     const isDealer = chRole?.channel?.startsWith('dealer_');
     const isSalon  = chRole?.channel?.startsWith('salon_');
+    if(typeof prjApplyRole==='function') prjApplyRole();
     document.querySelectorAll('#page-crm .tab[data-tab="funnel"]').forEach(t=>{
       t.style.display = isDealer ? 'none' : '';
     });
@@ -30757,6 +30777,7 @@ function showOrdersTab(tab, el){
   const tabEl = document.getElementById('orders-'+tab);
   if(tabEl) tabEl.style.display='block';
   if(tab==='sales-journal') renderSalesJournal();
+  if(tab==='projects') prjOpenTab();
   if(tab==='funnel'){
     showLoading('Загрузка воронки...', 'Квалификация · КП · Переговоры');
     crmLeads = [];
@@ -30825,6 +30846,594 @@ function showOrdersTab(tab, el){
       if(e) e.textContent=leadsData.filter(l=>l.status!=='won'&&l.status!=='lost').length;
     });
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ПРОЕКТЫ (CRM): запросы на расчёт нестандартной мебели / наборов
+// Таблицы: projects, project_calcs, project_files, project_comments
+// Файлы: Supabase Storage, бакет project-files
+// ═══════════════════════════════════════════════════════════════
+const PRJ_STATUSES = {
+  request :{label:'Запрос',              color:'#a78bfa'},
+  calc    :{label:'В расчёте',           color:'#f5a623'},
+  sent    :{label:'Отправлен заказчику', color:'#4f8ef7'},
+  approved:{label:'Согласован',          color:'#06b6d4'},
+  order   :{label:'Стал заказом',        color:'#3dd68c'},
+  closed  :{label:'Закрыт',              color:'#8a8f98'},
+};
+let prjData=[], prjCalcs=[], prjFiles=[], prjComments=[];
+let prjCurId=null, prjCurVer=null, prjEdit=null, prjEditKey='', prjErr='';
+const PRJ_BUCKET='project-files';
+const prjEsc = v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const prjFmt = n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
+const prjRole = ()=>getCurrentRole();
+const prjIsClient = ()=>!!(prjRole()&&prjRole().channel);
+const prjChName = id=>(SALES_CHANNELS.find(c=>c.id===id)||{}).name||id||'—';
+function prjMe(){ const r=prjRole(); return {login:window._currentUser||'', name:(r&&r.name)||window._currentUser||''}; }
+function prjIsAdmin(){ return window._currentUser==='director'; }
+function prjDate(s){ if(!s) return ''; const d=new Date(s); if(isNaN(d)) return String(s).slice(0,10);
+  return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }
+function prjToast(msg,isErr){
+  let t=document.getElementById('prj-toast');
+  if(!t){ t=document.createElement('div'); t.id='prj-toast';
+    t.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:99999;padding:10px 18px;border-radius:8px;font-size:13px;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.4);transition:opacity .3s;max-width:90vw';
+    document.body.appendChild(t); }
+  t.style.background=isErr?'#d44444':'#2ab573'; t.textContent=msg; t.style.opacity='1';
+  clearTimeout(t._tm); t._tm=setTimeout(()=>{t.style.opacity='0'}, isErr?6000:2500);
+}
+function prjStatusBadge(s){ const d=PRJ_STATUSES[s]||{label:s,color:'#888'};
+  return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;background:${d.color}22;color:${d.color}">${prjEsc(d.label)}</span>`; }
+function prjFileUrl(path){ return `${SUPABASE_URL}/storage/v1/object/public/${PRJ_BUCKET}/${path.split('/').map(encodeURIComponent).join('/')}`; }
+function prjTotal(items){ return (items||[]).reduce((s,i)=>s+(+i.qty||0)*(+i.price||0),0); }
+function prjCostTotal(items){ return (items||[]).reduce((s,i)=>s+(+i.qty||0)*(+i.cost||0),0); }
+
+// ── Загрузка ──────────────────────────────────────────────────
+async function loadProjects(){
+  try{
+    const f = prjIsClient() ? `&channel=eq.${encodeURIComponent(prjRole().channel)}` : '';
+    prjData = await sbFetch('projects',`select=*&order=created_at.desc${f}`) || [];
+    if(prjData.length){
+      const inn=`project_id=in.(${prjData.map(p=>p.id).join(',')})`;
+      const r = await Promise.all([
+        sbFetch('project_calcs',   `select=*&${inn}&order=version.asc&limit=5000`),
+        sbFetch('project_files',   `select=*&${inn}&order=created_at.asc&limit=5000`),
+        sbFetch('project_comments',`select=*&${inn}&order=created_at.asc&limit=5000`)]);
+      prjCalcs=r[0]||[]; prjFiles=r[1]||[]; prjComments=r[2]||[];
+    } else { prjCalcs=[]; prjFiles=[]; prjComments=[]; }
+    prjErr='';
+  }catch(e){ prjErr=e.message||String(e); prjData=[]; prjCalcs=[]; prjFiles=[]; prjComments=[]; }
+  const c=document.getElementById('tab-count-projects');
+  if(c) c.textContent=prjData.filter(p=>p.status!=='order'&&p.status!=='closed').length;
+}
+
+// ── Список ────────────────────────────────────────────────────
+function prjOpenTab(){
+  const box=document.getElementById('prj-list'); if(box) box.innerHTML='<div style="padding:24px;color:var(--text3)">Загрузка…</div>';
+  const chSel=document.getElementById('prj-ch');
+  if(chSel && !chSel.dataset.init){
+    chSel.innerHTML='<option value="">Все заказчики</option>'+SALES_CHANNELS.filter(c=>c.group!=='direct').map(c=>`<option value="${c.id}">${prjEsc(c.name)}</option>`).join('')+'<option value="office">Офис (прямые)</option>';
+    chSel.dataset.init='1';
+  }
+  if(chSel) chSel.style.display=prjIsClient()?'none':'';
+  loadProjects().then(renderProjects);
+}
+function renderProjects(){
+  const box=document.getElementById('prj-list'); if(!box) return;
+  if(prjErr){
+    box.innerHTML=`<div class="card" style="padding:18px;border-left:3px solid var(--red)"><b>Не удалось загрузить проекты.</b><div style="font-size:12px;color:var(--text3);margin-top:6px">${prjEsc(prjErr)}</div><div style="font-size:12px;margin-top:8px">Скорее всего, не выполнен SQL <b>projects.sql</b> в Supabase (таблицы ещё не созданы).</div></div>`;
+    return;
+  }
+  const q=(document.getElementById('prj-q')?.value||'').toLowerCase().trim();
+  const st=document.getElementById('prj-st')?.value||'open';
+  const ch=document.getElementById('prj-ch')?.value||'';
+  const counts={}; prjData.forEach(p=>counts[p.status]=(counts[p.status]||0)+1);
+  const chips=document.getElementById('prj-chips');
+  if(chips) chips.innerHTML=Object.entries(PRJ_STATUSES).map(([k,d])=>`<span onclick="document.getElementById('prj-st').value='${k}';renderProjects()" style="cursor:pointer;padding:4px 10px;border-radius:14px;font-size:12px;background:${d.color}22;color:${d.color};font-weight:600">${prjEsc(d.label)}: ${counts[k]||0}</span>`).join('');
+  let rows=prjData.filter(p=>{
+    if(st==='open' && (p.status==='order'||p.status==='closed')) return false;
+    if(st!=='open' && st!=='all' && p.status!==st) return false;
+    if(ch && p.channel!==ch) return false;
+    if(q && !((p.num||'')+' '+(p.title||'')+' '+(p.customer_name||'')+' '+(p.responsible_name||'')+' '+(p.order_num||'')).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  if(!rows.length){ box.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">Проектов нет. Нажмите «+ Новый проект».</div>'; return; }
+  const client=prjIsClient();
+  box.innerHTML=`<div style="overflow-x:auto"><table class="data-table"><thead><tr>
+    <th>№</th><th>Проект</th>${client?'':'<th>Заказчик</th>'}<th>Статус</th><th>Ответственный</th><th>Срок</th><th style="text-align:right">Сумма</th><th style="text-align:center">Файлы</th><th>Обновлён</th></tr></thead><tbody>`+
+    rows.map(p=>{
+      const nf=prjFiles.filter(f=>f.project_id===p.id && !(client&&f.internal)).length;
+      const nc=prjComments.filter(c=>c.project_id===p.id && !(client&&c.internal)).length;
+      return `<tr style="cursor:pointer" onclick="prjOpen(${p.id})">
+        <td style="font-family:monospace">${prjEsc(p.num||'#'+p.id)}</td>
+        <td><b>${prjEsc(p.title)}</b>${p.order_num?`<div style="font-size:11px;color:var(--green)">Заказ ${prjEsc(p.order_num)}</div>`:''}</td>
+        ${client?'':`<td>${prjEsc(p.customer_name||prjChName(p.channel))}</td>`}
+        <td>${prjStatusBadge(p.status)}</td>
+        <td>${prjEsc(p.responsible_name||'—')}</td>
+        <td>${prjEsc(p.due_date||'')}</td>
+        <td style="text-align:right;font-weight:600">${p.total_amount?prjFmt(p.total_amount):'—'}</td>
+        <td style="text-align:center;font-size:12px">${nf?'📎'+nf:''} ${nc?'💬'+nc:''}</td>
+        <td style="font-size:12px;color:var(--text3)">${prjEsc(prjDate(p.updated_at||p.created_at))}</td></tr>`;
+    }).join('')+'</tbody></table></div>';
+}
+
+// ── Окно проекта ──────────────────────────────────────────────
+function prjEnsureModal(){
+  let m=document.getElementById('prjModal');
+  if(!m){
+    m=document.createElement('div'); m.className='modal-overlay'; m.id='prjModal';
+    m.innerHTML='<div class="modal" style="max-width:1040px;width:97vw;max-height:94vh;overflow:auto" id="prjModalBody"></div>';
+    document.body.appendChild(m);
+    document.addEventListener('paste',prjOnPaste);
+  }
+  return m;
+}
+function prjClose(){ const m=document.getElementById('prjModal'); if(m) m.classList.remove('open'); prjCurId=null; }
+
+function prjOpenNew(){
+  const m=prjEnsureModal(); const client=prjIsClient();
+  prjCurId=null;
+  const chOpts=SALES_CHANNELS.map(c=>`<option value="${c.id}">${prjEsc(c.name)}</option>`).join('');
+  document.getElementById('prjModalBody').innerHTML=`
+    <div class="modal-header"><div class="modal-title">${client?'Запрос на расчёт':'Новый проект'}</div><button class="modal-close" onclick="prjClose()">✕</button></div>
+    <div style="display:grid;gap:10px">
+      <div><label style="font-size:12px;color:var(--text3)">Название *</label>
+        <input id="prjn-title" type="text" placeholder="Напр.: Кухня для ЖК «Нурлы», угловая 3,2×2,4 м" style="width:100%"></div>
+      ${client?'':`<div><label style="font-size:12px;color:var(--text3)">Заказчик (канал) *</label><select id="prjn-ch" style="width:100%">${chOpts}</select></div>
+      <div><label style="font-size:12px;color:var(--text3)">Название клиента / примечание</label><input id="prjn-cust" type="text" style="width:100%"></div>`}
+      <div><label style="font-size:12px;color:var(--text3)">Описание, размеры, пожелания</label>
+        <textarea id="prjn-desc" rows="5" style="width:100%" placeholder="Что нужно сделать: материалы, цвета, фурнитура, габариты, срок…"></textarea></div>
+      <div><label style="font-size:12px;color:var(--text3)">Желаемый срок (ответа / готовности)</label><input id="prjn-due" type="date"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Чертежи, фото, файлы (можно несколько)</label>
+        <input id="prjn-files" type="file" multiple accept="image/*,.pdf,.dwg,.dxf,.xls,.xlsx,.doc,.docx,.zip,.rar,.skp,.pro,.bsolid" style="width:100%"></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="prjClose()">Отмена</button>
+      <button class="btn btn-primary" id="prjn-save" onclick="prjCreate()">Создать</button></div>`;
+  m.classList.add('open');
+}
+async function prjCreate(){
+  const title=(document.getElementById('prjn-title').value||'').trim();
+  if(!title){ prjToast('Введите название проекта',1); return; }
+  const client=prjIsClient(), me=prjMe();
+  const channel = client ? prjRole().channel : (document.getElementById('prjn-ch')?.value||'office');
+  const btn=document.getElementById('prjn-save'); btn.disabled=true; btn.textContent='Сохраняю…';
+  try{
+    const row = await sbInsert('projects',{
+      title, channel, status:'request',
+      customer_name: client ? prjChName(channel) : ((document.getElementById('prjn-cust')?.value||'').trim()||prjChName(channel)),
+      description: (document.getElementById('prjn-desc').value||'').trim(),
+      due_date: document.getElementById('prjn-due').value||null,
+      created_by: me.login, created_by_name: me.name
+    });
+    await sbPatch('projects',`id=eq.${row.id}`,{num:'ПР-'+String(row.id).padStart(4,'0')});
+    const files=[...(document.getElementById('prjn-files').files||[])];
+    if(files.length){ btn.textContent='Загружаю файлы…'; await prjUploadFiles(row.id, client?'customer':'designer', files, false); }
+    await loadProjects(); renderProjects(); prjToast('Проект создан');
+    prjOpen(row.id);
+  }catch(e){ btn.disabled=false; btn.textContent='Создать'; prjToast('Ошибка: '+e.message,1); }
+}
+
+function prjOpen(id){
+  prjEnsureModal(); prjCurId=id; prjCurVer=null; prjEditKey='';
+  prjRenderCard(); document.getElementById('prjModal').classList.add('open');
+}
+
+function prjCalcHtml(p, cur, client){
+  const items = prjEdit||[];
+  const ro = client;
+  const inp=(i,k,v,w,type)=>ro?`<span>${prjEsc(v)}</span>`:`<input type="${type||'text'}" value="${prjEsc(v)}" style="width:${w};font-size:12px;padding:3px 5px" oninput="prjCalcEdit(${i},'${k}',this.value)">`;
+  const head=`<th style="width:28px">#</th><th>Наименование</th><th>Описание / размеры</th><th style="width:70px">Кол-во</th>${client?'':'<th style="width:105px">Себест. за ед.</th>'}<th style="width:105px">Цена за ед.</th><th style="width:110px;text-align:right">Сумма</th>${ro?'':'<th style="width:28px"></th>'}`;
+  const rows=items.map((it,i)=>`<tr>
+    <td>${i+1}</td><td>${inp(i,'name',it.name||'','100%')}</td><td>${inp(i,'attrs',it.attrs||'','100%')}</td>
+    <td>${inp(i,'qty',it.qty||'','60px','number')}</td>
+    ${client?'':`<td>${inp(i,'cost',it.cost||'','95px','number')}</td>`}
+    <td>${inp(i,'price',it.price||'','95px','number')}</td>
+    <td style="text-align:right" id="prj-sum-${i}">${prjFmt((+it.qty||0)*(+it.price||0))}</td>
+    ${ro?'':`<td><button class="btn btn-ghost btn-sm" style="padding:0 6px" onclick="prjCalcDel(${i})">✕</button></td>`}</tr>`).join('');
+  const cols = 6 + (client?0:1) + (ro?0:1);
+  const verBtns = ro?'':`
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center">
+      <button class="btn btn-ghost btn-sm" onclick="prjCalcAdd()">+ Позиция</button>
+      <span style="font-size:12px;color:var(--text3)">Наценка %</span>
+      <input id="prj-markup" type="number" value="${prjEsc(cur&&cur.markup_pct!=null?cur.markup_pct:30)}" style="width:70px;font-size:12px;padding:3px 5px">
+      <button class="btn btn-ghost btn-sm" onclick="prjApplyMarkup()" title="Цена = себестоимость × (1 + наценка)">Применить к ценам</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="prjCalcSave(false)">💾 Сохранить расчёт</button>
+      <button class="btn btn-ghost btn-sm" onclick="prjCalcSave(true)" title="Сохранить как новую версию">＋ Новая версия</button>
+      <button class="btn btn-ghost btn-sm" onclick="prjCalcSend()">📤 Отправить заказчику</button>
+      <button class="btn btn-ghost btn-sm" onclick="prjCalcPrint()">🖨 Печать</button></div>`;
+  const total=prjTotal(items), cost=prjCostTotal(items);
+  return `<table class="data-table" style="font-size:12px"><thead><tr>${head}</tr></thead><tbody id="prj-calc-body">${rows||`<tr><td colspan="${cols}" style="color:var(--text3);text-align:center;padding:14px">Позиций нет</td></tr>`}</tbody>
+    <tfoot><tr><td colspan="${cols-(ro?1:2)}" style="text-align:right;font-weight:700">ИТОГО</td><td style="text-align:right;font-weight:700" id="prj-total">${prjFmt(total)}</td>${ro?'':'<td></td>'}</tr>
+    ${client?'':`<tr><td colspan="${cols-(ro?1:2)}" style="text-align:right;color:var(--text3)">Себестоимость / маржа</td><td style="text-align:right;color:var(--text3)" id="prj-margin">${prjFmt(cost)} / ${total>0?Math.round((total-cost)/total*100):0}%</td><td></td></tr>`}</tfoot></table>
+    ${cur&&!client?`<div style="font-size:11px;color:var(--text3);margin-top:4px">Версия ${cur.version}${cur.sent_at?' · отправлена '+prjEsc(prjDate(cur.sent_at)):' · не отправлена'}${cur.created_by_name?' · '+prjEsc(cur.created_by_name):''}</div>`:''}
+    ${verBtns}`;
+}
+
+function prjFileCard(f, p){
+  const url=prjFileUrl(f.storage_path), isImg=(f.mime||'').startsWith('image/')||/\.(jpe?g|png|gif|webp|bmp)$/i.test(f.file_name||'');
+  const me=prjMe(), canDel = prjIsAdmin() || f.uploaded_by===me.login || !prjIsClient();
+  const kb=f.size?(f.size>1048576?(f.size/1048576).toFixed(1)+' МБ':Math.round(f.size/1024)+' КБ'):'';
+  const ext=((f.file_name||'').split('.').pop()||'').slice(0,4).toUpperCase();
+  return `<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg3);display:flex;flex-direction:column">
+    <a href="${url}" target="_blank" rel="noopener" style="display:block;height:96px;background:var(--bg2);text-align:center;line-height:96px;text-decoration:none;color:var(--text2);font-weight:700;font-size:15px">
+      ${isImg?`<img src="${url}" loading="lazy" style="width:100%;height:96px;object-fit:cover" alt="">`:`📄 ${prjEsc(ext)}`}</a>
+    <div style="padding:5px 7px;font-size:11px">
+      <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${prjEsc(f.file_name)}">${f.internal?'🔒 ':''}${prjEsc(f.file_name)}</div>
+      <div style="color:var(--text3)">${prjEsc(f.uploaded_by_name||'')} · ${prjEsc(prjDate(f.created_at))} ${kb?'· '+kb:''}</div>
+      ${canDel?`<a href="javascript:void(0)" style="color:var(--red)" onclick="prjDeleteFile(${f.id})">удалить</a>`:''}</div></div>`;
+}
+function prjFilesCol(p, side, title){
+  const client=prjIsClient();
+  const files=prjFiles.filter(f=>f.project_id===p.id && f.side===side && !(client&&f.internal));
+  const canUp = !client || side==='customer';
+  return `<div ondragover="event.preventDefault();this.style.outline='2px dashed var(--accent)'" ondragleave="this.style.outline=''" ondrop="prjDrop(event,'${side}')" style="flex:1;min-width:280px;padding:8px;border-radius:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="font-size:13px">${title}</b><span style="font-size:11px;color:var(--text3)">${files.length}</span><span style="flex:1"></span>
+    ${canUp?`<label class="btn btn-ghost btn-sm" style="cursor:pointer">＋ Файлы<input type="file" multiple style="display:none" onchange="prjPickFiles(this,'${side}')"></label>`:''}</div>
+    ${canUp&&!client?`<label style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px"><input type="checkbox" id="prj-int-${side}"> 🔒 внутренний (не виден заказчику)</label>`:''}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">${files.map(f=>prjFileCard(f,p)).join('')||`<div style="color:var(--text3);font-size:12px;grid-column:1/-1">${canUp?'Перетащите файлы сюда или нажмите «＋ Файлы». Фото из буфера — Ctrl+V.':'Пока нет файлов'}</div>`}</div></div>`;
+}
+
+function prjRenderCard(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p){ prjClose(); return; }
+  const client=prjIsClient();
+  const canHead = !client || p.status==='request';
+  const calcs=prjCalcs.filter(c=>c.project_id===p.id).sort((a,b)=>a.version-b.version);
+  const vis = client ? calcs.filter(c=>c.sent_at) : calcs;
+  if(prjCurVer==null || !vis.some(c=>c.version===prjCurVer)) prjCurVer = vis.length?vis[vis.length-1].version:null;
+  const cur = vis.find(c=>c.version===prjCurVer)||null;
+  const key=p.id+':'+prjCurVer;
+  if(key!==prjEditKey){ prjEdit = cur ? JSON.parse(JSON.stringify(cur.items||[])) : []; prjEditKey=key; }
+  const staffOpts=Object.entries(_USERS).filter(([k,v])=>!v.channel).map(([k,v])=>`<option value="${k}" ${p.responsible===k?'selected':''}>${prjEsc(v.name)} — ${prjEsc(v.label)}</option>`).join('');
+  const stOpts=Object.entries(PRJ_STATUSES).map(([k,d])=>`<option value="${k}" ${p.status===k?'selected':''}>${prjEsc(d.label)}</option>`).join('');
+  const comments=prjComments.filter(c=>c.project_id===p.id && !(client&&c.internal));
+  const verSel = vis.length>1 ? `<select onchange="prjCurVer=+this.value;prjRenderCard()" style="font-size:12px;width:auto">${vis.map(c=>`<option value="${c.version}" ${c.version===prjCurVer?'selected':''}>v${c.version}${c.sent_at?' (отправлена)':''}</option>`).join('')}</select>`:'';
+  const showCalc = !client || vis.length>0;
+  document.getElementById('prjModalBody').innerHTML=`
+    <div class="modal-header"><div class="modal-title"><span style="font-family:monospace;color:var(--text3)">${prjEsc(p.num||'#'+p.id)}</span> ${prjEsc(p.title)} ${prjStatusBadge(p.status)}</div><button class="modal-close" onclick="prjClose()">✕</button></div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px">
+      <div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text3)">Название</label>
+        <input id="prjc-title" type="text" value="${prjEsc(p.title)}" style="width:100%" ${canHead?'':'disabled'}></div>
+      <div><label style="font-size:12px;color:var(--text3)">Заказчик</label><div style="padding:6px 0;font-weight:600">${prjEsc(p.customer_name||prjChName(p.channel))}</div></div>
+      ${client?`<div><label style="font-size:12px;color:var(--text3)">Ответственный</label><div style="padding:6px 0">${prjEsc(p.responsible_name||'—')}</div></div>`:`
+      <div><label style="font-size:12px;color:var(--text3)">Ответственный (дизайнер / расчёт)</label>
+        <select id="prjc-resp" style="width:100%"><option value="">— не назначен —</option>${staffOpts}</select></div>
+      <div><label style="font-size:12px;color:var(--text3)">Статус</label><select id="prjc-status" style="width:100%">${stOpts}</select></div>
+      <div><label style="font-size:12px;color:var(--text3)">№ заказа (когда станет заказом)</label><input id="prjc-order" type="text" value="${prjEsc(p.order_num||'')}" style="width:100%"></div>`}
+      <div><label style="font-size:12px;color:var(--text3)">Срок</label><input id="prjc-due" type="date" value="${prjEsc((p.due_date||'').slice(0,10))}" ${canHead||!client?'':'disabled'}></div>
+    </div>
+    <div style="margin-bottom:10px"><label style="font-size:12px;color:var(--text3)">Описание / задание</label>
+      <textarea id="prjc-desc" rows="4" style="width:100%" ${canHead?'':'disabled'}>${prjEsc(p.description||'')}</textarea></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      ${(canHead||!client)?`<button class="btn btn-primary btn-sm" onclick="prjSaveHead()">💾 Сохранить</button>`:''}
+      ${client&&p.status==='sent'?`<button class="btn btn-primary btn-sm" onclick="prjClientDecide(true)">✅ Принять расчёт</button><button class="btn btn-ghost btn-sm" onclick="prjClientDecide(false)">✖ Отказаться</button>`:''}
+      ${!client&&(p.status==='approved'||p.status==='sent'||p.status==='calc')?`<button class="btn btn-ghost btn-sm" onclick="prjToOrder()">➡ Создать заказ из расчёта</button>`:''}
+      ${!client&&prjIsAdmin()?`<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="prjDeleteProject()">🗑 Удалить проект</button>`:''}</div>
+
+    ${showCalc?`<div class="card" style="padding:12px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b>💰 Расчёт стоимости</b>${verSel}</div>
+      ${(cur||!client)?prjCalcHtml(p,cur,client):''}
+      ${!cur&&!client?`<div style="font-size:12px;color:var(--text3);margin-top:6px">Добавьте позиции и нажмите «Сохранить расчёт» — создастся версия v1.</div>`:''}</div>`:`<div style="color:var(--text3);font-size:13px;margin-bottom:14px">Расчёт стоимости пока не готов. Мы сообщим, когда он будет отправлен.</div>`}
+
+    <div class="card" style="padding:12px;margin-bottom:14px"><b>📎 Файлы и чертежи</b>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+        ${prjFilesCol(p,'customer','От заказчика (салон / дилер)')}
+        ${prjFilesCol(p,'designer','От дизайнера / производства')}</div></div>
+
+    <div class="card" style="padding:12px"><b>💬 Обсуждение</b>
+      <div id="prj-comments" style="margin:8px 0;max-height:240px;overflow:auto">${comments.map(c=>`
+        <div style="margin-bottom:8px;padding:7px 10px;border-radius:8px;background:${c.side==='client'?'var(--bg3)':'var(--bg2)'};border-left:3px solid ${c.side==='client'?'var(--purple)':'var(--accent)'}">
+          <div style="font-size:11px;color:var(--text3)">${c.internal?'🔒 ':''}<b>${prjEsc(c.author_name||c.author)}</b> · ${prjEsc(prjDate(c.created_at))}</div>
+          <div style="font-size:13px;white-space:pre-wrap">${prjEsc(c.text)}</div></div>`).join('')||'<div style="color:var(--text3);font-size:12px">Сообщений пока нет</div>'}</div>
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        <textarea id="prj-newcomment" rows="2" style="flex:1" placeholder="Написать сообщение…"></textarea>
+        <div style="display:flex;flex-direction:column;gap:4px">${client?'':`<label style="font-size:11px;color:var(--text3)"><input type="checkbox" id="prj-cm-int"> 🔒 внутр.</label>`}
+        <button class="btn btn-primary btn-sm" onclick="prjAddComment()">Отправить</button></div></div></div>`;
+}
+
+// ── Сохранение шапки ──────────────────────────────────────────
+async function prjSaveHead(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  const client=prjIsClient();
+  const patch={ title:(document.getElementById('prjc-title').value||'').trim()||p.title,
+    description:document.getElementById('prjc-desc').value||'',
+    due_date:document.getElementById('prjc-due').value||null, updated_at:new Date().toISOString() };
+  if(!client){
+    const rk=document.getElementById('prjc-resp').value;
+    patch.responsible=rk||null; patch.responsible_name=rk?(_USERS[rk]?.name||rk):null;
+    patch.status=document.getElementById('prjc-status').value;
+    patch.order_num=(document.getElementById('prjc-order').value||'').trim()||null;
+    if(patch.order_num && p.status!=='closed' && patch.status!=='closed') patch.status='order';
+  }
+  try{ await sbPatch('projects',`id=eq.${p.id}`,patch); Object.assign(p,patch); prjToast('Сохранено'); prjRenderCard(); renderProjects(); }
+  catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+async function prjSetStatus(p, status, extra){
+  const patch=Object.assign({status, updated_at:new Date().toISOString()}, extra||{});
+  await sbPatch('projects',`id=eq.${p.id}`,patch); Object.assign(p,patch);
+}
+async function prjClientDecide(ok){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  let reason='';
+  if(!ok){ const r0=prompt('Причина отказа (необязательно):'); if(r0===null) return; reason=r0; }
+  try{
+    await prjSetStatus(p, ok?'approved':'closed');
+    await prjPostComment(p, ok?'✅ Расчёт принят заказчиком.':('✖ Заказчик отказался.'+(reason?' Причина: '+reason:'')), false);
+    prjToast(ok?'Расчёт принят':'Проект закрыт'); prjRenderCard(); renderProjects();
+  }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+// ── Превращение проекта в заказ: позиции расчёта переносятся автоматически ──
+let prjOrdItems=[], prjOrdCats=[];
+function prjToOrder(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  if(p.order_num && !confirm('По проекту уже указан заказ '+p.order_num+'. Создать ещё один?')) return;
+  const calcs=prjCalcs.filter(c=>c.project_id===p.id).sort((a,b)=>a.version-b.version);
+  const sent=calcs.filter(c=>c.sent_at);
+  const calc=(sent.length?sent:calcs).slice(-1)[0];
+  if(!calc || !(calc.items||[]).length){ prjToast('Сначала сохраните расчёт с позициями',1); return; }
+  const cats=(typeof productCategories!=='undefined'&&productCategories)||[];
+  const guess=name=>{ const n=(name||'').toLowerCase();
+    return cats.find(c=>n.includes(String(c).toLowerCase().replace(/ы$|и$|а$/,''))) || cats.find(c=>/корпус/i.test(c)) || cats[0] || ''; };
+  prjOrdItems=calc.items.map(i=>({use:true,name:i.attrs?`${i.name} (${i.attrs})`:i.name,category:guess(i.name),qty:+i.qty||1,price:+i.price||0}));
+  prjOrdCats=cats;
+  const due=(p.due_date||'').slice(0,10) || localISODate(new Date().getFullYear(),new Date().getMonth(),new Date().getDate()+30);
+  const m=prjEnsureModal();
+  document.getElementById('prjModalBody').innerHTML=`
+    <div class="modal-header"><div class="modal-title">Создать заказ из проекта ${prjEsc(p.num||'')}</div><button class="modal-close" onclick="prjRenderCard()">✕</button></div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Заказчик: <b>${prjEsc(p.customer_name||prjChName(p.channel))}</b> · канал: ${prjEsc(prjChName(p.channel))} · позиции из расчёта v${calc.version}${calc.sent_at?' (отправлен заказчику)':' (не отправлялся)'}. Снимите галочку у позиций, которые в заказ не идут.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:10px">
+      <div><label style="font-size:12px;color:var(--text3)">№ заказа (пусто = автоматически)</label><input id="pro-num" type="text" style="width:100%" placeholder="${prjEsc(typeof nextAutoOrderNum==='function'?nextAutoOrderNum():'')}"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Срок выполнения *</label><input id="pro-date" type="date" value="${due}" style="width:100%"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Ответственный</label><input id="pro-resp" type="text" value="${prjEsc(p.responsible_name||'')}" style="width:100%"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Предоплата, %</label><input id="pro-pay" type="number" min="0" max="100" value="0" style="width:100%"></div>
+    </div>
+    <table class="data-table" style="font-size:12px"><thead><tr><th style="width:30px"></th><th>Наименование</th><th style="width:150px">Категория</th><th style="width:70px">Кол-во</th><th style="width:105px">Цена</th><th style="width:110px;text-align:right">Сумма</th></tr></thead>
+    <tbody>${prjOrdItems.map((it,i)=>`<tr>
+      <td><input type="checkbox" checked onchange="prjOrdItems[${i}].use=this.checked;prjOrdTotal()"></td>
+      <td><input type="text" value="${prjEsc(it.name)}" style="width:100%;font-size:12px" oninput="prjOrdItems[${i}].name=this.value"></td>
+      <td><select style="width:100%;font-size:12px" onchange="prjOrdItems[${i}].category=this.value"><option value="">—</option>${cats.map(c=>`<option ${c===it.category?'selected':''}>${prjEsc(c)}</option>`).join('')}</select></td>
+      <td><input type="number" value="${it.qty}" style="width:60px;font-size:12px" oninput="prjOrdItems[${i}].qty=+this.value;prjOrdTotal()"></td>
+      <td><input type="number" value="${it.price}" style="width:95px;font-size:12px" oninput="prjOrdItems[${i}].price=+this.value;prjOrdTotal()"></td>
+      <td style="text-align:right" id="pro-sum-${i}">${prjFmt(it.qty*it.price)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="5" style="text-align:right;font-weight:700">ИТОГО</td><td style="text-align:right;font-weight:700" id="pro-total">${prjFmt(prjOrdItems.reduce((s,i)=>s+i.qty*i.price,0))}</td></tr></tfoot></table>
+    <div id="pro-err" style="color:var(--red);font-size:12px;min-height:16px;margin-top:6px"></div>
+    <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="prjRenderCard()">Назад</button>
+      <button class="btn btn-primary" id="pro-save" onclick="prjCreateOrder()">✅ Создать заказ</button></div>`;
+  m.classList.add('open');
+}
+function prjOrdTotal(){
+  prjOrdItems.forEach((it,i)=>{ const e=document.getElementById('pro-sum-'+i); if(e) e.textContent=prjFmt(it.qty*it.price); });
+  const e=document.getElementById('pro-total'); if(e) e.textContent=prjFmt(prjOrdItems.filter(i=>i.use).reduce((s,i)=>s+i.qty*i.price,0));
+}
+async function prjCreateOrder(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  const err=document.getElementById('pro-err');
+  const date=document.getElementById('pro-date').value;
+  if(!date){ err.textContent='Укажите срок выполнения'; return; }
+  const use=prjOrdItems.filter(i=>i.use);
+  if(!use.length){ err.textContent='Выберите хотя бы одну позицию'; return; }
+  if(use.some(i=>!(i.name||'').trim()||!(i.qty>0))){ err.textContent='У каждой позиции должны быть наименование и количество больше 0'; return; }
+  const typed=(document.getElementById('pro-num').value||'').trim();
+  if(typed && ordersData.some(o=>o.num===typed)){ err.textContent='Заказ '+typed+' уже существует'; return; }
+  const num=typed||nextAutoOrderNum();
+  const resp=(document.getElementById('pro-resp').value||'').trim();
+  const payment=Math.max(0,Math.min(100,parseInt(document.getElementById('pro-pay').value)||0));
+  const ru=d=>new Date(d).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const channel=p.channel||'office';
+  const type=channel.startsWith('salon_')?'salon':channel.startsWith('dealer_')?'dealer':'client';
+  const chName=prjChName(channel);
+  const customer = channel==='office' ? (p.customer_name||'Прямой покупатель') : chName;
+  const endClient = (channel!=='office' && p.customer_name && p.customer_name!==chName) ? p.customer_name : null;
+  const dateStr=ru(date);
+  const items=use.map(i=>({name:i.name.trim(),category:i.category||'',attributes:{},qty:i.qty,unit:'шт',progress:0,status:'queue',resp,date:dateStr,price:i.price,techCard:null}));
+  const newOrder={ num, customer, channel, customerType:type, customerId:null, seller:resp||'—', resp,
+    createdDate:ru(new Date()), date:dateStr, rawDate:date, payment, status:'queue', items,
+    salonName: type==='salon'?channel:null, sellerId:null, salonClientId:null, salonClientName:endClient,
+    designer:null, designerPct:null, commissions:null, comment:'По проекту '+(p.num||p.id) };
+  const btn=document.getElementById('pro-save'); btn.disabled=true; btn.textContent='Создаю…';
+  try{
+    ordersData.unshift(newOrder);
+    const ok=await saveOrderToDB(newOrder);
+    if(!ok){ ordersData.shift(); throw new Error('заказ не сохранился в базе (подробности в консоли)'); }
+    const total=use.reduce((s,i)=>s+i.qty*i.price,0);
+    await prjSetStatus(p,'order',{order_num:num,total_amount:total});
+    await prjPostComment(p,`📦 Создан заказ ${num} на сумму ${prjFmt(total)} (${use.length} поз.).`,false);
+    ['renderOrders','recalcAllCustomerTurnover','renderMrpOrdersJournal'].forEach(f=>{ try{ if(typeof window[f]==='function') window[f](); }catch(e){} });
+    prjToast('Заказ '+num+' создан'); prjRenderCard(); renderProjects();
+  }catch(e){ btn.disabled=false; btn.textContent='✅ Создать заказ'; err.textContent='Ошибка: '+e.message; }
+}
+async function prjDeleteProject(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  if(!confirm(`Удалить проект ${p.num||p.id} «${p.title}» со всеми расчётами, файлами и сообщениями?`)) return;
+  try{
+    const files=prjFiles.filter(f=>f.project_id===p.id);
+    for(const f of files){ try{ await prjStorageDelete(f.storage_path); }catch(e){} }
+    await sbDelete('project_files',`project_id=eq.${p.id}`);
+    await sbDelete('project_comments',`project_id=eq.${p.id}`);
+    await sbDelete('project_calcs',`project_id=eq.${p.id}`);
+    await sbDelete('projects',`id=eq.${p.id}`);
+    prjClose(); await loadProjects(); renderProjects(); prjToast('Проект удалён');
+  }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+
+// ── Расчёт ────────────────────────────────────────────────────
+function prjCalcEdit(i,k,v){
+  if(!prjEdit[i]) return;
+  prjEdit[i][k] = (k==='qty'||k==='cost'||k==='price') ? (v===''?'':+v) : v;
+  const s=document.getElementById('prj-sum-'+i);
+  if(s) s.textContent=prjFmt((+prjEdit[i].qty||0)*(+prjEdit[i].price||0));
+  const t=prjTotal(prjEdit), c=prjCostTotal(prjEdit);
+  const te=document.getElementById('prj-total'); if(te) te.textContent=prjFmt(t);
+  const me=document.getElementById('prj-margin'); if(me) me.textContent=prjFmt(c)+' / '+(t>0?Math.round((t-c)/t*100):0)+'%';
+}
+function prjCalcAdd(){ prjEdit.push({name:'',attrs:'',qty:1,cost:'',price:''}); prjRefreshCalc(); }
+function prjCalcDel(i){ prjEdit.splice(i,1); prjRefreshCalc(); }
+function prjRefreshCalc(){
+  const p=prjData.find(x=>x.id===prjCurId);
+  const cur=prjCalcs.find(c=>c.project_id===p.id && c.version===prjCurVer)||null;
+  // перерисовываем только блок расчёта: проще — вся карточка, но сохраняем введённое в шапке
+  const keep={t:document.getElementById('prjc-title')?.value,d:document.getElementById('prjc-desc')?.value,
+    due:document.getElementById('prjc-due')?.value, r:document.getElementById('prjc-resp')?.value,
+    s:document.getElementById('prjc-status')?.value, o:document.getElementById('prjc-order')?.value, mk:document.getElementById('prj-markup')?.value};
+  prjRenderCard();
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e&&v!=null) e.value=v; };
+  set('prjc-title',keep.t); set('prjc-desc',keep.d); set('prjc-due',keep.due); set('prjc-resp',keep.r); set('prjc-status',keep.s); set('prjc-order',keep.o); set('prj-markup',keep.mk);
+}
+function prjApplyMarkup(){
+  const m=parseFloat(document.getElementById('prj-markup').value);
+  if(isNaN(m)){ prjToast('Введите наценку, %',1); return; }
+  prjEdit.forEach(it=>{ if(+it.cost>0) it.price=Math.round((+it.cost)*(1+m/100)); });
+  prjRefreshCalc();
+}
+async function prjCalcSave(asNew, silent){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return null;
+  const items=prjEdit.filter(i=>(i.name||'').trim()||(+i.price>0)).map(i=>({name:(i.name||'').trim(),attrs:(i.attrs||'').trim(),qty:+i.qty||0,cost:+i.cost||0,price:+i.price||0}));
+  if(!items.length){ prjToast('Добавьте хотя бы одну позицию',1); return null; }
+  const me=prjMe(), total=prjTotal(items);
+  const markup=parseFloat(document.getElementById('prj-markup')?.value); 
+  const cur=prjCalcs.find(c=>c.project_id===p.id && c.version===prjCurVer)||null;
+  try{
+    let ver;
+    if(cur && !asNew && !cur.sent_at){
+      await sbPatch('project_calcs',`id=eq.${cur.id}`,{items,total,markup_pct:isNaN(markup)?null:markup});
+      Object.assign(cur,{items,total}); ver=cur.version;
+    } else {
+      const all=prjCalcs.filter(c=>c.project_id===p.id);
+      ver=(all.reduce((m,c)=>Math.max(m,c.version),0))+1;
+      const row=await sbInsert('project_calcs',{project_id:p.id,version:ver,items,total,markup_pct:isNaN(markup)?null:markup,created_by:me.login,created_by_name:me.name});
+      prjCalcs.push(row);
+    }
+    const patch={total_amount:total, updated_at:new Date().toISOString()};
+    if(p.status==='request') patch.status='calc';
+    await sbPatch('projects',`id=eq.${p.id}`,patch); Object.assign(p,patch);
+    prjCurVer=ver; prjEditKey=p.id+':'+ver;
+    if(!silent){ prjToast('Расчёт сохранён (v'+ver+')'); prjRenderCard(); renderProjects(); }
+    return ver;
+  }catch(e){ prjToast('Ошибка: '+e.message,1); return null; }
+}
+async function prjCalcSend(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  const ver=await prjCalcSave(false,true); if(ver==null) return;
+  const cur=prjCalcs.find(c=>c.project_id===p.id && c.version===ver);
+  if(!confirm(`Отправить заказчику расчёт v${ver} на сумму ${prjFmt(cur.total)}? Заказчик увидит только цены (без себестоимости).`)) return;
+  try{
+    const now=new Date().toISOString();
+    await sbPatch('project_calcs',`id=eq.${cur.id}`,{sent_at:now}); cur.sent_at=now;
+    await prjSetStatus(p,'sent',{total_amount:cur.total});
+    await prjPostComment(p,`📤 Отправлен расчёт v${ver} на сумму ${prjFmt(cur.total)}.`,false);
+    prjToast('Расчёт отправлен заказчику'); prjRenderCard(); renderProjects();
+  }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+function prjCalcPrint(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  const items=prjEdit.filter(i=>(i.name||'').trim()||(+i.price>0));
+  if(!items.length){ prjToast('Нет позиций для печати',1); return; }
+  const rows=items.map((i,n)=>`<tr><td>${n+1}</td><td>${prjEsc(i.name)}</td><td>${prjEsc(i.attrs)}</td><td style="text-align:right">${+i.qty||0}</td><td style="text-align:right">${prjFmt(i.price)}</td><td style="text-align:right">${prjFmt((+i.qty||0)*(+i.price||0))}</td></tr>`).join('');
+  const w=window.open('','_blank'); if(!w){ prjToast('Разрешите всплывающие окна для печати',1); return; }
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>Расчёт ${prjEsc(p.num||'')}</title>
+  <style>body{font-family:Arial,sans-serif;font-size:13px;margin:24px;color:#111}h2{margin:0 0 4px}table{border-collapse:collapse;width:100%;margin-top:14px}td,th{border:1px solid #888;padding:5px 7px;vertical-align:top}th{background:#eee}.t{margin-top:12px;text-align:right;font-size:15px;font-weight:700}</style>
+  <h2>Расчёт стоимости ${prjEsc(p.num||'')}</h2><div>${prjEsc(p.title)}</div><div style="color:#555">Заказчик: ${prjEsc(p.customer_name||prjChName(p.channel))} · Дата: ${new Date().toLocaleDateString('ru-RU')}</div>
+  <table><thead><tr><th>#</th><th>Наименование</th><th>Описание / размеры</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="t">ИТОГО: ${prjFmt(prjTotal(items))}</div><script>setTimeout(function(){window.print()},300)<\/script>`);
+  w.document.close();
+}
+
+// ── Файлы ─────────────────────────────────────────────────────
+function prjCompressImage(file){
+  return new Promise(res=>{
+    if(!file.type.startsWith('image/') || file.type==='image/gif' || file.size<1.5*1048576) return res(file);
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{
+      const max=2200, k=Math.min(1, max/Math.max(img.width,img.height));
+      const c=document.createElement('canvas'); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
+      c.toBlob(b=>{ if(b && b.size<file.size){ const nf=new File([b], file.name.replace(/\.\w+$/,'')+'.jpg',{type:'image/jpeg'}); res(nf); } else res(file); },'image/jpeg',0.86);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); res(file); };
+    img.src=url;
+  });
+}
+async function prjUploadFiles(projectId, side, fileList, internal){
+  const me=prjMe(); let n=0;
+  for(let f of fileList){
+    f = await prjCompressImage(f);
+    if(f.size>25*1048576){ prjToast(`«${f.name}» больше 25 МБ — пропущен`,1); continue; }
+    const safe=(f.name||'file').replace(/[^A-Za-z0-9._-]+/g,'_').slice(-70);
+    const path=`${projectId}/${Date.now()}_${Math.random().toString(36).slice(2,6)}_${safe}`;
+    const r=await fetch(`${SUPABASE_URL}/storage/v1/object/${PRJ_BUCKET}/${path}`,{method:'POST',
+      headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY,'Content-Type':f.type||'application/octet-stream','x-upsert':'false'},body:f});
+    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('Загрузка файла «'+f.name+'»: '+r.status+' '+t.slice(0,140)+' (создан ли бакет project-files?)'); }
+    const row=await sbInsert('project_files',{project_id:projectId,side,internal:!!internal,file_name:f.name,storage_path:path,mime:f.type||'',size:f.size,uploaded_by:me.login,uploaded_by_name:me.name});
+    prjFiles.push(row); n++;
+  }
+  return n;
+}
+async function prjStorageDelete(path){
+  const r=await fetch(`${SUPABASE_URL}/storage/v1/object/${PRJ_BUCKET}/${path}`,{method:'DELETE',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY}});
+  if(!r.ok) throw new Error('storage '+r.status);
+}
+async function prjUploadTo(side, files){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p||!files.length) return;
+  const internal = !!document.getElementById('prj-int-'+side)?.checked;
+  prjToast('Загружаю '+files.length+' файл(ов)…');
+  try{
+    const n=await prjUploadFiles(p.id, side, files, internal);
+    await sbPatch('projects',`id=eq.${p.id}`,{updated_at:new Date().toISOString()});
+    p.updated_at=new Date().toISOString();
+    if(n){ prjToast('Загружено: '+n); }
+    prjRefreshCalc(); renderProjects();
+  }catch(e){ prjToast(e.message,1); }
+}
+function prjPickFiles(inp, side){ const fs=[...inp.files]; inp.value=''; prjUploadTo(side, fs); }
+function prjDrop(ev, side){ ev.preventDefault(); ev.currentTarget.style.outline=''; prjUploadTo(side,[...(ev.dataTransfer?.files||[])]); }
+function prjOnPaste(ev){
+  const m=document.getElementById('prjModal'); if(!m||!m.classList.contains('open')||!prjCurId) return;
+  const files=[...(ev.clipboardData?.files||[])].filter(f=>f.type.startsWith('image/'));
+  if(!files.length) return;
+  ev.preventDefault();
+  prjUploadTo(prjIsClient()?'customer':'designer', files.map((f,i)=>new File([f],'screenshot_'+Date.now()+'_'+i+'.png',{type:f.type})));
+}
+async function prjDeleteFile(id){
+  const f=prjFiles.find(x=>x.id===id); if(!f) return;
+  if(!confirm('Удалить файл «'+f.file_name+'»?')) return;
+  try{
+    try{ await prjStorageDelete(f.storage_path); }catch(e){}
+    await sbDelete('project_files',`id=eq.${id}`);
+    prjFiles=prjFiles.filter(x=>x.id!==id); prjRefreshCalc(); renderProjects();
+  }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+
+// ── Комментарии ───────────────────────────────────────────────
+async function prjPostComment(p, text, internal){
+  const me=prjMe(), client=prjIsClient();
+  const row=await sbInsert('project_comments',{project_id:p.id,author:me.login,author_name:me.name,side:client?'client':'staff',text,internal:!!internal});
+  prjComments.push(row);
+}
+async function prjAddComment(){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  const ta=document.getElementById('prj-newcomment'); const text=(ta.value||'').trim(); if(!text) return;
+  try{
+    await prjPostComment(p,text,!!document.getElementById('prj-cm-int')?.checked);
+    await sbPatch('projects',`id=eq.${p.id}`,{updated_at:new Date().toISOString()});
+    p.updated_at=new Date().toISOString();
+    prjRefreshCalc(); renderProjects();
+    const box=document.getElementById('prj-comments'); if(box) box.scrollTop=box.scrollHeight;
+  }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+
+// ── Роль: дилеры видят в CRM только «Проекты» ────────────────
+function prjApplyRole(){
+  const r=getCurrentRole(); if(!r) return;
+  const only = (r.channel&&r.channel.startsWith('dealer_')) || window._currentUser==='foreman';
+  if(!only) return;
+  document.querySelectorAll('#page-crm .section-header + .tabs .tab').forEach(t=>{ t.style.display = t.id==='crm-tab-projects' ? '' : 'none'; });
+  const b=document.querySelector('#page-crm .section-header .btn-primary'); if(b) b.style.display='none';
+  const sub=document.querySelector('#page-crm .section-sub'); if(sub) sub.textContent='Проекты · расчёт нестандартной мебели';
+  if(window._currentUser==='foreman'){ /* нач. цеха видит как сотрудник: кнопка нового заказа не нужна */ }
+  document.querySelectorAll('#page-crm .orders-tab').forEach(t=>t.style.display='none');
+  showOrdersTab('projects', document.getElementById('crm-tab-projects'));
 }
 
 let _sjSortCol = 'date';
