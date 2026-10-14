@@ -4254,6 +4254,7 @@ window.onerror = function(msg, src, line, col){
               <option value="approved">Согласован</option><option value="order">Стал заказом</option><option value="closed">Закрыт</option>
             </select>
             <select id="prj-ch" onchange="renderProjects()" style="font-size:13px;width:auto"></select>
+            <select id="prj-ex" onchange="renderProjects()" style="font-size:13px;width:auto" title="Фильтр по исполнителю"></select>
           </div>
           <button class="btn btn-primary btn-sm" onclick="prjOpenNew()">+ Новый проект</button>
         </div>
@@ -31157,6 +31158,22 @@ function prjOpenTab(){
   if(chSel) chSel.style.display=prjIsClient()?'none':'';
   loadProjects().then(renderProjects);
 }
+// Фильтр по исполнителю: «Мои проекты», «Не назначен» и все, кто фигурирует в проектах или есть среди сотрудников
+function prjFillExecFilter(){
+  const sel=document.getElementById('prj-ex'); if(!sel) return;
+  if(prjIsClient()){ sel.style.display='none'; sel.value=''; return; }
+  sel.style.display='';
+  const logins=new Set(Object.entries(_USERS).filter(([k,v])=>!v.channel).map(([k])=>k));
+  prjData.forEach(p=>prjExecLogins(p).forEach(l=>logins.add(l)));
+  const cnt={}; prjData.filter(p=>p.status!=='order'&&p.status!=='closed').forEach(p=>prjExecLogins(p).forEach(l=>cnt[l]=(cnt[l]||0)+1));
+  const key=[...logins].sort().join(',')+'|'+JSON.stringify(cnt);
+  if(sel.dataset.key===key) return;
+  const prev=sel.dataset.key?sel.value:'';
+  const list=[...logins].sort((a,b)=>(cnt[b]||0)-(cnt[a]||0) || prjExecName(a).localeCompare(prjExecName(b),'ru'));
+  sel.innerHTML='<option value="">Все исполнители</option><option value="__me__">👤 Мои проекты</option><option value="__none__">— не назначен —</option>'+
+    list.map(l=>`<option value="${prjEsc(l)}">${prjEsc(prjExecName(l))}${cnt[l]?' ('+cnt[l]+')':''}</option>`).join('');
+  sel.value=prev||''; sel.dataset.key=key;
+}
 function renderProjects(){
   const box=document.getElementById('prj-list'); if(!box) return;
   if(prjErr){
@@ -31166,6 +31183,8 @@ function renderProjects(){
   const q=(document.getElementById('prj-q')?.value||'').toLowerCase().trim();
   const st=document.getElementById('prj-st')?.value||'open';
   const ch=document.getElementById('prj-ch')?.value||'';
+  prjFillExecFilter();
+  const ex=document.getElementById('prj-ex')?.value||'';
   const counts={}; prjData.forEach(p=>counts[p.status]=(counts[p.status]||0)+1);
   const chips=document.getElementById('prj-chips');
   if(chips) chips.innerHTML=Object.entries(PRJ_STATUSES).map(([k,d])=>`<span onclick="document.getElementById('prj-st').value='${k}';renderProjects()" style="cursor:pointer;padding:4px 10px;border-radius:14px;font-size:12px;background:${d.color}22;color:${d.color};font-weight:600">${prjEsc(d.label)}: ${counts[k]||0}</span>`).join('');
@@ -31173,6 +31192,12 @@ function renderProjects(){
     if(st==='open' && (p.status==='order'||p.status==='closed')) return false;
     if(st!=='open' && st!=='all' && p.status!==st) return false;
     if(ch && p.channel!==ch) return false;
+    if(ex){
+      const l=prjExecLogins(p);
+      if(ex==='__me__'){ if(!l.includes(window._currentUser)) return false; }
+      else if(ex==='__none__'){ if(l.length || (p.responsible_name||'').trim()) return false; }
+      else if(!l.includes(ex)) return false;
+    }
     if(q && !((p.num||'')+' '+(p.title||'')+' '+(p.customer_name||'')+' '+(p.responsible_name||'')+' '+(p.order_num||'')).toLowerCase().includes(q)) return false;
     return true;
   });
