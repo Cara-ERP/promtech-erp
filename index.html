@@ -3898,10 +3898,28 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showSalesTab('done',this)">✅ Завершено (<span id="s-count-done">0</span>)</div>
         <div class="tab" onclick="showSalesTab('sales-journal',this)">📒 Реализация</div>
         <div class="tab" id="sw-tab-btn" onclick="showSalesTab('worksheet',this)">📝 Рабочий лист реализации</div>
+        <div class="tab" id="rs-tab-btn" onclick="showSalesTab('restorations',this)">🔧 Реставрации (<span id="rs-count">0</span>)</div>
         <div class="tab" onclick="showSalesTab('report',this)">📈 Отчёт</div>
       </div>
     
       <!-- ===== Рабочий лист реализации (черновик; проводки — по кнопке «Провести») ===== -->
+      <div class="orders-tab" id="orders-restorations" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end">
+          <div><label class="label">Месяц</label><select id="rs-month" onchange="rsRender()" style="font-size:13px;width:auto"></select></div>
+          <div><label class="label">Статус</label><select id="rs-st" onchange="rsRender()" style="font-size:13px;width:auto">
+            <option value="active">Активные</option><option value="all">Все</option>
+            <option value="accepted">Принята</option><option value="repair">В ремонте</option><option value="ready">Готова</option>
+            <option value="returned">Возвращена клиенту</option><option value="closed">Закрыта</option></select></div>
+          <div><label class="label">Тип</label><select id="rs-kind" onchange="rsRender()" style="font-size:13px;width:auto">
+            <option value="">Все</option><option value="warranty">Гарантийная</option><option value="paid">Платная</option></select></div>
+          <div><label class="label">Заказчик</label><select id="rs-cu" onchange="rsRender()" style="font-size:13px;width:auto"><option value="">Все</option></select></div>
+          <input id="rs-q" type="search" placeholder="🔍 № РС, заказ, изделие, неисправность" oninput="rsRender()" style="font-size:13px;width:260px">
+          <button class="btn btn-primary btn-sm" onclick="rsOpenNew()">+ Принять на реставрацию</button>
+        </div>
+        <div id="rs-kpi"></div>
+        <div id="rs-list"></div>
+        <div id="rs-report"></div>
+      </div>
       <div class="orders-tab" id="orders-worksheet" style="display:none">
         <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end">
           <div><label class="label">С</label><input type="date" id="sw-from" onchange="swReload()" style="font-size:13px"></div>
@@ -30536,7 +30554,7 @@ function swCanDeliver(rows){ return rows.length && (swIsAdmin() || swIsAuthor(ro
 function swApplyRole(){
   const r=window._currentRole; if(!r) return;
   const btn=document.getElementById('sw-tab-btn');
-  if(r.channel && btn){ btn.style.display='none'; return; }
+  if(r.channel && btn){ btn.style.display='none'; const rb=document.getElementById('rs-tab-btn'); if(rb) rb.style.display='none'; return; }
   if(swIsDriverUser()){
     document.querySelectorAll('#sales-tabs .tab').forEach(t=>{ if(t!==btn) t.style.display='none'; });
     const nb=document.getElementById('sw-new-btn'); if(nb) nb.style.display='none';
@@ -30632,6 +30650,7 @@ function swRender(){
       const id=`'${r.doc_id}'`;
       b.push(`<button class="btn btn-ghost btn-sm" title="Печать накладной" onclick="swPrintDoc(${id})">🖨</button>`);
       if(swCanDeliver(docRows)) b.push(`<button class="btn btn-ghost btn-sm" title="${r.delivered?'Снять отметку о доставке':'Отметить: доставлено'}" onclick="swToggleDelivered(${id})">${r.delivered?'↩🚚':'🚚'}</button>`);
+      if(!swIsDriverUser() && docRows.some(x=>(x.line_kind||'sale')==='sale')) b.push(`<button class="btn btn-ghost btn-sm" title="Принять позицию на реставрацию" onclick="rsFromSwDoc(${id})">🔧</button>`);
       if(swCanEdit(docRows)) b.push(`<button class="btn btn-ghost btn-sm" title="Редактировать" onclick="swOpenDoc(${id})">✏️</button>`);
       if(swCanPost(docRows)) b.push(`<button class="btn btn-primary btn-sm" title="Провести в реестр «Реализация»" onclick="swPost(${id})">✅ Провести</button>`);
       if(swCanUnpost(docRows)) b.push(`<button class="btn btn-ghost btn-sm" title="Снять с проведения" onclick="swUnpost(${id})">↩ Снять</button>`);
@@ -30644,7 +30663,7 @@ function swRender(){
       <td style="white-space:nowrap;font-size:12px">${swEsc(swIsoToRu(r.doc_date))}</td>
       <td style="font-size:12px;color:var(--accent)">${swEsc(r.order_num||'—')}</td>
       <td>${first?swEsc(r.customer):''}</td>
-      <td style="font-weight:500">${swEsc(r.item_name)}</td>
+      <td style="font-weight:500">${r.line_kind&&r.line_kind!=='sale'?`<span class="badge badge-amber" title="${swEsc(SW_LINE_KINDS[r.line_kind]||'')}">🔧 ${r.line_kind==='restore_pickup'?'забор':'возврат'}</span> `:''}${swEsc(r.item_name)}</td>
       <td style="font-size:12px;color:var(--text2);max-width:260px">${swEsc(swAttrsView(r))}</td>
       <td style="text-align:right;font-family:monospace">${swEsc(r.qty)} ${swEsc(r.unit||'')}</td>
       <td style="text-align:right;font-family:monospace">${swFmt(r.price)}</td>
@@ -30688,7 +30707,7 @@ function swPrintDoc(docId){
   const h=rows[0];
   const total=rows.reduce((t,x)=>t+(+x.amount||0),0);
   const orders=[...new Set(rows.map(r=>r.order_num).filter(Boolean))];
-  const body=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${swEsc(r.item_name)}${r.order_num?`<div style="font-size:9px;color:#555">заказ ${swEsc(r.order_num)}</div>`:''}</td><td>${swEsc(swAttrsView(r))}</td><td>${swEsc(r.unit||'шт')}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td></tr>`).join('');
+  const body=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${r.line_kind==='restore_pickup'?'[Забор на реставрацию] ':r.line_kind==='restore_return'?'[Возврат после реставрации] ':''}${swEsc(r.item_name)}${r.order_num?`<div style="font-size:9px;color:#555">заказ ${swEsc(r.order_num)}</div>`:''}</td><td>${swEsc(swAttrsView(r))}</td><td>${swEsc(r.unit||'шт')}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td></tr>`).join('');
   const html=`<html><head><meta charset="utf-8">${SW_PRINT_CSS}</head><body>
     <h2>Накладная на отгрузку № ${swEsc(h.doc_num)} от ${swEsc(swIsoToRu(h.doc_date))}</h2>
     <div>Покупатель: <b>${swEsc(h.customer)}</b></div>
@@ -30745,7 +30764,7 @@ function swOpenDoc(docId){
     if(!swCanEdit(rows)){ alert('Эту накладную редактировать нельзя (проведена, либо день создания уже прошёл).'); return; }
     const h=rows[0];
     _swEdit={docId, keep:{created_by:h.created_by, created_by_name:h.created_by_name, created_at:h.created_at, delivered:h.delivered, delivered_at:h.delivered_at, delivered_by:h.delivered_by},
-      lines:rows.map(r=>({order_num:r.order_num||'',item_name:r.item_name||'',attrs:r.attrs||'',attrs_short:!!r.attrs_short,unit:r.unit||'шт',qty:+r.qty||0,price:+r.price||0}))};
+      lines:rows.map(r=>({order_num:r.order_num||'',item_name:r.item_name||'',attrs:r.attrs||'',attrs_short:!!r.attrs_short,unit:r.unit||'шт',qty:+r.qty||0,price:+r.price||0,line_kind:r.line_kind||'sale',restoration_id:r.restoration_id||null}))};
     document.getElementById('sw-modal-title').textContent='Накладная '+h.doc_num;
     document.getElementById('sw-doc-num').value=h.doc_num||'';
     document.getElementById('sw-doc-date').value=String(h.doc_date).slice(0,10);
@@ -30843,7 +30862,7 @@ function swAddPickedItems(){
 }
 function swSyncHeaderFromInputs(){}
 function swAddFreeLine(){
-  _swEdit.lines.push({order_num:'',item_name:'',attrs:'',attrs_short:false,unit:'шт',qty:1,price:0});
+  _swEdit.lines.push({order_num:'',item_name:'',attrs:'',attrs_short:false,unit:'шт',qty:1,price:0,line_kind:'sale'});
   swRenderLines();
 }
 function swSetAllShort(on){ _swEdit.lines.forEach(l=>l.attrs_short=on); swRenderLines(); }
@@ -30851,7 +30870,8 @@ function swRenderLines(){
   const tb=document.getElementById('sw-lines');
   tb.innerHTML=_swEdit.lines.map((l,i)=>`<tr>
     <td><input value="${swEsc(l.order_num)}" style="width:100%;font-size:12px" placeholder="без заказа" oninput="swLineSet(${i},'order_num',this.value)"></td>
-    <td><input value="${swEsc(l.item_name)}" style="width:100%;font-size:13px" oninput="swLineSet(${i},'item_name',this.value)"></td>
+    <td><input value="${swEsc(l.item_name)}" style="width:100%;font-size:13px" oninput="swLineSet(${i},'item_name',this.value)">
+        <select style="width:100%;font-size:11px;margin-top:3px;${(l.line_kind||'sale')!=='sale'?'color:var(--amber)':'color:var(--text3)'}" onchange="swLineSet(${i},'line_kind',this.value);swRenderLines()">${Object.entries(SW_LINE_KINDS).map(([k,v])=>`<option value="${k}" ${(l.line_kind||'sale')===k?'selected':''}>${v}</option>`).join('')}</select></td>
     <td><input value="${swEsc(l.attrs)}" style="width:100%;font-size:12px" oninput="swLineSet(${i},'attrs',this.value)">
         ${l.attrs_short?`<div style="font-size:11px;color:var(--text3)">в печати: ${swEsc(swAttrsShort(l.attrs))}</div>`:''}</td>
     <td style="text-align:center"><input type="checkbox" ${l.attrs_short?'checked':''} onchange="swLineSet(${i},'attrs_short',this.checked);swRenderLines()"></td>
@@ -30900,10 +30920,12 @@ async function swSaveDoc(){
     delivered:!!keep.delivered, delivered_at:keep.delivered_at||null, delivered_by:keep.delivered_by||null,
     created_by: keep.created_by||swUser(), created_by_name: keep.created_by_name||role.name||'',
     ...(keep.created_at?{created_at:keep.created_at}:{}),
+    ...((l.line_kind&&l.line_kind!=='sale')?{line_kind:l.line_kind, restoration_id:l.restoration_id||null}:{}),
   }));
   try{
     if(_swEdit.docId) await sbDelete('sales_worksheet',`doc_id=eq.${docId}`);
     await sbInsertMany('sales_worksheet',payload);
+    if(typeof rsAfterDocSaved==='function') await rsAfterDocSaved(lines,num,date);
     closeModal('swDocModal');
     await swReload();
   }catch(e){ err.textContent='Не удалось сохранить: '+e.message; }
@@ -30923,6 +30945,7 @@ async function swToggleDelivered(docId){
   try{
     await sbPatch('sales_worksheet',`doc_id=eq.${docId}`,{delivered:on, delivered_at:on?new Date().toISOString():null, delivered_by:on?(role.name||swUser()):null});
     rows.forEach(r=>{ r.delivered=on; r.delivered_at=on?new Date().toISOString():null; r.delivered_by=on?(role.name||swUser()):null; });
+    if(typeof rsAfterDelivered==='function') await rsAfterDelivered(rows,on);
     swRender();
   }catch(e){ alert('Не удалось сохранить отметку: '+e.message); }
 }
@@ -30937,7 +30960,7 @@ async function swPost(docId){
      !confirm(`В реестре «Реализация» уже есть документ № ${h.doc_num}. Провести всё равно? (возможен дубль выручки)`)) return;
   const over=[];
   rows.forEach(r=>{
-    if(!r.order_num) return;
+    if(!r.order_num || (r.line_kind||'sale')!=='sale') return;
     const o=ordersData.find(x=>x.num===r.order_num);
     const it=o&&(o.items||[]).find(x=>plNormProductName(x.name)===plNormProductName(r.item_name));
     if(!it) return;
@@ -30947,12 +30970,16 @@ async function swPost(docId){
   if(over.length && !confirm('Количество превышает заказ:\n\n'+over.join('\n')+'\n\nПровести всё равно?')) return;
   if(!confirm(`Провести накладную ${h.doc_num} на сумму ${swFmt(rows.reduce((t,x)=>t+(+x.amount||0),0))} ₸?\n\nСтроки попадут в реестр «Реализация» (выручка, P&L, автозавершение заказов).`)) return;
   try{
-    const items=rows.map(r=>({doc_num:r.doc_num, doc_date:String(r.doc_date).slice(0,10), order_num:r.order_num||null, customer:r.customer, name:r.item_name, unit:r.unit||'шт', qty:+r.qty||0, revenue:+r.amount||0}));
-    const res=await sbInsertMany('realizations',items);
+    // в реестр идут продажи и платные возвраты с реставрации (как услуга без привязки к заказу); забор и гарантия (0 ₸) — только отметка
+    const toReg=rows.filter(r=>{ const k=r.line_kind||'sale'; return k==='sale' || (k==='restore_return' && (+r.amount||0)>0); });
+    const items=toReg.map(r=>({doc_num:r.doc_num, doc_date:String(r.doc_date).slice(0,10), order_num:(r.line_kind&&r.line_kind!=='sale')?null:(r.order_num||null), customer:r.customer, name:(r.line_kind&&r.line_kind!=='sale')?('Реставрация: '+r.item_name):r.item_name, unit:r.unit||'шт', qty:+r.qty||0, revenue:+r.amount||0}));
+    const res=items.length?(await sbInsertMany('realizations',items)):[];
     const now=new Date().toISOString();
     for(let i=0;i<rows.length;i++){
-      await sbPatch('sales_worksheet',`id=eq.${rows[i].id}`,{posted:true,posted_at:now,realization_id:String(res[i]?.id||'')});
-      rows[i].posted=true; rows[i].posted_at=now; rows[i].realization_id=String(res[i]?.id||'');
+      const ri=toReg.indexOf(rows[i]);
+      const rid=ri>=0?String(res[ri]?.id||''):'';
+      await sbPatch('sales_worksheet',`id=eq.${rows[i].id}`,{posted:true,posted_at:now,realization_id:rid||null});
+      rows[i].posted=true; rows[i].posted_at=now; rows[i].realization_id=rid||null;
     }
     (res||[]).forEach(z=>realizationsData.push(z));
     _cacheLoaded_realiz=true;
@@ -30984,6 +31011,7 @@ function showSalesTab(tab, el){
   if(tabEl) tabEl.style.display='block';
   if(tab==='sales-journal') renderSalesJournal();
   if(tab==='worksheet')     swOpen();
+  if(tab==='restorations')  rsOpenTab();
   if(tab==='report')        renderOrderReport();
   if(tab==='all-orders')    renderOrders();
   if(tab==='queue')         renderOrders();
@@ -31704,6 +31732,322 @@ function prjApplyRole(){
   if(window._currentUser==='foreman'){ /* нач. цеха видит как сотрудник: кнопка нового заказа не нужна */ }
   document.querySelectorAll('#page-crm .orders-tab').forEach(t=>t.style.display='none');
   showOrdersTab('projects', document.getElementById('crm-tab-projects'));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// РЕСТАВРАЦИИ: возврат отправленных изделий на ремонт (гарантийный / платный)
+// Таблицы: restorations, restoration_files; строки рабочего листа реализации
+// получают тип (line_kind): sale | restore_pickup | restore_return
+// ═══════════════════════════════════════════════════════════════
+const RS_STATUSES = {
+  accepted:{label:'Принята',            color:'#a78bfa'},
+  repair  :{label:'В ремонте',          color:'#f5a623'},
+  ready   :{label:'Готова',             color:'#4f8ef7'},
+  returned:{label:'Возвращена клиенту', color:'#3dd68c'},
+  closed  :{label:'Закрыта',            color:'#8a8f98'},
+};
+const RS_KINDS = { warranty:{label:'Гарантийная',color:'#3dd68c'}, paid:{label:'Платная',color:'#f5a623'} };
+const RS_FAULTS = { production:'Производство', install:'Монтаж / сборка у клиента', transport:'Транспортировка', customer:'Эксплуатация клиентом', other:'Другое', '':'Не указано' };
+const SW_LINE_KINDS = { sale:'Продажа', restore_pickup:'🔧 Забор на реставрацию', restore_return:'🔧 Возврат после реставрации' };
+let rsData=[], rsFiles=[], rsErr='', rsCurId=null;
+const rsNum = v=>{ const n=parseFloat(v); return isNaN(n)?0:n; };
+const rsCost = r=>rsNum(r.cost_materials)+rsNum(r.cost_labor)+rsNum(r.cost_delivery);
+function rsBadge(map,k){ const d=map[k]||{label:k||'—',color:'#888'}; return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;background:${d.color}22;color:${d.color}">${prjEsc(d.label)}</span>`; }
+
+async function loadRestorations(){
+  try{
+    rsData = await sbFetch('restorations','select=*&order=recv_date.desc,id.desc&limit=5000') || [];
+    rsFiles = rsData.length ? (await sbFetch('restoration_files','select=*&order=created_at.asc&limit=5000')||[]) : [];
+    rsErr='';
+  }catch(e){ rsErr=e.message||String(e); rsData=[]; rsFiles=[]; }
+  const c=document.getElementById('rs-count');
+  if(c) c.textContent=rsData.filter(r=>r.status!=='closed'&&r.status!=='returned').length;
+}
+function rsOpenTab(){
+  const box=document.getElementById('rs-list'); if(box) box.innerHTML='<div style="padding:24px;color:var(--text3)">Загрузка…</div>';
+  const go=()=>{ rsFillMonths(); rsRender(); };
+  Promise.all([loadRestorations(), (!realizationsData.length && typeof loadRealizationsFromDB==='function')?loadRealizationsFromDB().catch(()=>{}):null]).then(go);
+}
+function rsFillMonths(){
+  const sel=document.getElementById('rs-month'); if(!sel) return;
+  const MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const now=new Date(); const set=new Set([now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')]);
+  rsData.forEach(r=>{ const m=String(r.recv_date||'').slice(0,7); if(/^\d{4}-\d{2}$/.test(m)) set.add(m); });
+  const list=[...set].sort().reverse(), key=list.join(',');
+  if(sel.dataset.key===key) return;
+  const prev=sel.dataset.key?sel.value:null;
+  sel.innerHTML='<option value="">Весь период</option>'+list.map(v=>{const [y,m]=v.split('-');return `<option value="${v}">${MN[+m-1]} ${y}</option>`;}).join('');
+  sel.value = prev!==null ? prev : list[0];
+  sel.dataset.key=key;
+}
+function rsFiltered(){
+  const mo=document.getElementById('rs-month')?.value||'';
+  const st=document.getElementById('rs-st')?.value||'active';
+  const kd=document.getElementById('rs-kind')?.value||'';
+  const cu=document.getElementById('rs-cu')?.value||'';
+  const q=(document.getElementById('rs-q')?.value||'').toLowerCase().trim();
+  return rsData.filter(r=>{
+    if(mo && String(r.recv_date||'').slice(0,7)!==mo) return false;
+    if(st==='active' && (r.status==='closed'||r.status==='returned')) return false;
+    if(st!=='active' && st!=='all' && r.status!==st) return false;
+    if(kd && r.kind!==kd) return false;
+    if(cu && (r.customer||'')!==cu) return false;
+    if(q && !((r.num||'')+' '+(r.customer||'')+' '+(r.order_num||'')+' '+(r.item_name||'')+' '+(r.base_doc_num||'')+' '+(r.defect||'')).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+function rsRender(){
+  const box=document.getElementById('rs-list'); if(!box) return;
+  if(rsErr){
+    box.innerHTML=`<div class="card" style="padding:18px;border-left:3px solid var(--red)"><b>Не удалось загрузить реставрации.</b><div style="font-size:12px;color:var(--text3);margin-top:6px">${prjEsc(rsErr)}</div><div style="font-size:12px;margin-top:8px">Скорее всего, не выполнен SQL <b>restorations.sql</b> в Supabase.</div></div>`;
+    document.getElementById('rs-kpi').innerHTML=''; document.getElementById('rs-report').innerHTML=''; return;
+  }
+  // список заказчиков для фильтра
+  const cs=document.getElementById('rs-cu');
+  if(cs){ const set=[...new Set(rsData.map(r=>r.customer).filter(Boolean))].sort(); const key=set.join('|');
+    if(cs.dataset.key!==key){ const prev=cs.value; cs.innerHTML='<option value="">Все заказчики</option>'+set.map(c=>`<option value="${prjEsc(c)}">${prjEsc(c)}</option>`).join(''); cs.value=set.includes(prev)?prev:''; cs.dataset.key=key; } }
+  const rows=rsFiltered();
+  // период для KPI — по месяцу, остальные фильтры применяем тоже (кроме статуса «активные»)
+  const mo=document.getElementById('rs-month')?.value||'';
+  const per = rsData.filter(r=>(!mo || String(r.recv_date||'').slice(0,7)===mo));
+  const sum=(a,f)=>a.reduce((t,x)=>t+f(x),0);
+  const war=per.filter(r=>r.kind==='warranty'), paid=per.filter(r=>r.kind==='paid');
+  const qtyAll=sum(per,r=>rsNum(r.qty)), orders=new Set(per.map(r=>r.order_num).filter(Boolean)).size;
+  let shipped=0;
+  (realizationsData||[]).forEach(z=>{ const d=String(z.doc_date||z.date||'').slice(0,7); if((!mo||d===mo) && !/^Реставрация/i.test(z.name||'')) shipped+=rsNum(z.qty); });
+  const share = shipped>0 ? (qtyAll/shipped*100).toFixed(1).replace('.',',')+'%' : '—';
+  const card=(t,v,sub,col)=>`<div class="card" style="padding:12px;min-width:150px;flex:1"><div style="font-size:11px;color:var(--text3)">${t}</div><div style="font-size:19px;font-weight:700;color:${col||'var(--text1)'}">${v}</div><div style="font-size:11px;color:var(--text3)">${sub||''}</div></div>`;
+  document.getElementById('rs-kpi').innerHTML=
+    card('Принято на реставрацию',per.length+' поз. · '+qtyAll+' шт',orders?('по '+orders+' заказам'):'')+
+    card('Гарантийные',war.length+' поз.','затраты '+prjFmt(sum(war,rsCost)),'var(--green)')+
+    card('Платные',paid.length+' поз.','выручка '+prjFmt(sum(paid,r=>rsNum(r.price))),'var(--amber)')+
+    card('Затраты всего',prjFmt(sum(per,rsCost)),'платные: маржа '+prjFmt(sum(paid,r=>rsNum(r.price)-rsCost(r))),'var(--red)')+
+    card('Доля от отгруженного',share,'отгружено за период: '+shipped+' шт')+
+    card('Сейчас в работе',String(rsData.filter(r=>r.status==='accepted'||r.status==='repair'||r.status==='ready').length)+' поз.','всего по базе');
+  // таблица
+  if(!rows.length){ box.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">Записей нет. Нажмите «+ Принять на реставрацию».</div>'; }
+  else box.innerHTML=`<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>№</th><th>Принята</th><th>Заказчик</th><th>Заказ / накладная</th><th>Изделие</th><th style="text-align:right">Кол-во</th><th>Тип</th><th>Виновник</th><th>Статус</th><th>Исполнитель</th><th style="text-align:right">Цена клиенту</th><th style="text-align:right">Затраты</th><th></th></tr></thead><tbody>`+
+    rows.map(r=>{ const nf=rsFiles.filter(f=>f.restoration_id===r.id).length;
+      return `<tr style="cursor:pointer" onclick="rsOpen(${r.id})"><td style="font-family:monospace">${prjEsc(r.num||'#'+r.id)}</td><td style="white-space:nowrap;font-size:12px">${prjEsc(String(r.recv_date||'').slice(0,10).split('-').reverse().join('.'))}</td>
+        <td>${prjEsc(r.customer||'—')}</td><td style="font-size:12px">${prjEsc(r.order_num||'—')}${r.base_doc_num?`<div style="color:var(--text3)">накл. ${prjEsc(r.base_doc_num)}</div>`:''}</td>
+        <td><b>${prjEsc(r.item_name)}</b>${r.defect?`<div style="font-size:11px;color:var(--text3);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${prjEsc(r.defect)}">${prjEsc(r.defect)}</div>`:''}</td>
+        <td style="text-align:right">${prjEsc(r.qty)}</td><td>${rsBadge(RS_KINDS,r.kind)}</td><td style="font-size:12px">${prjEsc(RS_FAULTS[r.fault||'']||r.fault)}</td><td>${rsBadge(RS_STATUSES,r.status)}</td>
+        <td style="font-size:12px">${prjEsc(r.responsible_name||'—')}</td><td style="text-align:right">${r.kind==='paid'&&r.price?prjFmt(r.price):'—'}</td><td style="text-align:right">${rsCost(r)?prjFmt(rsCost(r)):'—'}</td><td style="font-size:12px">${nf?'📎'+nf:''}</td></tr>`;}).join('')+'</tbody></table></div>';
+  // отчёт: три разреза по выбранному периоду
+  const grp=(arr,keyf,label)=>{ const m={}; arr.forEach(r=>{ const k=keyf(r)||'—'; (m[k]=m[k]||{n:0,q:0,w:0,p:0,c:0,rev:0}); const g=m[k]; g.n++; g.q+=rsNum(r.qty); if(r.kind==='warranty') g.w++; else g.p++; g.c+=rsCost(r); if(r.kind==='paid') g.rev+=rsNum(r.price); });
+    const list=Object.entries(m).sort((a,b)=>b[1].n-a[1].n).slice(0,10);
+    return `<div class="card" style="padding:10px;flex:1;min-width:300px"><b style="font-size:13px">${label}</b><table class="data-table" style="font-size:12px;margin-top:6px"><thead><tr><th></th><th style="text-align:right">Поз.</th><th style="text-align:right">Гар.</th><th style="text-align:right">Плат.</th><th style="text-align:right">Затраты</th></tr></thead><tbody>${list.map(([k,g])=>`<tr><td>${prjEsc(k)}</td><td style="text-align:right">${g.n}</td><td style="text-align:right">${g.w}</td><td style="text-align:right">${g.p}</td><td style="text-align:right">${g.c?prjFmt(g.c):'—'}</td></tr>`).join('')||'<tr><td colspan="5" style="color:var(--text3)">нет данных</td></tr>'}</tbody></table></div>`; };
+  document.getElementById('rs-report').innerHTML=
+    grp(per,r=>r.customer,'По заказчикам')+grp(per,r=>RS_FAULTS[r.fault||'']||r.fault,'По причинам (виновник)')+grp(per,r=>r.item_name,'По изделиям');
+}
+
+// ── Карточка ──────────────────────────────────────────────────
+function rsEnsureModal(){
+  let m=document.getElementById('rsModal');
+  if(!m){ m=document.createElement('div'); m.className='modal-overlay'; m.id='rsModal';
+    m.innerHTML='<div class="modal" style="max-width:900px;width:97vw;max-height:94vh;overflow:auto" id="rsModalBody"></div>'; document.body.appendChild(m); }
+  return m;
+}
+function rsClose(){ const m=document.getElementById('rsModal'); if(m) m.classList.remove('open'); rsCurId=null; }
+function rsOpenNew(pre){
+  rsEnsureModal(); rsCurId=null; pre=pre||{};
+  const base={ recv_date:swToday(), status:'accepted', kind:'warranty', qty:1, customer:'', order_num:'', base_doc_num:'', item_name:'', defect:'', fault:'', ...pre };
+  rsRenderForm(base);
+  document.getElementById('rsModal').classList.add('open');
+}
+function rsOpen(id){
+  const r=rsData.find(x=>x.id===id); if(!r) return;
+  rsEnsureModal(); rsCurId=id; rsRenderForm(r);
+  document.getElementById('rsModal').classList.add('open');
+}
+function rsSourceList(){
+  const out=[];
+  (realizationsData||[]).forEach(z=>{ if(/^Реставрация/i.test(z.name||'')) return;
+    out.push({label:`${z.doc_num||'—'} · ${z.customer||''} · ${z.name||''}`, doc:z.doc_num, order:z.order_num, customer:z.customer, item:z.name, qty:z.qty}); });
+  return out.slice(0,3000);
+}
+function rsPickSource(inp){
+  const src=rsSourceList().find(s=>s.label===inp.value); if(!src) return;
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v==null?'':v; };
+  set('rsf-customer',src.customer); set('rsf-order',src.order); set('rsf-item',src.item); set('rsf-qty',src.qty); set('rsf-doc',src.doc);
+}
+function rsRenderForm(r){
+  const isNew=!r.id;
+  const staffOpts=Object.entries(_USERS).filter(([k,v])=>!v.channel).map(([k,v])=>`<option value="${k}" ${r.responsible===k?'selected':''}>${prjEsc(v.name)} — ${prjEsc(v.label)}</option>`).join('');
+  const files=isNew?[]:rsFiles.filter(f=>f.restoration_id===r.id);
+  const opt=(m,sel)=>Object.entries(m).map(([k,d])=>`<option value="${k}" ${sel===k?'selected':''}>${prjEsc(typeof d==='string'?d:d.label)}</option>`).join('');
+  const customers=[...new Set([...(swRows||[]).map(x=>x.customer),...rsData.map(x=>x.customer),...(realizationsData||[]).map(x=>x.customer)].filter(Boolean))].sort();
+  document.getElementById('rsModalBody').innerHTML=`
+    <div class="modal-header"><div class="modal-title">${isNew?'Принять на реставрацию':`<span style="font-family:monospace;color:var(--text3)">${prjEsc(r.num||'#'+r.id)}</span> ${prjEsc(r.item_name)}`} ${isNew?'':rsBadge(RS_KINDS,r.kind)+' '+rsBadge(RS_STATUSES,r.status)}</div><button class="modal-close" onclick="rsClose()">✕</button></div>
+    <div id="rsf-err" style="color:var(--red);font-size:13px;min-height:18px"></div>
+    ${isNew?`<div style="margin-bottom:10px"><label style="font-size:12px;color:var(--text3)">Найти по накладной / заказу / изделию (заполнит поля ниже)</label>
+      <input type="text" list="rs-src-dl" placeholder="Начните вводить номер накладной, заказчика или товар…" style="width:100%" onchange="rsPickSource(this)">
+      <datalist id="rs-src-dl">${rsSourceList().map(s=>`<option value="${prjEsc(s.label)}">`).join('')}</datalist></div>`:''}
+    <datalist id="rs-cu-dl">${customers.map(c=>`<option value="${prjEsc(c)}">`).join('')}</datalist>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+      <div><label style="font-size:12px;color:var(--text3)">Дата поступления *</label><input id="rsf-date" type="date" value="${prjEsc(String(r.recv_date||'').slice(0,10))}" style="width:100%"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Заказчик *</label><input id="rsf-customer" list="rs-cu-dl" value="${prjEsc(r.customer||'')}" style="width:100%" autocomplete="off"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Конечный клиент</label><input id="rsf-endclient" value="${prjEsc(r.end_client||'')}" style="width:100%"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Заказ №</label><input id="rsf-order" value="${prjEsc(r.order_num||'')}" style="width:100%"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Накладная реализации №</label><input id="rsf-doc" value="${prjEsc(r.base_doc_num||'')}" style="width:100%"></div>
+      <div style="grid-column:span 2"><label style="font-size:12px;color:var(--text3)">Изделие *</label><input id="rsf-item" value="${prjEsc(r.item_name||'')}" style="width:100%"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Кол-во</label><input id="rsf-qty" type="number" min="0" step="any" value="${prjEsc(r.qty)}" style="width:100%"></div>
+      <div><label style="font-size:12px;color:var(--text3)">Тип *</label><select id="rsf-kind" style="width:100%" onchange="rsKindChanged()">${opt(RS_KINDS,r.kind)}</select></div>
+      <div><label style="font-size:12px;color:var(--text3)">Статус</label><select id="rsf-status" style="width:100%">${opt(RS_STATUSES,r.status)}</select></div>
+      <div><label style="font-size:12px;color:var(--text3)">Виновник (причина)</label><select id="rsf-fault" style="width:100%">${opt(RS_FAULTS,r.fault||'')}</select></div>
+      <div><label style="font-size:12px;color:var(--text3)">Исполнитель</label><select id="rsf-resp" style="width:100%"><option value="">— не назначен —</option>${staffOpts}</select></div>
+      <div><label style="font-size:12px;color:var(--text3)">Срок готовности</label><input id="rsf-due" type="date" value="${prjEsc(String(r.due_date||'').slice(0,10))}" style="width:100%"></div>
+    </div>
+    <div style="margin-top:10px"><label style="font-size:12px;color:var(--text3)">Дефект / что нужно сделать</label><textarea id="rsf-defect" rows="3" style="width:100%">${prjEsc(r.defect||'')}</textarea></div>
+    <div class="card" style="padding:10px;margin-top:10px">
+      <b style="font-size:13px">💰 Деньги</b>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:6px">
+        <div id="rsf-price-wrap"><label style="font-size:12px;color:var(--text3)">Цена для клиента (платная), ₸</label><input id="rsf-price" type="number" min="0" step="any" value="${prjEsc(r.price||0)}" style="width:100%" oninput="rsRecalc()"></div>
+        <div><label style="font-size:12px;color:var(--text3)">Материалы, ₸</label><input id="rsf-cm" type="number" min="0" step="any" value="${prjEsc(r.cost_materials||0)}" style="width:100%" oninput="rsRecalc()"></div>
+        <div><label style="font-size:12px;color:var(--text3)">Работа (ЗП), ₸</label><input id="rsf-cl" type="number" min="0" step="any" value="${prjEsc(r.cost_labor||0)}" style="width:100%" oninput="rsRecalc()"></div>
+        <div><label style="font-size:12px;color:var(--text3)">Доставка, ₸</label><input id="rsf-cd" type="number" min="0" step="any" value="${prjEsc(r.cost_delivery||0)}" style="width:100%" oninput="rsRecalc()"></div>
+      </div>
+      <div id="rsf-sum" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
+    </div>
+    <div style="margin-top:10px"><label style="font-size:12px;color:var(--text3)">Примечание</label><input id="rsf-note" value="${prjEsc(r.note||'')}" style="width:100%"></div>
+    ${isNew?`<div style="margin-top:10px"><label style="font-size:12px;color:var(--text3)">Фото дефекта (можно несколько)</label><input id="rsf-files" type="file" multiple accept="image/*,.pdf" style="width:100%"></div>`:`
+    <div class="card" style="padding:10px;margin-top:10px"><div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">📎 Фото и файлы</b><span style="flex:1"></span>
+      <label class="btn btn-ghost btn-sm" style="cursor:pointer">＋ Файлы<input type="file" multiple style="display:none" onchange="rsPickFiles(this)"></label></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:8px">${files.map(f=>rsFileCard(f)).join('')||'<div style="color:var(--text3);font-size:12px;grid-column:1/-1">Файлов пока нет</div>'}</div></div>
+    <div class="card" style="padding:10px;margin-top:10px"><b style="font-size:13px">🚚 Накладные (рабочий лист реализации)</b>
+      <div style="font-size:12px;color:var(--text3);margin:4px 0 8px">Забор: ${prjEsc(r.pickup_doc_num||'не оформлен')}${r.pickup_date?' · '+prjEsc(String(r.pickup_date).slice(0,10)):''} &nbsp;|&nbsp; Возврат клиенту: ${prjEsc(r.ret_doc_num||'не оформлен')}${r.ret_date?' · '+prjEsc(String(r.ret_date).slice(0,10)):''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="rsMakeDoc('restore_pickup')">＋ Накладная: забор на реставрацию</button><button class="btn btn-ghost btn-sm" onclick="rsMakeDoc('restore_return')">＋ Накладная: возврат клиенту</button></div></div>`}
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:space-between">
+      <div>${!isNew&&window._currentUser==='director'?`<button class="btn btn-ghost" style="color:var(--red)" onclick="rsDelete()">🗑 Удалить</button>`:''}</div>
+      <div style="display:flex;gap:8px"><button class="btn btn-ghost" onclick="rsClose()">Закрыть</button><button class="btn btn-primary" id="rsf-save" onclick="rsSave()">💾 Сохранить</button></div></div>`;
+  rsKindChanged(); rsRecalc();
+}
+function rsKindChanged(){
+  const k=document.getElementById('rsf-kind')?.value, w=document.getElementById('rsf-price-wrap');
+  if(w) w.style.display = k==='paid' ? '' : 'none';
+  rsRecalc();
+}
+function rsRecalc(){
+  const g=id=>rsNum(document.getElementById(id)?.value);
+  const cost=g('rsf-cm')+g('rsf-cl')+g('rsf-cd'), paid=document.getElementById('rsf-kind')?.value==='paid', price=paid?g('rsf-price'):0;
+  const e=document.getElementById('rsf-sum'); if(!e) return;
+  e.innerHTML = `Затраты: <b>${prjFmt(cost)}</b>` + (paid?` · выручка: <b>${prjFmt(price)}</b> · маржа: <b style="color:${price-cost>=0?'var(--green)':'var(--red)'}">${prjFmt(price-cost)}</b>`:' · гарантия: расход за счёт компании');
+}
+function rsFileCard(f){
+  const url=prjFileUrl(f.storage_path), isImg=(f.mime||'').startsWith('image/')||/\.(jpe?g|png|gif|webp|bmp)$/i.test(f.file_name||'');
+  return `<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg3)"><a href="${url}" target="_blank" rel="noopener" style="display:block;height:90px;background:var(--bg2);text-align:center;line-height:90px;text-decoration:none;color:var(--text2);font-weight:700">${isImg?`<img src="${url}" loading="lazy" style="width:100%;height:90px;object-fit:cover" alt="">`:'📄'}</a><div style="padding:4px 6px;font-size:11px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${prjEsc(f.file_name)}">${prjEsc(f.file_name)}</div><a href="javascript:void(0)" style="color:var(--red)" onclick="rsDeleteFile(${f.id})">удалить</a></div></div>`;
+}
+function rsReadForm(){
+  const v=id=>(document.getElementById(id)?.value||'').trim();
+  const rk=v('rsf-resp');
+  return { recv_date:v('rsf-date'), customer:v('rsf-customer'), end_client:v('rsf-endclient')||null, order_num:v('rsf-order')||null, base_doc_num:v('rsf-doc')||null,
+    item_name:v('rsf-item'), qty:rsNum(v('rsf-qty'))||1, kind:v('rsf-kind')||'warranty', status:v('rsf-status')||'accepted', fault:v('rsf-fault'),
+    responsible:rk||null, responsible_name:rk?((_USERS[rk]&&_USERS[rk].name)||rk):null, due_date:v('rsf-due')||null, defect:v('rsf-defect'),
+    price: v('rsf-kind')==='paid' ? rsNum(v('rsf-price')) : 0, cost_materials:rsNum(v('rsf-cm')), cost_labor:rsNum(v('rsf-cl')), cost_delivery:rsNum(v('rsf-cd')),
+    note:v('rsf-note')||null, updated_at:new Date().toISOString() };
+}
+async function rsSave(){
+  const err=document.getElementById('rsf-err'); err.textContent='';
+  const d=rsReadForm();
+  if(!d.recv_date){ err.textContent='Укажите дату поступления'; return; }
+  if(!d.customer){ err.textContent='Укажите заказчика'; return; }
+  if(!d.item_name){ err.textContent='Укажите изделие'; return; }
+  const btn=document.getElementById('rsf-save'); btn.disabled=true;
+  try{
+    let id=rsCurId;
+    if(id){ await sbPatch('restorations',`id=eq.${id}`,d); Object.assign(rsData.find(x=>x.id===id),d); }
+    else {
+      const me=prjMe();
+      const row=await sbInsert('restorations',{...d,created_by:me.login,created_by_name:me.name});
+      await sbPatch('restorations',`id=eq.${row.id}`,{num:'РС-'+String(row.id).padStart(4,'0')});
+      row.num='РС-'+String(row.id).padStart(4,'0'); rsData.unshift(row); id=row.id;
+      const files=[...(document.getElementById('rsf-files')?.files||[])];
+      if(files.length){ await rsUploadFiles(id,files); }
+    }
+    prjToast('Сохранено'); rsFillMonths(); rsRender();
+    const c=document.getElementById('rs-count'); if(c) c.textContent=rsData.filter(r=>r.status!=='closed'&&r.status!=='returned').length;
+    rsOpen(id);
+  }catch(e){ btn.disabled=false; err.textContent='Ошибка: '+e.message; }
+}
+async function rsDelete(){
+  const r=rsData.find(x=>x.id===rsCurId); if(!r) return;
+  if(!confirm(`Удалить реставрацию ${r.num||r.id}?`)) return;
+  try{
+    for(const f of rsFiles.filter(x=>x.restoration_id===r.id)){ try{ await prjStorageDelete(f.storage_path); }catch(e){} }
+    await sbDelete('restoration_files',`restoration_id=eq.${r.id}`); await sbDelete('restorations',`id=eq.${r.id}`);
+    rsData=rsData.filter(x=>x.id!==r.id); rsFiles=rsFiles.filter(x=>x.restoration_id!==r.id);
+    rsClose(); rsRender();
+  }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+async function rsUploadFiles(id, list){
+  const me=prjMe();
+  for(let f of list){
+    f=await prjCompressImage(f);
+    if(f.size>25*1048576){ prjToast(`«${f.name}» больше 25 МБ — пропущен`,1); continue; }
+    const safe=(f.name||'file').replace(/[^A-Za-z0-9._-]+/g,'_').slice(-70);
+    const path=`restorations/${id}/${Date.now()}_${Math.random().toString(36).slice(2,6)}_${safe}`;
+    const r=await fetch(`${SUPABASE_URL}/storage/v1/object/${PRJ_BUCKET}/${path}`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY,'Content-Type':f.type||'application/octet-stream','x-upsert':'false'},body:f});
+    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('Загрузка файла «'+f.name+'»: '+r.status+' '+t.slice(0,120)+' (создан ли бакет project-files? выполнен ли projects.sql?)'); }
+    const row=await sbInsert('restoration_files',{restoration_id:id,file_name:f.name,storage_path:path,mime:f.type||'',size:f.size,uploaded_by:me.login,uploaded_by_name:me.name});
+    rsFiles.push(row);
+  }
+}
+async function rsPickFiles(inp){
+  const fs=[...inp.files]; inp.value=''; if(!fs.length||!rsCurId) return;
+  prjToast('Загружаю '+fs.length+' файл(ов)…');
+  try{ await rsUploadFiles(rsCurId,fs); prjToast('Загружено'); rsRender(); rsOpen(rsCurId); }catch(e){ prjToast(e.message,1); }
+}
+async function rsDeleteFile(id){
+  const f=rsFiles.find(x=>x.id===id); if(!f||!confirm('Удалить файл «'+f.file_name+'»?')) return;
+  try{ try{ await prjStorageDelete(f.storage_path); }catch(e){} await sbDelete('restoration_files',`id=eq.${id}`); rsFiles=rsFiles.filter(x=>x.id!==id); rsRender(); rsOpen(rsCurId); }
+  catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+
+// ── Накладная в рабочем листе из реставрации ─────────────────
+async function rsMakeDoc(kind){
+  const r=rsData.find(x=>x.id===rsCurId); if(!r) return;
+  // сохраняем введённое, затем открываем накладную
+  await rsSave();
+  const rr=rsData.find(x=>x.id===r.id)||r;
+  rsClose();
+  const sw=document.getElementById('sw-tab-btn'); 
+  if(typeof showSalesTab==='function' && document.getElementById('page-sales')&&!document.getElementById('page-sales').classList.contains('active')){ try{ showPage('sales', document.querySelector(".nav-item[onclick*=\"showPage('sales'\"]")); }catch(e){} }
+  swOpenDoc(null);
+  document.getElementById('sw-customer').value=rr.customer||'';
+  document.getElementById('sw-note').value=(kind==='restore_pickup'?'Забор на реставрацию ':'Возврат после реставрации ')+(rr.num||'')+(rr.defect?' · '+rr.defect:'');
+  const price = (kind==='restore_return' && rr.kind==='paid') ? rsNum(rr.price) : 0;
+  _swEdit.lines=[{order_num:rr.order_num||'',item_name:rr.item_name,attrs:(kind==='restore_pickup'?'Забор':'Возврат')+' · '+(rr.kind==='paid'?'платная':'гарантия')+' · '+(rr.num||''),attrs_short:false,unit:'шт',qty:rsNum(rr.qty)||1,price,line_kind:kind,restoration_id:rr.id}];
+  swRenderLines();
+  document.getElementById('sw-modal-title').textContent=(kind==='restore_pickup'?'Накладная: забор на реставрацию':'Накладная: возврат после реставрации');
+}
+// кнопка 🔧 в накладной рабочего листа
+function rsFromSwDoc(docId){
+  const rows=swDocRows(docId).filter(r=>(r.line_kind||'sale')==='sale'); if(!rows.length){ alert('В накладной нет строк продажи'); return; }
+  let r=rows[0];
+  if(rows.length>1){
+    const pick=prompt('Какая позиция идёт на реставрацию?\n\n'+rows.map((x,i)=>`${i+1}. ${x.item_name}`).join('\n')+'\n\nВведите номер:','1');
+    if(pick===null) return; r=rows[(parseInt(pick)||1)-1]||rows[0];
+  }
+  rsOpenNew({customer:r.customer, order_num:r.order_num||'', base_doc_num:r.doc_num, item_name:r.item_name, qty:r.qty});
+}
+// после сохранения накладной с реставрационными строками
+async function rsAfterDocSaved(lines, num, date){
+  for(const l of lines){
+    if(!l.restoration_id || !l.line_kind || l.line_kind==='sale') continue;
+    const patch = l.line_kind==='restore_pickup' ? {pickup_doc_num:num,pickup_date:date} : {ret_doc_num:num,ret_date:date};
+    try{ await sbPatch('restorations',`id=eq.${l.restoration_id}`,patch); const r=rsData.find(x=>x.id===l.restoration_id); if(r) Object.assign(r,patch); }catch(e){}
+  }
+}
+// отметка «доставлено» по накладной возврата → статус «Возвращена клиенту»
+async function rsAfterDelivered(rows, on){
+  for(const x of rows){
+    if(!x.restoration_id) continue;
+    let patch=null;
+    if(x.line_kind==='restore_return' && on) patch={status:'returned'};
+    if(x.line_kind==='restore_pickup' && on) patch={status:'repair'};
+    if(!patch) continue;
+    try{ await sbPatch('restorations',`id=eq.${x.restoration_id}`,patch); const r=rsData.find(z=>z.id===x.restoration_id); if(r) Object.assign(r,patch); }catch(e){}
+  }
 }
 
 let _sjSortCol = 'date';
