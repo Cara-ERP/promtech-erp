@@ -30884,6 +30884,27 @@ function prjToast(msg,isErr){
 function prjStatusBadge(s){ const d=PRJ_STATUSES[s]||{label:s,color:'#888'};
   return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;background:${d.color}22;color:${d.color}">${prjEsc(d.label)}</span>`; }
 function prjFileUrl(path){ return `${SUPABASE_URL}/storage/v1/object/public/${PRJ_BUCKET}/${path.split('/').map(encodeURIComponent).join('/')}`; }
+// Исполнители проекта: логины через запятую в projects.responsible, имена — в responsible_name
+function prjExecLogins(p){ return String((p&&p.responsible)||'').split(',').map(x=>x.trim()).filter(Boolean); }
+function prjExecName(l){ return (_USERS[l]&&_USERS[l].name)||l; }
+function prjExecNames(p){
+  const l=prjExecLogins(p);
+  if(l.length) return l.map(prjExecName);
+  return p&&p.responsible_name?[p.responsible_name]:[];
+}
+async function prjExecSave(p, logins){
+  const patch={responsible:logins.join(',')||null, responsible_name:logins.map(prjExecName).join(', ')||null, updated_at:new Date().toISOString()};
+  await sbPatch('projects',`id=eq.${p.id}`,patch); Object.assign(p,patch);
+}
+async function prjExecAdd(login){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p||!login) return;
+  const l=prjExecLogins(p); if(l.includes(login)) return;
+  try{ await prjExecSave(p,[...l,login]); prjRefreshCalc(); renderProjects(); }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
+async function prjExecRemove(login){
+  const p=prjData.find(x=>x.id===prjCurId); if(!p) return;
+  try{ await prjExecSave(p,prjExecLogins(p).filter(x=>x!==login)); prjRefreshCalc(); renderProjects(); }catch(e){ prjToast('Ошибка: '+e.message,1); }
+}
 function prjTotal(items){ return (items||[]).reduce((s,i)=>s+(+i.qty||0)*(+i.price||0),0); }
 function prjCostTotal(items){ return (items||[]).reduce((s,i)=>s+(+i.qty||0)*(+i.cost||0),0); }
 
@@ -30939,7 +30960,7 @@ function renderProjects(){
   if(!rows.length){ box.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">Проектов нет. Нажмите «+ Новый проект».</div>'; return; }
   const client=prjIsClient();
   box.innerHTML=`<div style="overflow-x:auto"><table class="data-table"><thead><tr>
-    <th>№</th><th>Проект</th>${client?'':'<th>Заказчик</th>'}<th>Статус</th><th>Ответственный</th><th>Срок</th><th style="text-align:right">Сумма</th><th style="text-align:center">Файлы</th><th>Обновлён</th></tr></thead><tbody>`+
+    <th>№</th><th>Проект</th>${client?'':'<th>Заказчик</th>'}<th>Статус</th><th>Исполнители</th><th>Срок</th><th style="text-align:right">Сумма</th><th style="text-align:center">Файлы</th><th>Обновлён</th></tr></thead><tbody>`+
     rows.map(p=>{
       const nf=prjFiles.filter(f=>f.project_id===p.id && !(client&&f.internal)).length;
       const nc=prjComments.filter(c=>c.project_id===p.id && !(client&&c.internal)).length;
@@ -30948,7 +30969,7 @@ function renderProjects(){
         <td><b>${prjEsc(p.title)}</b>${p.order_num?`<div style="font-size:11px;color:var(--green)">Заказ ${prjEsc(p.order_num)}</div>`:''}</td>
         ${client?'':`<td>${prjEsc(p.customer_name||prjChName(p.channel))}</td>`}
         <td>${prjStatusBadge(p.status)}</td>
-        <td>${prjEsc(p.responsible_name||'—')}</td>
+        <td style="font-size:12px">${prjExecNames(p).map(n=>`<div>👤 ${prjEsc(n)}</div>`).join('')||'<span style="color:var(--text3)">не назначен</span>'}</td>
         <td>${prjEsc(p.due_date||'')}</td>
         <td style="text-align:right;font-weight:600">${p.total_amount?prjFmt(p.total_amount):'—'}</td>
         <td style="text-align:center;font-size:12px">${nf?'📎'+nf:''} ${nc?'💬'+nc:''}</td>
@@ -31084,10 +31105,10 @@ function prjRenderCard(){
   const cur = vis.find(c=>c.version===prjCurVer)||null;
   const key=p.id+':'+prjCurVer;
   if(key!==prjEditKey){ prjEdit = cur ? JSON.parse(JSON.stringify(cur.items||[])) : []; prjEditKey=key; }
-  const staffOpts=Object.entries(_USERS).filter(([k,v])=>!v.channel).map(([k,v])=>`<option value="${k}" ${p.responsible===k?'selected':''}>${prjEsc(v.name)} — ${prjEsc(v.label)}</option>`).join('');
+  const staffOpts=Object.entries(_USERS).filter(([k,v])=>!v.channel && !prjExecLogins(p).includes(k)).map(([k,v])=>`<option value="${k}">${prjEsc(v.name)} — ${prjEsc(v.label)}</option>`).join('');
   const stOpts=Object.entries(PRJ_STATUSES).map(([k,d])=>`<option value="${k}" ${p.status===k?'selected':''}>${prjEsc(d.label)}</option>`).join('');
   const comments=prjComments.filter(c=>c.project_id===p.id && !(client&&c.internal));
-  const verSel = vis.length>1 ? `<select onchange="prjCurVer=+this.value;prjRenderCard()" style="font-size:12px;width:auto">${vis.map(c=>`<option value="${c.version}" ${c.version===prjCurVer?'selected':''}>v${c.version}${c.sent_at?' (отправлена)':''}</option>`).join('')}</select>`:'';
+  const verSel = vis.length>1 ? `<select onchange="prjCurVer=+this.value;prjRenderCard()" style="font-size:12px;width:auto">${vis.map(c=>`<option value="${c.version}" ${c.version===prjCurVer?'selected':''}>v${c.version}${(!client&&c.created_by_name)?' — '+prjEsc(c.created_by_name):''}${c.sent_at?' (отправлена)':''}</option>`).join('')}</select>`:'';
   const showCalc = !client || vis.length>0;
   document.getElementById('prjModalBody').innerHTML=`
     <div class="modal-header"><div class="modal-title"><span style="font-family:monospace;color:var(--text3)">${prjEsc(p.num||'#'+p.id)}</span> ${prjEsc(p.title)} ${prjStatusBadge(p.status)}</div><button class="modal-close" onclick="prjClose()">✕</button></div>
@@ -31096,9 +31117,11 @@ function prjRenderCard(){
       <div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text3)">Название</label>
         <input id="prjc-title" type="text" value="${prjEsc(p.title)}" style="width:100%" ${canHead?'':'disabled'}></div>
       <div><label style="font-size:12px;color:var(--text3)">Заказчик</label><div style="padding:6px 0;font-weight:600">${prjEsc(p.customer_name||prjChName(p.channel))}</div></div>
-      ${client?`<div><label style="font-size:12px;color:var(--text3)">Ответственный</label><div style="padding:6px 0">${prjEsc(p.responsible_name||'—')}</div></div>`:`
-      <div><label style="font-size:12px;color:var(--text3)">Ответственный (дизайнер / расчёт)</label>
-        <select id="prjc-resp" style="width:100%"><option value="">— не назначен —</option>${staffOpts}</select></div>
+      <div style="grid-column:1/-1"><label style="font-size:12px;color:var(--text3)">Исполнители проекта (кто делает расчёт)</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0">
+          ${prjExecLogins(p).map(l=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:14px;background:var(--bg3);border:1px solid var(--border);font-size:12px">👤 ${prjEsc(prjExecName(l))}${client?'':` <a href="javascript:void(0)" title="Убрать" style="color:var(--red);text-decoration:none" onclick="prjExecRemove('${prjEsc(l)}')">✕</a>`}</span>`).join('') || (prjExecNames(p).length?prjExecNames(p).map(n=>`<span style="padding:3px 10px;border-radius:14px;background:var(--bg3);font-size:12px">👤 ${prjEsc(n)}</span>`).join(''):'<span style="font-size:12px;color:var(--text3)">пока не назначены</span>')}
+          ${client?'':`<select onchange="prjExecAdd(this.value);this.value=''" style="font-size:12px;width:auto"><option value="">＋ Добавить исполнителя…</option>${staffOpts}</select>`}</div></div>
+      ${client?'':`
       <div><label style="font-size:12px;color:var(--text3)">Статус</label><select id="prjc-status" style="width:100%">${stOpts}</select></div>
       <div><label style="font-size:12px;color:var(--text3)">№ заказа (когда станет заказом)</label><input id="prjc-order" type="text" value="${prjEsc(p.order_num||'')}" style="width:100%"></div>`}
       <div><label style="font-size:12px;color:var(--text3)">Срок</label><input id="prjc-due" type="date" value="${prjEsc((p.due_date||'').slice(0,10))}" ${canHead||!client?'':'disabled'}></div>
@@ -31140,8 +31163,6 @@ async function prjSaveHead(){
     description:document.getElementById('prjc-desc').value||'',
     due_date:document.getElementById('prjc-due').value||null, updated_at:new Date().toISOString() };
   if(!client){
-    const rk=document.getElementById('prjc-resp').value;
-    patch.responsible=rk||null; patch.responsible_name=rk?(_USERS[rk]?.name||rk):null;
     patch.status=document.getElementById('prjc-status').value;
     patch.order_num=(document.getElementById('prjc-order').value||'').trim()||null;
     if(patch.order_num && p.status!=='closed' && patch.status!=='closed') patch.status='order';
@@ -31306,6 +31327,10 @@ async function prjCalcSave(asNew, silent){
       prjCalcs.push(row);
     }
     const patch={total_amount:total, updated_at:new Date().toISOString()};
+    if(me.login && !prjIsClient() && !prjExecLogins(p).includes(me.login)){
+      const l=[...prjExecLogins(p),me.login];
+      patch.responsible=l.join(','); patch.responsible_name=l.map(prjExecName).join(', ');
+    }
     if(p.status==='request') patch.status='calc';
     await sbPatch('projects',`id=eq.${p.id}`,patch); Object.assign(p,patch);
     prjCurVer=ver; prjEditKey=p.id+':'+ver;
