@@ -9859,16 +9859,72 @@ function cmRender(){
     <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Касса: <b>${cmEsc(sel?.options[sel.selectedIndex]?.text||'')}</b>. Показаны расходы с одинаковой датой и номером документа в описании (или с одинаковым описанием, если номера нет). Из каждой отмеченной группы получится один расход на общую сумму, контрагент — «Сотрудники».</div>
     ${_cmGroups.length?`<div style="overflow:auto"><table class="data-table"><thead><tr><th></th><th>Дата</th><th>Документ</th><th style="text-align:right">Платежей</th><th>Кому</th><th style="text-align:right">Сумма</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:10px"><input type="checkbox" id="cm-create" checked> Если по платежу нет выплаты в зарплатной ведомости — создать её (по имени контрагента, если он есть в списке сотрудников)</label>
+    <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:4px"><input type="checkbox" id="cm-unknown" checked> …и для имён, которых нет в списке сотрудников (под тем именем, что указано в платеже)</label>
     <div style="font-size:12px;color:var(--text3);margin-top:6px">Перед изменениями браузер скачает файл-копию старых операций (на случай отката). Действие необратимо без этой копии.</div>
     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal('cashMergeModal')">Отмена</button><button class="btn btn-primary" id="cm-go" onclick="cmApply()">Объединить выбранные</button></div>`
     :'<div style="padding:24px;text-align:center;color:var(--text3)">Разрозненных платежей с одинаковой датой и номером в этой кассе не найдено.</div>'}
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text3)">Уже объединили, а в «👥 Кому выдано» пусто? Загрузите файл резервной копии <b>backup_merge_cash_….json</b>: <button class="btn btn-ghost btn-sm" onclick="cmRestoreOpen()">↩ Восстановить состав из копии</button></div>
     <div id="cm-msg" style="margin-top:8px;font-size:13px"></div>`;
+}
+// Привязывает один старый платёж к новому объединённому расходу: ищет его выплату в ведомости,
+// иначе (при create) создаёт. Возвращает 'relinked' | 'created' | 'createdUnknown' | 'noAcc'.
+async function cmLinkOne(t,newId,desc,date,accs,claimed,create,allowUnknown,empByNorm){
+  const cp=(t.counterparty||'').trim();
+  let acc=accs.find(a=>!claimed.has(a.id) && a.details && typeof a.details==='object' && a.details.tx_id===t.sbId);
+  if(!acc) acc=accs.find(a=>!claimed.has(a.id) && cmNorm(a.emp_name)===cmNorm(cp) && String(a.date).slice(0,10)===date && Math.abs((+a.amount||0)-(+t.amount||0))<1 && !(a.details&&a.details.tx_id&&a.details.tx_id!==t.sbId&&a.details.tx_id!==newId));
+  if(acc){
+    claimed.add(acc.id);
+    const det={...(typeof acc.details==='object'&&acc.details?acc.details:{}), source:'cash_expense', tx_id:newId};
+    await sbPatch('salary_accruals',`id=eq.${acc.id}`,{details:det}); acc.details=det; return 'relinked';
+  }
+  const known=empByNorm[cmNorm(cp)];
+  if(create && (known || (allowUnknown && cp))){
+    const r=await sbInsert('salary_accruals',{emp_name:known||cp, date, amount:+t.amount||0, deducted:0, net:0, type:'payment', comment:desc, details:{source:'cash_expense', tx_id:newId}});
+    if(r){ accs.push(r); claimed.add(r.id); }
+    if(typeof _payrollData!=='undefined' && _payrollData && r) _payrollData.payments.push(r);
+    return known?'created':'createdUnknown';
+  }
+  return 'noAcc';
+}
+// Восстановление состава объединённых платежей из файла резервной копии (backup_merge_cash_*.json)
+function cmRestoreOpen(){ let i=document.getElementById('cm-file'); if(!i){ i=document.createElement('input'); i.type='file'; i.accept='.json,application/json'; i.id='cm-file'; i.style.display='none'; i.onchange=()=>cmRestoreFile(i); document.body.appendChild(i);} i.value=''; i.click(); }
+async function cmRestoreFile(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  const msg=document.getElementById('cm-msg');
+  try{
+    const bk=JSON.parse(await f.text());
+    if(!bk.groups) throw new Error('это не файл резервной копии объединения');
+    const empByNorm={}; (employeesData||[]).forEach(e=>empByNorm[cmNorm(e.name)]=e.name);
+    const used=new Set(), plan=[];
+    for(const g of bk.groups){
+      const txs=g.txs||[]; if(!txs.length) continue;
+      const first=txs[0], total=txs.reduce((s,t)=>s+(+t.amount||0),0), date=String(first.date).slice(0,10);
+      const nt=moneyTx.find(x=>!used.has(x.sbId) && x.accountId===first.accountId && x.flow==='expense' && String(x.date).slice(0,10)===date && Math.abs((+x.amount||0)-total)<1 && x.sbId && !txs.some(o=>o.sbId===x.sbId));
+      if(!nt){ plan.push({g,txs,date,nt:null}); continue; }
+      used.add(nt.sbId); plan.push({g,txs,date,nt});
+    }
+    const found=plan.filter(p=>p.nt), miss=plan.filter(p=>!p.nt);
+    if(!found.length){ msg.innerHTML='<span style="color:var(--red)">В кассе не найдены объединённые расходы из этого файла (проверьте, что выбрана та же касса).</span>'; return; }
+    const dates=[...new Set(found.map(p=>p.date))];
+    const accs=await sbFetchAllPages('salary_accruals',`select=*&type=eq.payment&date=in.(${dates.join(',')})`);
+    const unknown=new Set(); found.forEach(p=>p.txs.forEach(t=>{ const c=(t.counterparty||'').trim(); if(c && !empByNorm[cmNorm(c)]) unknown.add(c); }));
+    const nTx=found.reduce((s,p)=>s+p.txs.length,0);
+    if(!confirm(`Найдено объединённых платежей: ${found.length}${miss.length?` (не найдено в кассе: ${miss.length})`:''}.\nСостав: ${nTx} выплат.\nИмён, которых нет в списке сотрудников: ${unknown.size}${unknown.size?' (напр.: '+[...unknown].slice(0,5).join(', ')+')':''} — они будут записаны в ведомость под своими именами.\n\nВосстановить состав?`)) return;
+    const st={relinked:0,created:0,createdUnknown:0,noAcc:0}, claimed=new Set();
+    for(const p of found){
+      msg.textContent='⏳ '+p.date+' '+(p.nt.desc||'')+'…';
+      for(const t of p.txs){ const r=await cmLinkOne(t,p.nt.sbId,p.nt.desc||'Выдача ЗП',p.date,accs,claimed,true,true,empByNorm); st[r]++; }
+      delete _txPayCache[p.date];
+    }
+    msg.innerHTML=`<span style="color:var(--green)">✓ Состав восстановлен: перепривязано ${st.relinked}, создано ${st.created+st.createdUnknown}${st.createdUnknown?` (из них с именами не из списка: ${st.createdUnknown})`:''}${st.noAcc?`, пропущено без имени: ${st.noAcc}`:''}. Нажмите 👥 у объединённого расхода.</span>`;
+  }catch(e){ msg.innerHTML='<span style="color:var(--red)">Не удалось: '+cmEsc(e.message)+'</span>'; }
 }
 function cmNorm(s){ return String(s||'').replace(/\s+/g,' ').trim().toLowerCase(); }
 async function cmApply(){
   const picked=_cmGroups.filter((g,i)=>document.getElementById('cm-c-'+i)?.checked);
   if(!picked.length){ alert('Отметьте хотя бы одну группу'); return; }
   const create=!!document.getElementById('cm-create')?.checked;
+  const allowUnknown=!!document.getElementById('cm-unknown')?.checked;
   const n=picked.reduce((s,g)=>s+g.txs.length,0);
   if(!confirm(`Объединить ${n} платежей в ${picked.length} платёжек(и)?`)) return;
   const msg=document.getElementById('cm-msg'), btn=document.getElementById('cm-go'); btn.disabled=true;
@@ -9884,7 +9940,7 @@ async function cmApply(){
     }catch(e){}
     const empNames=(employeesData||[]).map(e=>e.name);
     const empByNorm={}; empNames.forEach(nm=>empByNorm[cmNorm(nm)]=nm);
-    const stat={groups:0, txs:0, relinked:0, created:0, noAcc:0};
+    const stat={groups:0, txs:0, relinked:0, created:0, noAcc:0, createdUnknown:0};
     for(const g of picked){
       msg.textContent=`⏳ ${g.label} ${g.date}…`;
       const first=g.txs[0], names=[...new Set(g.txs.map(t=>(t.counterparty||'').trim()).filter(Boolean))];
@@ -9895,19 +9951,7 @@ async function cmApply(){
       const created=await sbInsertMoneyTxSafe(payload);
       const newId=created?.id;
       const claimed=new Set();
-      for(const t of g.txs){
-        let acc=accs.find(a=>!claimed.has(a.id) && a.details && typeof a.details==='object' && a.details.tx_id===t.sbId);
-        if(!acc) acc=accs.find(a=>!claimed.has(a.id) && cmNorm(a.emp_name)===cmNorm(t.counterparty) && String(a.date).slice(0,10)===g.date && Math.abs((+a.amount||0)-(+t.amount||0))<1 && !(a.details&&a.details.tx_id&&a.details.tx_id!==t.sbId));
-        if(acc){
-          claimed.add(acc.id);
-          const det={...(typeof acc.details==='object'&&acc.details?acc.details:{}), source:'cash_expense', tx_id:newId};
-          await sbPatch('salary_accruals',`id=eq.${acc.id}`,{details:det}); acc.details=det; stat.relinked++;
-        } else if(create && empByNorm[cmNorm(t.counterparty)]){
-          const r=await sbInsert('salary_accruals',{emp_name:empByNorm[cmNorm(t.counterparty)], date:g.date, amount:+t.amount||0, deducted:0, net:0, type:'payment', comment:desc, details:{source:'cash_expense', tx_id:newId}});
-          if(typeof _payrollData!=='undefined' && _payrollData && r) _payrollData.payments.push(r);
-          stat.created++;
-        } else stat.noAcc++;
-      }
+      for(const t of g.txs){ const r=await cmLinkOne(t,newId,desc,g.date,accs,claimed,create,allowUnknown,empByNorm); stat[r]++; }
       await sbDelete('money_tx',`id=in.(${g.txs.map(t=>t.sbId).join(',')})`);
       const oldIds=new Set(g.txs.map(t=>t.sbId));
       for(let i=moneyTx.length-1;i>=0;i--) if(oldIds.has(moneyTx[i].sbId)) moneyTx.splice(i,1);
