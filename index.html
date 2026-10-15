@@ -6216,6 +6216,7 @@ window.onerror = function(msg, src, line, col){
           <select id="cash-cat-filter" onchange="renderCashTx()" style="font-size:13px">
             <option value="all">Все категории</option>
           </select>
+          <button class="btn btn-ghost btn-sm" onclick="cmOpen()" title="Собрать разрозненные выплаты с одной датой и номером в одну платёжку">🧩 Объединить платежи</button>
           <button class="btn btn-ghost btn-sm" onclick="showCashByCounterparty()" title="Сколько выдано каждому сотруднику / контрагенту за выбранный период">👥 Выдано по сотрудникам</button>
           <span id="cash-filter-count" style="font-size:12px;color:var(--text3)"></span>
         </div>
@@ -9791,6 +9792,135 @@ function exportCashCp(){
   ws['!cols']=[{wch:38},{wch:10},{wch:12},{wch:14},{wch:16}];
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Свод');
   XLSX.writeFile(wb,'Касса_свод_по_контрагентам.xlsx');
+}
+
+// ── Объединение разрозненных выплат кассы ЗП в одну платёжку ──────────────────
+// Группируем расходы выбранной кассы по (дата + номер документа из описания). Номер ищем как
+// «кассы 672», «№672», «РКО 672»; если номера нет — по полностью совпадающему описанию.
+// Для группы создаётся ОДИН расход на сумму всех, выплаты по сотрудникам в ведомости
+// (salary_accruals, type=payment) перепривязываются к нему, старые операции удаляются.
+let _cmGroups=[];
+function cmDocKey(tx){
+  const d=String(tx.desc||'');
+  const m=/(?:кассы|№|N|#|РКО|ПКО|ордер\w*)\s*[№N#.]?\s*(\d+)/i.exec(d);
+  return m ? {num:m[1], key:'№'+m[1]} : {num:null, key:'«'+d.trim().toLowerCase()+'»'};
+}
+function cmLinkedIds(){
+  const s=new Set();
+  (window._orderPaymentsData||[]).forEach(p=>p.tx_id&&s.add(String(p.tx_id)));
+  (typeof esfLinksData!=='undefined'?esfLinksData:[]).forEach(l=>{ if(l.source_type==='money_tx') s.add(String(l.source_id)); });
+  (typeof advanceReports!=='undefined'?advanceReports:[]).forEach(a=>a.txId&&s.add(String(a.txId)));
+  return s;
+}
+function cmBuildGroups(cashId){
+  const linked=cmLinkedIds(), map={};
+  moneyTx.filter(t=>t.accountId===cashId && t.flow==='expense' && t.sbId).forEach(t=>{
+    const k=cmDocKey(t), key=String(t.date).slice(0,10)+'|'+k.key;
+    (map[key]=map[key]||{key, date:String(t.date).slice(0,10), label:k.key, num:k.num, txs:[]}).txs.push(t);
+  });
+  return Object.values(map).filter(g=>g.txs.length>1).map(g=>{
+    g.total=g.txs.reduce((s,t)=>s+(+t.amount||0),0);
+    g.blocked=g.txs.some(t=>linked.has(String(t.sbId)));
+    g.mixed=new Set(g.txs.map(t=>t.category+'|'+(t.subcategory||''))).size>1;
+    return g;
+  }).sort((a,b)=>b.date.localeCompare(a.date)||a.label.localeCompare(b.label));
+}
+function cmEsc(v){ return String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function cmOpen(){
+  const cashId=document.getElementById('cash-account-select')?.value||'';
+  if(!cashId){ alert('Выберите кассу'); return; }
+  _cmGroups=cmBuildGroups(cashId);
+  let m=document.getElementById('cashMergeModal');
+  if(!m){
+    m=document.createElement('div'); m.className='modal-overlay'; m.id='cashMergeModal';
+    m.innerHTML=`<div class="modal" style="max-width:860px;width:96vw;max-height:92vh;overflow:auto">
+      <div class="modal-header"><div class="modal-title">🧩 Объединить платежи в одну платёжку</div><button class="modal-close" onclick="closeModal('cashMergeModal')">✕</button></div>
+      <div id="cm-body"></div></div>`;
+    document.body.appendChild(m);
+  }
+  cmRender(); showModal('cashMergeModal');
+}
+function cmRender(){
+  const fmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
+  const sel=document.getElementById('cash-account-select');
+  const rows=_cmGroups.map((g,i)=>{
+    const bad=g.blocked||g.mixed;
+    const names=[...new Set(g.txs.map(t=>t.counterparty||'—'))];
+    return `<tr style="${bad?'opacity:.6':''}">
+      <td><input type="checkbox" id="cm-c-${i}" ${bad?'disabled':'checked'}></td>
+      <td style="white-space:nowrap">${cmEsc(g.date)}</td><td>${cmEsc(g.label)}</td>
+      <td style="text-align:right">${g.txs.length}</td>
+      <td style="font-size:12px;color:var(--text3)">${cmEsc(names.slice(0,4).join(', '))}${names.length>4?' и ещё '+(names.length-4):''}</td>
+      <td style="text-align:right;font-family:monospace">${fmt(g.total)}</td>
+      <td style="font-size:11px;color:var(--amber)">${g.blocked?'есть привязки к заказам/ЭСФ/авансам — не трогаем':g.mixed?'разные категории — не трогаем':''}</td></tr>`;
+  }).join('');
+  document.getElementById('cm-body').innerHTML=`
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Касса: <b>${cmEsc(sel?.options[sel.selectedIndex]?.text||'')}</b>. Показаны расходы с одинаковой датой и номером документа в описании (или с одинаковым описанием, если номера нет). Из каждой отмеченной группы получится один расход на общую сумму, контрагент — «Сотрудники».</div>
+    ${_cmGroups.length?`<div style="overflow:auto"><table class="data-table"><thead><tr><th></th><th>Дата</th><th>Документ</th><th style="text-align:right">Платежей</th><th>Кому</th><th style="text-align:right">Сумма</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:10px"><input type="checkbox" id="cm-create" checked> Если по платежу нет выплаты в зарплатной ведомости — создать её (по имени контрагента, если он есть в списке сотрудников)</label>
+    <div style="font-size:12px;color:var(--text3);margin-top:6px">Перед изменениями браузер скачает файл-копию старых операций (на случай отката). Действие необратимо без этой копии.</div>
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal('cashMergeModal')">Отмена</button><button class="btn btn-primary" id="cm-go" onclick="cmApply()">Объединить выбранные</button></div>`
+    :'<div style="padding:24px;text-align:center;color:var(--text3)">Разрозненных платежей с одинаковой датой и номером в этой кассе не найдено.</div>'}
+    <div id="cm-msg" style="margin-top:8px;font-size:13px"></div>`;
+}
+function cmNorm(s){ return String(s||'').replace(/\s+/g,' ').trim().toLowerCase(); }
+async function cmApply(){
+  const picked=_cmGroups.filter((g,i)=>document.getElementById('cm-c-'+i)?.checked);
+  if(!picked.length){ alert('Отметьте хотя бы одну группу'); return; }
+  const create=!!document.getElementById('cm-create')?.checked;
+  const n=picked.reduce((s,g)=>s+g.txs.length,0);
+  if(!confirm(`Объединить ${n} платежей в ${picked.length} платёжек(и)?`)) return;
+  const msg=document.getElementById('cm-msg'), btn=document.getElementById('cm-go'); btn.disabled=true;
+  try{
+    msg.textContent='⏳ Читаю выплаты ведомости...';
+    const dates=[...new Set(picked.map(g=>g.date))];
+    const accs=await sbFetchAllPages('salary_accruals',`select=*&type=eq.payment&date=in.(${dates.join(',')})`);
+    // резервная копия
+    const backup={created:new Date().toISOString(), groups:picked.map(g=>({key:g.key,txs:g.txs})), accruals:accs};
+    try{
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(backup,null,1)],{type:'application/json'}));
+      a.download='backup_merge_cash_'+new Date().toISOString().slice(0,10)+'.json'; document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){}
+    const empNames=(employeesData||[]).map(e=>e.name);
+    const empByNorm={}; empNames.forEach(nm=>empByNorm[cmNorm(nm)]=nm);
+    const stat={groups:0, txs:0, relinked:0, created:0, noAcc:0};
+    for(const g of picked){
+      msg.textContent=`⏳ ${g.label} ${g.date}…`;
+      const first=g.txs[0], names=[...new Set(g.txs.map(t=>(t.counterparty||'').trim()).filter(Boolean))];
+      const descs=[...new Set(g.txs.map(t=>(t.desc||'').trim()))];
+      const desc = g.num ? ('Расход из кассы '+g.num) : (descs[0]||'Выдача ЗП');
+      const payload={date:g.date, account_id:first.accountId, flow:'expense', category:first.category, subcategory:first.subcategory||null,
+        amount:Math.round(g.total*100)/100, description:desc, counterparty:names.length>1?'Сотрудники':(names[0]||'Сотрудники'), bin:null, order_num:''};
+      const created=await sbInsertMoneyTxSafe(payload);
+      const newId=created?.id;
+      const claimed=new Set();
+      for(const t of g.txs){
+        let acc=accs.find(a=>!claimed.has(a.id) && a.details && typeof a.details==='object' && a.details.tx_id===t.sbId);
+        if(!acc) acc=accs.find(a=>!claimed.has(a.id) && cmNorm(a.emp_name)===cmNorm(t.counterparty) && String(a.date).slice(0,10)===g.date && Math.abs((+a.amount||0)-(+t.amount||0))<1 && !(a.details&&a.details.tx_id&&a.details.tx_id!==t.sbId));
+        if(acc){
+          claimed.add(acc.id);
+          const det={...(typeof acc.details==='object'&&acc.details?acc.details:{}), source:'cash_expense', tx_id:newId};
+          await sbPatch('salary_accruals',`id=eq.${acc.id}`,{details:det}); acc.details=det; stat.relinked++;
+        } else if(create && empByNorm[cmNorm(t.counterparty)]){
+          const r=await sbInsert('salary_accruals',{emp_name:empByNorm[cmNorm(t.counterparty)], date:g.date, amount:+t.amount||0, deducted:0, net:0, type:'payment', comment:desc, details:{source:'cash_expense', tx_id:newId}});
+          if(typeof _payrollData!=='undefined' && _payrollData && r) _payrollData.payments.push(r);
+          stat.created++;
+        } else stat.noAcc++;
+      }
+      await sbDelete('money_tx',`id=in.(${g.txs.map(t=>t.sbId).join(',')})`);
+      const oldIds=new Set(g.txs.map(t=>t.sbId));
+      for(let i=moneyTx.length-1;i>=0;i--) if(oldIds.has(moneyTx[i].sbId)) moneyTx.splice(i,1);
+      moneyTx.push({id:txSeq++, sbId:newId, date:g.date, accountId:first.accountId, flow:'expense', category:first.category, subcategory:first.subcategory||'', amount:payload.amount, desc:payload.description, counterparty:payload.counterparty, bin:'', orderNum:''});
+      delete _txPayCache[g.date];
+      stat.groups++; stat.txs+=g.txs.length;
+    }
+    if(typeof renderCashTx==='function') renderCashTx();
+    if(typeof renderMoneyKPIs==='function') try{ renderMoneyKPIs(); }catch(e){}
+    _cmGroups=_cmGroups.filter(g=>!picked.includes(g)); cmRender();
+    document.getElementById('cm-msg').innerHTML=`<span style="color:var(--green)">✓ Готово: ${stat.txs} платежей → ${stat.groups} платёжек. Выплат в ведомости перепривязано: ${stat.relinked}, создано: ${stat.created}${stat.noAcc?`, без выплаты в ведомости осталось: ${stat.noAcc} (сотрудник не определён)`:''}.</span>`;
+  }catch(e){
+    msg.innerHTML='<span style="color:var(--red)">Ошибка: '+cmEsc(e.message)+'. Часть групп могла быть обработана — закройте окно и откройте заново.</span>'; if(btn) btn.disabled=false;
+  }
 }
 
 function renderCashTx(){
