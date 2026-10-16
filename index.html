@@ -10003,8 +10003,9 @@ function zrBuild(){
   moneyTx.filter(t=>t.flow==='expense' && ZR_BANK_CATS.includes(t.category) && banks.some(b=>b.id===t.accountId) && zrIsToZp(t)).forEach(t=>{
     const d=String(t.date).slice(0,10), m=(exp[d]=exp[d]||{}); const e=(m[t.accountId]=m[t.accountId]||{sum:0,txs:[]}); e.sum+=+t.amount||0; e.txs.push(t);
   });
-  moneyTx.filter(t=>t.accountId===cash.id && t.flow==='income' && ZR_CASH_CATS.includes(t.category)).forEach(t=>{
-    const d=String(t.date).slice(0,10), src=zrSrcOf(t,banks), k=src?src.id:'?'; const m=(act[d]=act[d]||{}); const e=(m[k]=m[k]||{sum:0,txs:[]}); e.sum+=+t.amount||0; e.txs.push(t);
+  moneyTx.filter(t=>t.accountId===cash.id && t.flow==='income' && ZR_CASH_CATS.includes(t.category) && !/^\s*Перевод\s*←/i.test(t.desc||'')).forEach(t=>{
+    const d=String(t.date).slice(0,10), src=zrSrcOf(t,banks); if(!src) return;   // источник не банк (напр. другая касса) — не трогаем
+    const k=src.id; const m=(act[d]=act[d]||{}); const e=(m[k]=m[k]||{sum:0,txs:[]}); e.sum+=+t.amount||0; e.txs.push(t);
   });
   const rows=[];
   new Set([...Object.keys(exp),...Object.keys(act)]).forEach(d=>{
@@ -10020,6 +10021,37 @@ function zrBuild(){
   });
   return rows.sort((a,b)=>b.date.localeCompare(a.date));
 }
+
+// Внутренние переводы «Перевод → X» без парного поступления «Перевод ← Y» на счёте X
+function zrOrphans(){
+  const accs=bankAccounts||[], used=new Set(), out=[];
+  moneyTx.filter(t=>t.flow==='expense' && t.category==='transfer_out').sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(t=>{
+    const m=/^\s*Перевод\s*→\s*(.+?)\s*$/i.exec(t.desc||''); if(!m) return;
+    const to=accs.find(a=>(a.name||'').trim().toLowerCase()===m[1].trim().toLowerCase()); if(!to) return;
+    const d=String(t.date).slice(0,10);
+    const pair=moneyTx.find(x=>!used.has(x) && x.flow==='income' && x.accountId===to.id && String(x.date).slice(0,10)===d && Math.abs((+x.amount||0)-(+t.amount||0))<1 && ['transfer_in','transfer'].includes(x.category));
+    if(pair) used.add(pair); else out.push({tx:t, to, from:accs.find(a=>a.id===t.accountId), date:d});
+  });
+  return out;
+}
+async function zrOrphanFix(){
+  const picked=_zrOrph.filter((o,i)=>document.getElementById('zo-c-'+i)?.checked);
+  if(!picked.length){ alert('Отметьте хотя бы один перевод'); return; }
+  if(!confirm(`Создать недостающих поступлений: ${picked.length}?`)) return;
+  const msg=document.getElementById('zr-msg');
+  try{
+    for(const o of picked){
+      const desc='Перевод ← '+(o.from?o.from.name:'');
+      const c=await sbInsertMoneyTxSafe({date:o.date, account_id:o.to.id, flow:'income', category:'transfer_in', subcategory:null, amount:+o.tx.amount, description:desc, counterparty:o.tx.counterparty||'', bin:null, order_num:''});
+      moneyTx.push({id:txSeq++, sbId:c?.id, date:o.date, accountId:o.to.id, flow:'income', category:'transfer_in', subcategory:'', amount:+o.tx.amount, desc, counterparty:o.tx.counterparty||'', bin:'', orderNum:''});
+    }
+    if(typeof renderCashTx==='function') renderCashTx();
+    if(typeof renderMoneyKPIs==='function') try{ renderMoneyKPIs(); }catch(e){}
+    zrRender(false);
+    document.getElementById('zr-msg').innerHTML=`<span style="color:var(--green)">✓ Создано поступлений: ${picked.length}.</span>`;
+  }catch(e){ msg.innerHTML='<span style="color:var(--red)">Ошибка: '+cmEsc(e.message)+'</span>'; }
+}
+let _zrOrph=[];
 function zrOpen(){
   const rows=zrBuild();
   let m=document.getElementById('zpReconModal');
@@ -10035,6 +10067,7 @@ function zrRender(noCash){
   const fmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
   const body=document.getElementById('zr-body');
   if(noCash){ body.innerHTML='<div style="padding:20px;color:var(--red)">Не найдена касса ЗП (кассa с «ЗП» или «зарплата» в названии, не «ЗП салонов»).</div>'; return; }
+  _zrOrph=zrOrphans();
   const bankName=id=>{ const b=(bankAccounts||[]).find(a=>a.id===id); return b?b.name:'не определён'; };
   const trs=_zrRows.map((r,i)=>{
     const exp=Object.keys(r.E).map(k=>`${cmEsc(bankName(k))}: <b>${fmt(r.E[k].sum)}</b> (${r.E[k].txs.length})`).join('<br>')||'<span style="color:var(--text3)">—</span>';
@@ -10047,7 +10080,16 @@ function zrRender(noCash){
   <div style="font-size:12px;color:var(--text3);margin-top:8px">Перед исправлением браузер скачает файл-копию удаляемых операций.</div>
   <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal('zpReconModal')">Закрыть</button><button class="btn btn-primary" id="zr-go" onclick="zrApply()">Исправить отмеченные</button></div>`
   :'<div style="padding:24px;text-align:center;color:var(--green)">✓ Расхождений не найдено: поступления в кассе ЗП совпадают с расходами банков по всем датам.</div>'}
+  ${zrOrphHtml()}
   <div id="zr-msg" style="margin-top:8px;font-size:13px"></div>`;
+}
+function zrOrphHtml(){
+  const fmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
+  if(!_zrOrph.length) return '<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--green)">✓ Переводов между своими счетами без пары нет.</div>';
+  return `<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)"><div style="font-weight:600;font-size:13px;margin-bottom:4px">↔️ Переводы между своими счетами без парного поступления</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Есть расход «Перевод → …», а на счёте-получателе нет поступления на ту же дату и сумму. Отмеченные поступления будут созданы.</div>
+    <div style="overflow:auto"><table class="data-table"><thead><tr><th></th><th>Дата</th><th>Откуда</th><th>Куда</th><th style="text-align:right">Сумма</th></tr></thead><tbody>${_zrOrph.map((o,i)=>`<tr><td><input type="checkbox" id="zo-c-${i}" checked></td><td>${o.date}</td><td>${cmEsc(o.from?o.from.name:'?')}</td><td>${cmEsc(o.to.name)}</td><td style="text-align:right;font-family:monospace">${fmt(o.tx.amount)}</td></tr>`).join('')}</tbody></table></div>
+    <div style="margin-top:8px;text-align:right"><button class="btn btn-primary btn-sm" onclick="zrOrphanFix()">Создать недостающие поступления</button></div></div>`;
 }
 async function zrApply(){
   const picked=_zrRows.filter((r,i)=>document.getElementById('zr-c-'+i)?.checked && !r.noBank);
