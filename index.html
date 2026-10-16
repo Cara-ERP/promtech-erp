@@ -6233,7 +6233,7 @@ window.onerror = function(msg, src, line, col){
               <th onclick="sortCashTx('ctr')"    style="cursor:pointer;user-select:none">Контрагент <span id="cash-sort-ctr"></span></th>
               <th onclick="sortCashTx('income')" style="cursor:pointer;user-select:none;text-align:right;color:var(--green)">Приход <span id="cash-sort-income"></span></th>
               <th onclick="sortCashTx('expense')" style="cursor:pointer;user-select:none;text-align:right;color:var(--red)">Расход <span id="cash-sort-expense"></span></th>
-              <th style="text-align:right">Остаток</th>
+              <th style="text-align:right;cursor:help" title="Остаток кассы после этой операции. Считается по всей истории кассы: приходы − расходы по порядку дат (внутри дня сначала приходы, затем расходы). Не зависит от сортировки и фильтров. У последней операции дня — остаток на конец дня.">Остаток после ⓘ</th>
               <th></th>
             </tr></thead>
             <tbody id="cash-tbody"></tbody>
@@ -10072,13 +10072,20 @@ function renderCashTx(){
       <span style="color:var(--red);margin-left:6px">▼${fmtS(sumOut)}</span>`;
   }
 
-  // Остаток считаем только при сортировке по дате
-  const showRunning = _cashSortCol==='date';
-  let running = showRunning ? openBal + stats.income - stats.expense : 0;
+  // Бегущий остаток: баланс кассы ПОСЛЕ каждой операции, считается по всей истории кассы в хронологическом порядке
+  // (дата → внутри дня сначала приходы, потом расходы → порядок загрузки), поэтому не зависит от сортировки,
+  // фильтров и выбранного периода. Последняя операция дня показывает остаток на конец дня.
+  const _balMap = new Map();
+  {
+    let acc = 0;
+    moneyTx.map((t,i)=>({t,i})).filter(x=>x.t.accountId===cashId)
+      .sort((a,b)=> String(a.t.date||'').slice(0,10).localeCompare(String(b.t.date||'').slice(0,10))
+                 || ((a.t.flow==='income'?0:1)-(b.t.flow==='income'?0:1)) || (b.i-a.i))
+      .forEach(x=>{ acc += x.t.flow==='income' ? (+x.t.amount||0) : -(+x.t.amount||0); _balMap.set(x.t, acc); });
+  }
 
   tbody.innerHTML = txs.map(t=>{
-    const rowBal = showRunning ? running : null;
-    if(showRunning) running += t.flow==='income' ? -t.amount : t.amount;
+    const rowBal = _balMap.has(t) ? _balMap.get(t) : null;
     const subcat = t.subcategory ? (_expenseCats||[]).find(c=>c.code===t.subcategory) : null;
     return `<tr>
       <td style="font-size:12px;white-space:nowrap">${t.date}</td>
@@ -17084,7 +17091,7 @@ function cabCollectTasks(){
         if(!me) return;
         const ktuSum=(s.assignees||[]).reduce((t,a)=>t+(a.ktu||1),0)||1;
         const total=computeStageAmountFor(s,item);
-        out.push({orderNum,itemName:item.name+(item.qty>1?` ×${item.qty}`:''),stage:s.stage||'(без названия)',workshop:s.workshop||'',
+        out.push({orderNum,itemName:'№'+(+idxStr+1)+' · '+item.name+(item.qty>1?` ×${item.qty}`:''),stage:s.stage||'(без названия)',workshop:s.workshop||'',
           posted:!!s.posted,postedDate:s.postedDate,started:!!s.started,startedDate:s.startedDate,
           ktu:me.ktu||1,share:total*((me.ktu||1)/ktuSum)});
       });
@@ -19403,7 +19410,7 @@ function collectWorkLogEntries(){
       assignees.forEach(a=>{
         entries.push({
           date: s.postedDate, workshop: s.workshop||'', exec: a.name,
-          orderNum, itemName: item.name, category: item.category||'—', stage: s.stage||'(без названия)',
+          orderNum, itemName: '№'+(+itemIdxStr+1)+' · '+item.name, category: item.category||'—', stage: s.stage||'(без названия)',
           amount: total * ((a.ktu||1)/ktuSum),
         });
       });
@@ -19577,7 +19584,7 @@ function renderWorkshopLoad(){
     <tr>
       <td><span class="badge ${p.urgencyClass}" style="font-size:11px">${p.urgencyLabel}</span></td>
       <td style="font-family:monospace;color:var(--accent)">${p.orderNum}</td>
-      <td>${p.item.name}</td>
+      <td>${posBadge(posNo(p.orderNum,p.item))}${p.item.name}</td>
       <td>${p.workshops.map(wid=>PIECE_WORKSHOPS.find(w=>w.id===wid)?.name||wid).join(', ')||'—'}</td>
       <td>${p.deadlineIso?p.item.date:'—'}</td>
     </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Нет незавершённых этапов</td></tr>';
@@ -30797,6 +30804,15 @@ function swAttrsShort(full){
   const txt=parts.join(', ');
   return txt.length>40 ? txt.slice(0,40).trim()+'…' : txt;
 }
+// № позиции товара в заказе: сохранённый в строке, а для старых накладных — по названию в заказе
+function swItemNo(r){
+  const n=parseInt(r.item_no); if(n>0) return n;
+  if(!r.order_num) return '';
+  const o=(ordersData||[]).find(x=>x.num===r.order_num); if(!o) return '';
+  const nm=plNormProductName(r.item_name), hits=[]; (o.items||[]).forEach((it,i)=>{ if(plNormProductName(it.name)===nm) hits.push(i+1); });
+  return hits.length===1?hits[0]:'';
+}
+function swNoBadge(r){ const n=swItemNo(r); return n?posBadge(n):''; }
 function swAttrsView(r){ return r.attrs_short ? swAttrsShort(r.attrs) : (r.attrs||''); }
 
 function swRender(){
@@ -30838,7 +30854,7 @@ function swRender(){
       <td style="white-space:nowrap;font-size:12px">${swEsc(swIsoToRu(r.doc_date))}</td>
       <td style="font-size:12px;color:var(--accent)">${swEsc(r.order_num||'—')}</td>
       <td>${first?swEsc(r.customer):''}</td>
-      <td style="font-weight:500">${r.line_kind&&r.line_kind!=='sale'?`<span class="badge badge-amber" title="${swEsc(SW_LINE_KINDS[r.line_kind]||'')}">🔧 ${r.line_kind==='restore_pickup'?'забор':'возврат'}</span> `:''}${swEsc(r.item_name)}</td>
+      <td style="font-weight:500">${swNoBadge(r)}${r.line_kind&&r.line_kind!=='sale'?`<span class="badge badge-amber" title="${swEsc(SW_LINE_KINDS[r.line_kind]||'')}">🔧 ${r.line_kind==='restore_pickup'?'забор':'возврат'}</span> `:''}${swEsc(r.item_name)}</td>
       <td style="font-size:12px;color:var(--text2);max-width:260px">${swEsc(swAttrsView(r))}</td>
       <td style="text-align:right;font-family:monospace">${swEsc(r.qty)} ${swEsc(r.unit||'')}</td>
       <td style="text-align:right;font-family:monospace">${swFmt(r.price)}</td>
@@ -30882,7 +30898,7 @@ function swPrintDoc(docId){
   const h=rows[0];
   const total=rows.reduce((t,x)=>t+(+x.amount||0),0);
   const orders=[...new Set(rows.map(r=>r.order_num).filter(Boolean))];
-  const body=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${r.line_kind==='restore_pickup'?'[Забор на реставрацию] ':r.line_kind==='restore_return'?'[Возврат после реставрации] ':''}${swEsc(r.item_name)}${r.order_num?`<div style="font-size:9px;color:#555">заказ ${swEsc(r.order_num)}</div>`:''}</td><td>${swEsc(swAttrsView(r))}</td><td>${swEsc(r.unit||'шт')}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td></tr>`).join('');
+  const body=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${swItemNo(r)?`<b>№${swItemNo(r)}</b> `:''}${r.line_kind==='restore_pickup'?'[Забор на реставрацию] ':r.line_kind==='restore_return'?'[Возврат после реставрации] ':''}${swEsc(r.item_name)}${r.order_num?`<div style="font-size:9px;color:#555">заказ ${swEsc(r.order_num)}</div>`:''}</td><td>${swEsc(swAttrsView(r))}</td><td>${swEsc(r.unit||'шт')}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td></tr>`).join('');
   const html=`<html><head><meta charset="utf-8">${SW_PRINT_CSS}</head><body>
     <h2>Накладная на отгрузку № ${swEsc(h.doc_num)} от ${swEsc(swIsoToRu(h.doc_date))}</h2>
     <div>Покупатель: <b>${swEsc(h.customer)}</b></div>
@@ -30903,7 +30919,7 @@ function swPrintJournal(){
   if(!rows.length){ alert('Нет строк для печати'); return; }
   const from=document.getElementById('sw-from').value, to=document.getElementById('sw-to').value;
   const total=rows.reduce((t,x)=>t+(+x.amount||0),0);
-  const body=rows.map(r=>`<tr><td>${swEsc(r.doc_num)}</td><td>${swEsc(swIsoToRu(r.doc_date))}</td><td>${swEsc(r.order_num||'')}</td><td>${swEsc(r.customer)}</td><td>${swEsc(r.item_name)}</td><td>${swEsc(swAttrsView(r))}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td><td>${swEsc(r.driver||'')}</td><td>${r.delivered?'✓':''}</td></tr>`).join('');
+  const body=rows.map(r=>`<tr><td>${swEsc(r.doc_num)}</td><td>${swEsc(swIsoToRu(r.doc_date))}</td><td>${swEsc(r.order_num||'')}</td><td>${swEsc(r.customer)}</td><td>${swItemNo(r)?`<b>№${swItemNo(r)}</b> `:''}${swEsc(r.item_name)}</td><td>${swEsc(swAttrsView(r))}</td><td class="r">${swEsc(r.qty)}</td><td class="r">${swFmt(r.price)}</td><td class="r">${swFmt(r.amount)}</td><td>${swEsc(r.driver||'')}</td><td>${r.delivered?'✓':''}</td></tr>`).join('');
   const html=`<html><head><meta charset="utf-8">${SW_PRINT_CSS}<style>@page{size:A4 landscape;margin:10mm}body{font-size:10px}</style></head><body>
     <h2>Журнал реализации${sel.length?' (выбранные строки)':''}</h2>
     <div>Период: ${swEsc(swIsoToRu(from))} — ${swEsc(swIsoToRu(to))} · строк: ${rows.length}</div>
@@ -30939,7 +30955,7 @@ function swOpenDoc(docId){
     if(!swCanEdit(rows)){ alert('Эту накладную редактировать нельзя (проведена, либо день создания уже прошёл).'); return; }
     const h=rows[0];
     _swEdit={docId, keep:{created_by:h.created_by, created_by_name:h.created_by_name, created_at:h.created_at, delivered:h.delivered, delivered_at:h.delivered_at, delivered_by:h.delivered_by},
-      lines:rows.map(r=>({order_num:r.order_num||'',item_name:r.item_name||'',attrs:r.attrs||'',attrs_short:!!r.attrs_short,unit:r.unit||'шт',qty:+r.qty||0,price:+r.price||0,line_kind:r.line_kind||'sale',restoration_id:r.restoration_id||null}))};
+      lines:rows.map(r=>({order_num:r.order_num||'',item_name:r.item_name||'',attrs:r.attrs||'',attrs_short:!!r.attrs_short,unit:r.unit||'шт',qty:+r.qty||0,price:+r.price||0,line_kind:r.line_kind||'sale',restoration_id:r.restoration_id||null,item_no:swItemNo(r)||''}))};
     document.getElementById('sw-modal-title').textContent='Накладная '+h.doc_num;
     document.getElementById('sw-doc-num').value=h.doc_num||'';
     document.getElementById('sw-doc-date').value=String(h.doc_date).slice(0,10);
@@ -31003,9 +31019,9 @@ function swLoadOrderItems(){
     return {order, idx, it, shipped, rest};
   });
   body.innerHTML=`<div style="font-size:13px;margin-bottom:6px"><b>${swEsc(order.num)}</b> · ${swEsc(cust)}</div>
-    <table class="data-table"><thead><tr><th style="width:30px"></th><th>Товар</th><th>Характеристики</th><th style="text-align:right">В заказе</th><th style="text-align:right">Уже отгружено</th><th style="width:90px">Отгрузить</th><th style="text-align:right">Цена</th></tr></thead><tbody>
+    <table class="data-table"><thead><tr><th style="width:30px"></th><th style="width:44px">№</th><th>Товар</th><th>Характеристики</th><th style="text-align:right">В заказе</th><th style="text-align:right">Уже отгружено</th><th style="width:90px">Отгрузить</th><th style="text-align:right">Цена</th></tr></thead><tbody>
     ${_swOrderItems.map((x,i)=>`<tr><td><input type="checkbox" id="swp-c-${i}" ${x.rest>0?'checked':''}></td>
-      <td>${swEsc(x.it.name)}</td><td style="font-size:12px;color:var(--text3)">${swEsc(swAttrsFromItem(x.it))}</td>
+      <td>${posBadge(x.idx+1)}</td><td>${swEsc(x.it.name)}</td><td style="font-size:12px;color:var(--text3)">${swEsc(swAttrsFromItem(x.it))}</td>
       <td style="text-align:right">${swEsc(x.it.qty)}</td><td style="text-align:right;color:${x.shipped?'var(--amber)':'var(--text3)'}">${x.shipped||'—'}</td>
       <td><input type="number" id="swp-q-${i}" value="${x.rest||x.it.qty||1}" min="0" style="width:80px;font-size:13px"></td>
       <td style="text-align:right">${swFmt(x.it.price)}</td></tr>`).join('')}
@@ -31024,7 +31040,7 @@ function swAddPickedItems(){
     if(!document.getElementById('swp-c-'+i)?.checked) return;
     const qty=swNum(document.getElementById('swp-q-'+i).value);
     if(qty<=0) return;
-    _swEdit.lines.push({order_num:x.order.num,item_name:x.it.name,attrs:swAttrsFromItem(x.it),attrs_short:false,unit:x.it.unit||'шт',qty,price:+x.it.price||0});
+    _swEdit.lines.push({order_num:x.order.num,item_no:x.idx+1,item_name:x.it.name,attrs:swAttrsFromItem(x.it),attrs_short:false,unit:x.it.unit||'шт',qty,price:+x.it.price||0});
     added++;
   });
   if(!added){ alert('Отметьте хотя бы одну позицию с количеством больше 0'); return; }
@@ -31037,14 +31053,15 @@ function swAddPickedItems(){
 }
 function swSyncHeaderFromInputs(){}
 function swAddFreeLine(){
-  _swEdit.lines.push({order_num:'',item_name:'',attrs:'',attrs_short:false,unit:'шт',qty:1,price:0,line_kind:'sale'});
+  _swEdit.lines.push({order_num:'',item_no:'',item_name:'',attrs:'',attrs_short:false,unit:'шт',qty:1,price:0,line_kind:'sale'});
   swRenderLines();
 }
 function swSetAllShort(on){ _swEdit.lines.forEach(l=>l.attrs_short=on); swRenderLines(); }
 function swRenderLines(){
   const tb=document.getElementById('sw-lines');
   tb.innerHTML=_swEdit.lines.map((l,i)=>`<tr>
-    <td><input value="${swEsc(l.order_num)}" style="width:100%;font-size:12px" placeholder="без заказа" oninput="swLineSet(${i},'order_num',this.value)"></td>
+    <td><input value="${swEsc(l.order_num)}" style="width:100%;font-size:12px" placeholder="без заказа" oninput="swLineSet(${i},'order_num',this.value)">
+        <div style="display:flex;align-items:center;gap:4px;margin-top:3px;font-size:11px;color:var(--text3)">поз. №<input type="number" min="1" step="1" value="${swEsc(l.item_no||'')}" style="width:52px;font-size:12px" title="Порядковый номер товара в заказе" oninput="swLineSet(${i},'item_no',this.value)"></div></td>
     <td><input value="${swEsc(l.item_name)}" style="width:100%;font-size:13px" oninput="swLineSet(${i},'item_name',this.value)">
         <select style="width:100%;font-size:11px;margin-top:3px;${(l.line_kind||'sale')!=='sale'?'color:var(--amber)':'color:var(--text3)'}" onchange="swLineSet(${i},'line_kind',this.value);swRenderLines()">${Object.entries(SW_LINE_KINDS).map(([k,v])=>`<option value="${k}" ${(l.line_kind||'sale')===k?'selected':''}>${v}</option>`).join('')}</select></td>
     <td><input value="${swEsc(l.attrs)}" style="width:100%;font-size:12px" oninput="swLineSet(${i},'attrs',this.value)">
@@ -31060,7 +31077,7 @@ function swRenderLines(){
 }
 function swLineSet(i,f,v){
   const l=_swEdit.lines[i]; if(!l) return;
-  l[f]=(f==='qty'||f==='price')?swNum(v):v;
+  l[f]=(f==='qty'||f==='price')?swNum(v):(f==='item_no'?(parseInt(v)>0?parseInt(v):''):v);
   const c=document.getElementById('sw-amt-'+i); if(c) c.textContent=swFmt(l.qty*l.price);
   swUpdateTotal();
 }
@@ -31096,10 +31113,16 @@ async function swSaveDoc(){
     created_by: keep.created_by||swUser(), created_by_name: keep.created_by_name||role.name||'',
     ...(keep.created_at?{created_at:keep.created_at}:{}),
     ...((l.line_kind&&l.line_kind!=='sale')?{line_kind:l.line_kind, restoration_id:l.restoration_id||null}:{}),
+    ...(parseInt(l.item_no)>0?{item_no:parseInt(l.item_no)}:{}),
   }));
   try{
     if(_swEdit.docId) await sbDelete('sales_worksheet',`doc_id=eq.${docId}`);
-    await sbInsertMany('sales_worksheet',payload);
+    try{ await sbInsertMany('sales_worksheet',payload); }
+    catch(e){
+      // колонки item_no ещё нет в базе (не выполнен item_no.sql) — сохраняем без неё; номер всё равно определится по заказу
+      if(/item_no/i.test(e.message||'') && payload.some(x=>'item_no' in x)){ payload.forEach(x=>{ delete x.item_no; }); await sbInsertMany('sales_worksheet',payload); }
+      else throw e;
+    }
     if(typeof rsAfterDocSaved==='function') await rsAfterDocSaved(lines,num,date);
     closeModal('swDocModal');
     await swReload();
@@ -34955,7 +34978,7 @@ function buildTaskRows(){
           key:       `${order.num}|${itemIdx}|${stageIdx}`,
           orderNum:  order.num,
           customer:  resolveCustomerName(order),
-          itemName:  item.name,
+          itemName:  '№'+(itemIdx+1)+' · '+item.name,
           totalQty:  qty,
           unit:      item.unit||'шт',
           stageIdx:  stageIdx+1,
@@ -34975,7 +34998,7 @@ function buildTaskRows(){
         rows.push({
           key:`${order.num}|${itemIdx}|0`,
           orderNum:order.num, customer:resolveCustomerName(order),
-          itemName:item.name, totalQty:qty, unit:item.unit||'шт',
+          itemName:'№'+(itemIdx+1)+' · '+item.name, totalQty:qty, unit:item.unit||'шт',
           stageIdx:1, stagesTotal:n,
           stageName:item.techCard[0]?.name||'—',
           nextStage:item.techCard[1]?.name||'—',
@@ -35008,6 +35031,9 @@ function PROD_STAGE_NAMES(){
   return [...new Set((tariffData||[]).map(t=>t.op))];
 }
 function itemKeyOf(orderNum, itemIdx){ return `${orderNum}|${itemIdx}`; }
+// Порядковый № товара в заказе (1, 2, 3…) — по позиции в order.items. Нужен производству: в заказах на 30–40 позиций искать по номеру проще, чем по названию.
+function posNo(orderNum, item){ const o=(ordersData||[]).find(x=>x.num===orderNum); const i=o?(o.items||[]).indexOf(item):-1; return i>=0?i+1:''; }
+function posBadge(n){ return n?`<span title="Порядковый номер товара в заказе" style="display:inline-block;min-width:26px;text-align:center;padding:1px 6px;margin-right:6px;border-radius:6px;background:var(--accent);color:#fff;font:700 11px/1.5 'IBM Plex Mono',monospace;vertical-align:1px">№${n}</span>`:''; }
 function itemOrderAmount(item){ return (item.qty||1) * (item.price||0); }
 
 // ---------- Перетаскивание ширины колонок мышью, с запоминанием в браузере ----------
@@ -35316,7 +35342,7 @@ function renderProdWorksheet(){
   }).filter(r=>r.order && r.item);
 
   const filtered = rows.filter(r=>{
-    if(search && !r.item.name.toLowerCase().includes(search)) return false;
+    if(search && !r.item.name.toLowerCase().includes(search) && search.replace(/^№\s*/,'')!==String(r.itemIdx+1)) return false;
     if(orderF && !r.orderNum.toLowerCase().includes(orderF) && !(/^\d+$/.test(orderF) && (r.orderNum.match(/\d+/g)||[]).some(d=>parseInt(d,10)===parseInt(orderF,10)))) return false;
     if(catF && r.item.category!==catF) return false;
     const orderIso = parseDMY(r.order.date||'')||'';
@@ -35369,7 +35395,7 @@ function renderProdWorksheet(){
         <div>${r.order.date||'—'}</div>
         <div style="color:var(--text3)">${r.order.deliveryDate||'—'}</div>
       </td>
-      <td style="max-width:70px;white-space:normal;font-weight:500">${r.item.name}</td>
+      <td style="max-width:70px;white-space:normal;font-weight:500">${posBadge(r.itemIdx+1)}${r.item.name}</td>
       <td style="max-width:70px;white-space:normal;font-size:11px;color:var(--text3)">${charText||'—'}</td>
       <td style="max-width:60px;white-space:normal">${workshopHtml}</td>
       <td style="max-width:170px;white-space:normal;background:var(--bg3)">${stagesHtml}</td>
@@ -35401,7 +35427,7 @@ function openPwbStageEditor(itemKey){
   const row = prodWbRows.find(r=>r.itemKey===itemKey);
   const order = ordersData.find(o=>o.num===row.orderNum);
   const item = order.items[row.itemIdx];
-  document.getElementById('pwb-modal-title').textContent = item.name;
+  document.getElementById('pwb-modal-title').textContent = '№'+(row.itemIdx+1)+' · '+item.name;
   document.getElementById('pwb-modal-meta').textContent = `Заказ ${order.num} · ${resolveCustomerName(order)} · Кол-во: ${item.qty} ${item.unit||'шт'} · Сумма по товару: ${fmtCurrency(itemOrderAmount(item))}`;
   renderPwbStagesList();
   renderPwbMaterialsList();
@@ -35757,7 +35783,7 @@ function exportProdWorksheetExcel(){
     [],
     ['Ключ (не менять)','Заказ','Дата заказа','Дата отправки','Товар','Характеристики','Кол-во','Цех','Этапы (текущие)','Исполнители','Материалы','Статус'],
     ...rows.map(({r,order,item,p})=>[
-      r.itemKey, order.num, order.date||'', order.deliveryDate||'', item.name, itemCharacteristicsText(item), item.qty,
+      r.itemKey, order.num, order.date||'', order.deliveryDate||'', '№'+(r.itemIdx+1)+' '+item.name, itemCharacteristicsText(item), item.qty,
       [...new Set(p.stages.map(s=>s.workshop).filter(Boolean))].map(id=>PIECE_WORKSHOPS.find(w=>w.id===id)?.name||id).join('; '),
       p.stages.map(s=>s.stage).join('; '),
       [...new Set(p.stages.flatMap(s=>(s.assignees||[]).map(a=>a.name)))].join('; '),
@@ -35866,7 +35892,7 @@ async function requestMaterialFromWorksheet(materialName, needQty, unit){
   const activeStage = item ? null : null;
   const payload = {
     material_name: materialName, qty: needQty||0, unit: unit||'',
-    order_num: row?row.orderNum:'', item_name: item?item.name:'',
+    order_num: row?row.orderNum:'', item_name: item?('№'+(row.itemIdx+1)+' · '+item.name):'',
     workshop: '', requested_by: '', status:'requested',
   };
   try{
@@ -37574,7 +37600,7 @@ function renderMrpOrdersJournal(){
       <td style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${order.num}</td>
       <td><span style="color:var(--accent);cursor:pointer;border-bottom:1px dashed var(--accent)"
             onclick="event.stopPropagation();${hasTechCard?`openMarginDetail('${order.num}',${itemIdx})`:`openEditOrderModal('${order.num}',${itemIdx})`}"
-            title="${hasTechCard?'Открыть детализацию затрат':'Открыть заказ'}">${item.name}</span>${marginBit}</td>
+            title="${hasTechCard?'Открыть детализацию затрат':'Открыть заказ'}">${posBadge(itemIdx+1)}${item.name}</span>${marginBit}</td>
       <td>${shopBadge}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${item.qty} ${item.unit||'шт'}</td>
       <td style="font-size:12px;${hasTechCard?'':'color:var(--text3)'}">${stageName}</td>
@@ -37656,7 +37682,7 @@ function renderShopFloor(){
   html += '<div class="sf-row-labels"><div class="sf-row-label-header">Товар / Заказ</div>';
   rows.forEach((r,rIdx)=>{
     html += `<div class="sf-row-label">
-      <div class="sf-row-label-name">${r.item.name}</div>
+      <div class="sf-row-label-name">${posBadge(r.itemIdx+1)}${r.item.name}</div>
       <div class="sf-row-label-meta">${r.order.num} · ${resolveCustomerName(r.order)}</div>
     </div>`;
   });
@@ -37685,7 +37711,7 @@ function renderShopFloor(){
           ondragstart="sfDragStart(event)"
           data-order-num="${r.order.num}" data-item-idx="${r.itemIdx}" data-from-col="${colIdx}"
           onclick="openSfStageModal('${r.order.num}',${r.itemIdx},${colIdx})">
-          <div class="sf-token-name">${r.item.name}</div>
+          <div class="sf-token-name">${posBadge(r.itemIdx+1)}${r.item.name}</div>
           <div class="sf-token-meta">${r.item.qty} ${r.item.unit}</div>
           ${assignees?`<div class="sf-token-assignee">👤 ${assignees}</div>`:''}
         </div>`;
@@ -38134,7 +38160,7 @@ function renderWaybillItems(){
     const isLocked = sel.orderNum===wbInitialOrderNum && sel.itemIdx===wbInitialItemIdx;
     return `<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:6px">
       <div>
-        <div style="font-size:13px;font-weight:500">${item.name}</div>
+        <div style="font-size:13px;font-weight:500">${posBadge(sel.itemIdx+1)}${item.name}</div>
         <div style="font-size:11px;color:var(--text3)">${order.num} · ${item.qty} ${item.unit}</div>
       </div>
       ${isLocked ? '<span style="font-size:11px;color:var(--text3)">основной товар</span>' : `<button class="row-delete-btn" onclick="removeWaybillItem('${sel.orderNum}',${sel.itemIdx})">✕</button>`}
@@ -38167,7 +38193,7 @@ function renderWaybillAvailableItems(customerName, excludeOrderNum, excludeItemI
     + candidates.map(c=>`
     <div style="display:flex;align-items:center;justify-content:space-between;border:1px dashed var(--border2);border-radius:8px;padding:8px 12px;margin-bottom:6px">
       <div>
-        <div style="font-size:13px">${c.item.name}</div>
+        <div style="font-size:13px">${posBadge(c.idx+1)}${c.item.name}</div>
         <div style="font-size:11px;color:var(--text3)">${c.order.num} · ${c.item.qty} ${c.item.unit}</div>
       </div>
       <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 9px" onclick="addWaybillItem('${c.order.num}',${c.idx})">+ Добавить</button>
@@ -39230,13 +39256,13 @@ function renderOrderModalInfo(){
   const tbody = document.getElementById('eo-items-tbody');
   const tfoot = document.getElementById('eo-items-tfoot');
   if(!tbody) return;
-  tbody.innerHTML = (order.items||[]).map(it=>{
+  tbody.innerHTML = (order.items||[]).map((it,_ix)=>{
     const itTotal = (it.qty||1)*(it.price||0);
     const badge = STATUS_BADGE[it.status]||'badge-red';
     const label = STATUS_LABELS[it.status]||it.status||'—';
     const prog  = it.progress||0;
     return `<tr>
-      <td style="font-weight:500">${it.name||'—'}</td>
+      <td style="font-weight:500">${posBadge(_ix+1)}${it.name||'—'}</td>
       <td style="text-align:right;font-family:monospace">${it.qty||1} ${it.unit||'шт'}</td>
       <td style="text-align:right;font-family:monospace">${fmt(it.price||0)}</td>
       <td style="text-align:right;font-family:monospace;font-weight:600">${fmt(itTotal)}</td>
