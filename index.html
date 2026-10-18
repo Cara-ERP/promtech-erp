@@ -6128,7 +6128,10 @@ window.onerror = function(msg, src, line, col){
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;
         padding:8px 14px;background:var(--bg3);border-radius:8px;flex-wrap:wrap">
         <span style="font-size:13px;color:var(--text2);font-weight:600">📅 Период:</span>
+        <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('day')"    id="mp-btn-day">День</button>
+        <input type="date" id="mp-day" onchange="setMoneyPeriod('day',this.value)" style="font-size:13px;display:none" title="Выберите день в календаре">
         <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('month')"  id="mp-btn-month">Месяц</button>
+        <select id="mp-month" onchange="setMoneyPeriod('month',this.value)" style="font-size:13px;width:auto;display:none" title="Выберите месяц"></select>
         <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('quarter')" id="mp-btn-quarter">Квартал</button>
         <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('year')"   id="mp-btn-year">Год</button>
         <button class="btn btn-ghost btn-sm" onclick="setMoneyPeriod('all')"    id="mp-btn-all" style="background:var(--accent);color:#fff">Всё время</button>
@@ -9640,11 +9643,21 @@ function showMoneyTab(tab, el){
 // ── Касса ────────────────────────────────────────────────────────────────────
 let moneyPeriod = {from: null, to: null};
 
-function setMoneyPeriod(mode){
+function mpFillMonths(sel, keep){
+  const MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const now=new Date(), cur=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const set=new Set([cur]);
+  (moneyTx||[]).forEach(t=>{ const m=String(t.date||'').slice(0,7); if(/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) set.add(m); });
+  const list=[...set].sort().reverse();
+  sel.innerHTML=list.map(v=>{ const [y,m]=v.split('-'); return `<option value="${v}">${MN[+m-1]} ${y}</option>`; }).join('');
+  sel.value = (keep && list.includes(keep)) ? keep : cur;
+}
+// Даты периода — в UTC-полночь, чтобы toISOString() не сдвигал день в часовых поясах восточнее UTC (Казахстан UTC+5)
+function setMoneyPeriod(mode, val){
   const now = new Date();
   const y   = now.getFullYear();
   const m   = now.getMonth();
-  const btns = ['month','quarter','year','all'];
+  const btns = ['day','month','quarter','year','all'];
   btns.forEach(b=>{
     const el=document.getElementById('mp-btn-'+b);
     if(el) el.style.cssText='';
@@ -9655,23 +9668,37 @@ function setMoneyPeriod(mode){
 
   const fromEl = document.getElementById('mp-date-from');
   const toEl   = document.getElementById('mp-date-to');
+  const dayEl  = document.getElementById('mp-day');
+  const monEl  = document.getElementById('mp-month');
+  if(dayEl) dayEl.style.display = mode==='day' ? '' : 'none';
+  if(monEl) monEl.style.display = mode==='month' ? '' : 'none';
+  const todayIso = new Date(Date.UTC(y,m,now.getDate())).toISOString().slice(0,10);
 
-  if(mode==='month'){
-    moneyPeriod.from = new Date(y, m, 1);
-    moneyPeriod.to   = new Date(y, m+1, 0);
+  if(mode==='day'){
+    const iso = val || dayEl?.value || todayIso;
+    if(dayEl) dayEl.value = iso;
+    const d = new Date(iso+'T00:00:00Z');
+    moneyPeriod.from = d; moneyPeriod.to = d;
+  } else if(mode==='month'){
+    if(monEl && !val) mpFillMonths(monEl, monEl.value);
+    else if(monEl && val){ if(![...monEl.options].some(o=>o.value===val)) mpFillMonths(monEl, val); monEl.value=val; }
+    const v = (monEl && monEl.value) || (y+'-'+String(m+1).padStart(2,'0'));
+    const [yy,mm] = v.split('-').map(Number);
+    moneyPeriod.from = new Date(Date.UTC(yy, mm-1, 1));
+    moneyPeriod.to   = new Date(Date.UTC(yy, mm, 0));
   } else if(mode==='quarter'){
     const q = Math.floor(m/3);
-    moneyPeriod.from = new Date(y, q*3, 1);
-    moneyPeriod.to   = new Date(y, q*3+3, 0);
+    moneyPeriod.from = new Date(Date.UTC(y, q*3, 1));
+    moneyPeriod.to   = new Date(Date.UTC(y, q*3+3, 0));
   } else if(mode==='year'){
-    moneyPeriod.from = new Date(y, 0, 1);
-    moneyPeriod.to   = new Date(y, 11, 31);
+    moneyPeriod.from = new Date(Date.UTC(y, 0, 1));
+    moneyPeriod.to   = new Date(Date.UTC(y, 11, 31));
   } else if(mode==='all'){
     moneyPeriod.from = null;
     moneyPeriod.to   = null;
   } else if(mode==='custom'){
-    moneyPeriod.from = fromEl?.value ? new Date(fromEl.value) : null;
-    moneyPeriod.to   = toEl?.value   ? new Date(toEl.value)   : null;
+    moneyPeriod.from = fromEl?.value ? new Date(fromEl.value+'T00:00:00Z') : null;
+    moneyPeriod.to   = toEl?.value   ? new Date(toEl.value+'T00:00:00Z')   : null;
   }
 
   if(mode!=='custom'){
@@ -9681,8 +9708,9 @@ function setMoneyPeriod(mode){
 
   const lbl = document.getElementById('mp-period-label');
   if(lbl && moneyPeriod.from){
-    lbl.textContent = moneyPeriod.from.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})
-      +' — '+(moneyPeriod.to?.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})||'');
+    const _f={day:'2-digit',month:'2-digit',year:'numeric',timeZone:'UTC'};
+    lbl.textContent = moneyPeriod.from.toLocaleDateString('ru-RU',_f)
+      +' — '+(moneyPeriod.to?.toLocaleDateString('ru-RU',_f)||'');
   } else if(lbl) lbl.textContent='';
 
   // Перерендериваем активную вкладку
