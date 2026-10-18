@@ -14882,7 +14882,9 @@ function saveMoneyTx(){
       const idx = moneyTx.findIndex(t=>t.sbId===editId||String(t.id)===String(editId));
       if(idx>=0){
         const oldTx = moneyTx[idx];
-        moneyTx[idx]={...oldTx,...obj};
+        const _acc2Name0 = bankAccounts.find(a=>a.id===document.getElementById('tx-account2').value)?.name||'';
+        // исходящая сторона перевода: расход «Перевод → X» (иначе в журнале пропадает сумма: flow остаётся 'transfer')
+        moneyTx[idx]={...oldTx,...obj, flow:'expense', category:'transfer_out', subcategory:'', orderNum:'', endClient:'', desc:'Перевод → '+_acc2Name0};
         const sbId = moneyTx[idx].sbId;
 
         // Ищем парную транзакцию transfer_in по дате+сумме+desc
@@ -14903,6 +14905,7 @@ function saveMoneyTx(){
             category: 'transfer_out', amount: obj.amount,
             description: 'Перевод → '+acc2Name,
             counterparty: obj.counterparty||'',
+            subcategory: null, order_num: '',
           }).then(()=>console.log('✅ Перевод (исходящий) обновлён'));
         }
 
@@ -14928,14 +14931,14 @@ function saveMoneyTx(){
           moneyTx.push(tx2);
           sbInsert('money_tx',{date:tx2.date,account_id:tx2.accountId,flow:tx2.flow,
             category:tx2.category,amount:tx2.amount,description:tx2.desc,counterparty:tx2.counterparty||''})
-            .then(()=>console.log('✅ Недостающая парная запись перевода создана'));
+            .then(r=>{ if(r&&r.id) tx2.sbId=r.id; console.log('✅ Недостающая парная запись перевода создана'); });
         }
       }
     } else {
       // Новый перевод
-      const tx1={id:txSeq++,...obj,flow:'expense',category:'transfer_out',
+      const tx1={id:txSeq++,...obj,subcategory:'',orderNum:'',flow:'expense',category:'transfer_out',
         desc:'Перевод → '+bankAccounts.find(a=>a.id===acc2)?.name};
-      const tx2={id:txSeq++,...obj,accountId:acc2,flow:'income',category:'transfer_in',
+      const tx2={id:txSeq++,...obj,subcategory:'',orderNum:'',accountId:acc2,flow:'income',category:'transfer_in',
         desc:'Перевод ← '+bankAccounts.find(a=>a.id===obj.accountId)?.name};
       moneyTx.push(tx1); moneyTx.push(tx2);
       Promise.all([
@@ -14943,7 +14946,7 @@ function saveMoneyTx(){
           category:tx1.category,amount:tx1.amount,description:tx1.desc,counterparty:tx1.counterparty||''}),
         sbInsert('money_tx',{date:tx2.date,account_id:tx2.accountId,flow:tx2.flow,
           category:tx2.category,amount:tx2.amount,description:tx2.desc,counterparty:tx2.counterparty||''}),
-      ]).then(()=>console.log('✅ Перевод сохранён'));
+      ]).then(r=>{ if(r&&r[0]&&r[0].id) tx1.sbId=r[0].id; if(r&&r[1]&&r[1].id) tx2.sbId=r[1].id; console.log('✅ Перевод сохранён'); });
     }
 
   } else if(editId){
@@ -15071,7 +15074,7 @@ function saveMoneyTx(){
       renderAllTx();
       renderAdvances();
     });
-  }, 100);
+  }, flow==='transfer' ? 2000 : 100);   // у перевода записи уходят в базу двумя запросами — даём им дойти
 }
 
 // Парная операция перевода между счетами (расход «Перевод → X» ↔ поступление «Перевод ← Y»)
