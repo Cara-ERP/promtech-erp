@@ -15074,15 +15074,39 @@ function saveMoneyTx(){
   }, 100);
 }
 
-function deleteMoneyTx(){
-  const editId = document.getElementById('tx-edit-id').value||'';
-  if(!editId||!confirm('Удалить операцию?')) return;
-  const tx = moneyTx.find(t=>t.sbId===editId||String(t.id)===String(editId));
-  moneyTx = moneyTx.filter(t=>t.sbId!==editId && String(t.id)!==String(editId));
+// Парная операция перевода между счетами (расход «Перевод → X» ↔ поступление «Перевод ← Y»)
+function findTransferPair(tx){
+  if(!tx || !['transfer_in','transfer_out','transfer'].includes(tx.category)) return null;
+  const d=String(tx.date).slice(0,10), accs=bankAccounts||[];
+  const cands=moneyTx.filter(x=>x!==tx && x.flow!==tx.flow && String(x.date).slice(0,10)===d && Math.abs((+x.amount||0)-(+tx.amount||0))<1
+    && ['transfer_in','transfer_out','transfer'].includes(x.category) && x.accountId!==tx.accountId);
+  if(!cands.length) return null;
+  // по названиям счетов в описании
+  const m=/^\s*Перевод\s*[→←]\s*(.+?)\s*$/i.exec(tx.desc||'');
+  if(m){
+    const acc=accs.find(a=>(a.name||'').trim().toLowerCase()===m[1].trim().toLowerCase());
+    const byName=acc?cands.filter(x=>x.accountId===acc.id):[];
+    if(byName.length) return byName[0];
+  }
+  return cands.length===1 ? cands[0] : null;
+}
+function _deleteMoneyTxRow(tx){
+  moneyTx = moneyTx.filter(t=>t!==tx);
   if(tx?.sbId){
     sbPatch('money_tx',`id=eq.${tx.sbId}`,{deleted:true})
       .catch(()=>fetch(`${SUPABASE_URL}/rest/v1/money_tx?id=eq.${tx.sbId}`,
         {method:'DELETE',headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}}));
+  }
+}
+function deleteMoneyTx(){
+  const editId = document.getElementById('tx-edit-id').value||'';
+  if(!editId||!confirm('Удалить операцию?')) return;
+  const tx = moneyTx.find(t=>t.sbId===editId||String(t.id)===String(editId));
+  const pair = findTransferPair(tx);
+  _deleteMoneyTxRow(tx);
+  if(pair){
+    const an=(bankAccounts.find(a=>a.id===pair.accountId)||{}).name||'другом счёте';
+    if(confirm(`Это перевод между счетами. Удалить также парную операцию в «${an}» (₸${Math.round(+pair.amount||0).toLocaleString('ru-RU')}, ${String(pair.date).slice(0,10)})?\n\nОК — удалить обе, Отмена — оставить парную.`)) _deleteMoneyTxRow(pair);
   }
   closeModal('moneyTxModal');
   renderMoneyKPIs(); renderCashTx(); renderBankTx(); renderAllTx();
