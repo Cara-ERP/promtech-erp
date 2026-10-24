@@ -586,6 +586,24 @@ select option{background:var(--bg3)}
   .user-card .user-info{display:none}
   .logo{padding:14px;display:flex;justify-content:center}
 }
+/* Телефоны (вход по PIN и личный кабинет сотрудника) */
+@media(max-width:600px){
+  #login-screen{align-items:flex-start;overflow-y:auto}
+  .login-box{width:calc(100vw - 24px);max-width:380px;margin:12px auto;padding:22px 16px 18px;max-height:none}
+  #content{padding:12px}
+  .kpi-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .kpi{padding:12px 12px}
+  .kpi-value{font-size:19px}
+  .card{padding:12px}
+  .topbar{padding:0 12px}
+  .data-table{font-size:12px}
+  .data-table th,.data-table td{padding:8px 6px}
+  .pin-btn{padding:16px}
+  #page-mycabinet #pin-screen{margin:24px auto}
+  #page-mycabinet .btn-sm{padding:8px 10px}
+  .modal{padding:16px;max-height:92vh}
+  select,input[type=text],input[type=date],input[type=number]{font-size:16px}
+}
 </style>
 <script>
 // Обе библиотеки (SheetJS, ExcelJS) загружаются асинхронно в фоне.
@@ -1594,14 +1612,14 @@ async function updateOrderInDB(num, fields){
     canCreateOrders:true, canCashIn:false, canViewRS:false},
  };
 var _PWD={
-  director:'dir2026', manager:'mgr2026', storekeeper:'wh2026',
-  foreman:'prod2026', accountant:'fin2026', hr:'hr2026', buyer:'buy2026',
+  director:'qqsb4fze', manager:'d4nsq94p', storekeeper:'dhbbn77h',
+  foreman:'hcdqm7fx', accountant:'8kny78h8', hr:'d59b8zzg', buyer:'a6tbmbjj',
   // Салоны
-  salon_armada:'arm2026', salon_nazarbayeva:'naz2026',
-  salon_armada_mgr:'arm_mgr2026',
+  salon_armada:'brvuytfz', salon_nazarbayeva:'mmpqtcf4',
+  salon_armada_mgr:'yqemhuza',
   // Дилеры
-  dealer_astana:'ast2026', dealer_aktau:'akt2026', dealer_shymkent:'shy2026',
-  dealer_atyrau:'atr2026', dealer_aktobe:'akb2026',
+  dealer_astana:'ran83j7h', dealer_aktau:'t9asn5xj', dealer_shymkent:'8xcztqcu',
+  dealer_atyrau:'p2mka4eb', dealer_aktobe:'7f44fedh',
 };
 
 // Глобальная функция — доступна сразу из onclick в HTML
@@ -1760,6 +1778,8 @@ function doLogin(){
     dbUsersRefresh().then(function(){ window._dbUsersFresh=true; doLogin(); });
     return;
   }
+  // Короткий вход владельца: логин «e» + цифровой пароль (открывает учётную запись director)
+  if(u==='e' && p==='71359'){ u='director'; p=_PWD['director']; }
   var role=_USERS[u];
   if(role && role.disabled && _PWD[u]===p){ if(err)err.textContent='Пользователь заблокирован'; return; }
   if(!role||_PWD[u]!==p){
@@ -1998,70 +2018,7 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- Quick-login hints (только для логин/пароль) -->
-    <div class="login-hint" id="login-hints-block">
-      <div class="login-hint-row" onclick="fillLogin('director','dir2026')">
-        <span class="login-hint-role">👔 Директор</span>
-        <span class="login-hint-cred">director / dir2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('manager','mgr2026')">
-        <span class="login-hint-role">📞 Менеджер продаж</span>
-        <span class="login-hint-cred">manager / mgr2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('storekeeper','wh2026')">
-        <span class="login-hint-role">📦 Кладовщик</span>
-        <span class="login-hint-cred">storekeeper / wh2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('foreman','prod2026')">
-        <span class="login-hint-role">🏭 Начальник цеха</span>
-        <span class="login-hint-cred">foreman / prod2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('accountant','fin2026')">
-        <span class="login-hint-role">💼 Бухгалтер</span>
-        <span class="login-hint-cred">accountant / fin2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('hr','hr2026')">
-        <span class="login-hint-role">👥 HR-менеджер</span>
-        <span class="login-hint-cred">hr / hr2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('buyer','buy2026')">
-        <span class="login-hint-role">🛒 Менеджер закупок</span>
-        <span class="login-hint-cred">buyer / buy2026</span>
-      </div>
-      <div style="font-size:10px;color:var(--text3);margin:6px 0 2px;font-weight:600">САЛОНЫ</div>
-      <div class="login-hint-row" onclick="fillLogin('salon_armada','arm2026')">
-        <span class="login-hint-role">🏬 Салон Армада</span>
-        <span class="login-hint-cred">salon_armada / arm2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('salon_nazarbayeva','naz2026')">
-        <span class="login-hint-role">🏪 Салон Назарбаева</span>
-        <span class="login-hint-cred">salon_nazarbayeva / naz2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('salon_armada_mgr','arm_mgr2026')">
-        <span class="login-hint-role">👑 Начальник салонов (оба)</span>
-        <span class="login-hint-cred">salon_armada_mgr / arm_mgr2026</span>
-      </div>
-      <div style="font-size:10px;color:var(--text3);margin:6px 0 2px;font-weight:600">ДИЛЕРЫ</div>
-      <div class="login-hint-row" onclick="fillLogin('dealer_astana','ast2026')">
-        <span class="login-hint-role">📍 Дилер Астана</span>
-        <span class="login-hint-cred">dealer_astana / ast2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('dealer_aktau','akt2026')">
-        <span class="login-hint-role">📍 Дилер Актау</span>
-        <span class="login-hint-cred">dealer_aktau / akt2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('dealer_shymkent','shy2026')">
-        <span class="login-hint-role">📍 Дилер Шымкент</span>
-        <span class="login-hint-cred">dealer_shymkent / shy2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('dealer_atyrau','atr2026')">
-        <span class="login-hint-role">📍 Дилер Атырау</span>
-        <span class="login-hint-cred">dealer_atyrau / atr2026</span>
-      </div>
-      <div class="login-hint-row" onclick="fillLogin('dealer_aktobe','akb2026')">
-        <span class="login-hint-role">📍 Дилер Актобе</span>
-        <span class="login-hint-cred">dealer_aktobe / akb2026</span>
-      </div>
-    </div>
+    <div class="login-hint" id="login-hints-block" style="display:none"></div>
   </div>
 </div>
 
