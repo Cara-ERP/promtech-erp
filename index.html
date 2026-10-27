@@ -1705,7 +1705,7 @@ async function updateOrderInDB(num, fields){
 // Содержит всё необходимое для входа — доступен сразу при клике.
  var _USERS={
   director:   {name:'Тургамбаев Булат Сагинтаевич', initials:'ТБ', color:'#4f8ef7', label:'Директор',
-    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','chanbal','expense_cats','reconcile','hr','wages','payroll','accruals','techcards','mycabinet','ai']},
+    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','chanbal','expense_cats','reconcile','hr','wages','payroll','brigades','accruals','techcards','mycabinet','ai']},
   manager:    {name:'Алтыбасова Акерке', initials:'АА', color:'#3dd68c', label:'Бухгалтер (продажи)',
     pages:['dashboard','catalog','sales','customers','crm','mycabinet']},
   storekeeper:{name:'Угламова Халидам',  initials:'УХ', color:'#f5a623', label:'Кладовщик',
@@ -1713,7 +1713,7 @@ async function updateOrderInDB(num, fields){
   foreman:    {name:'Алимов Шынгыс',     initials:'АШ', color:'#a78bfa', label:'Нач. цеха',
     pages:['dashboard','mrp','warehouse','wages','crm','mycabinet']},
   accountant: {name:'Болысбеков Ерлан',  initials:'БЕ', color:'#f43f5e', label:'Гл. бухгалтер',
-    pages:['dashboard','finance','money','channels','chanbal','reconcile','hr','wages','sales','customers','mycabinet']},
+    pages:['dashboard','finance','money','channels','chanbal','reconcile','hr','wages','brigades','sales','customers','mycabinet']},
   hr:         {name:'Молдахова Сания Мактабековна', initials:'МС', color:'#10b981', label:'Бухгалтер/HR',
     pages:['dashboard','hr','wages','mycabinet']},
   buyer:      {name:'Куланбаев Арман',   initials:'КА', color:'#f59e0b', label:'Закупщик',
@@ -2265,6 +2265,10 @@ window.onerror = function(msg, src, line, col){
     <div class="nav-item" onclick="showPage('payroll',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span>Зарплатная ведомость</span>
+    </div>
+    <div class="nav-item" onclick="showPage('brigades',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+      <span>Бригады (пул и КТУ)</span>
     </div>
     <div class="nav-item" onclick="showPage('accruals',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -7257,6 +7261,29 @@ window.onerror = function(msg, src, line, col){
         Аванс нормален, пока он не превышает «осталось отгрузить»; то, что сверх, показано в последней колонке.
         <b>(не распределено)</b> — оплаты, у которых нет ни заказа, ни известного плательщика.
         Имена клиентов для отнесения к каналу берутся из таблицы <code>client_channel_map</code> в Supabase.
+      </div>
+    </div>
+
+    <!-- Бригады: месячный пул × дни × КТУ (таблицы brigades, brigade_months) -->
+    <div class="page" id="page-brigades">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Бригады</div>
+          <div class="section-sub">Месячный пул бригады делится по дням и КТУ; расчёт по этапам заказов остаётся и может работать вместе</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="brg-select" style="width:auto;min-width:200px" onchange="brgChangeBrigade(this.value)"></select>
+          <input id="brg-period" type="month" style="width:auto" onchange="brgChangePeriod(this.value)">
+          <button class="btn btn-ghost btn-sm" onclick="brgNewBrigade()">＋ Бригада</button>
+          <button class="btn btn-ghost btn-sm" onclick="brgRenameBrigade()">✎ Название</button>
+          <button class="btn btn-ghost btn-sm" onclick="if(brgConfirmLeave()) initBrigadesPage(true)">🔄</button>
+        </div>
+      </div>
+      <div id="brg-body"></div>
+      <div class="section-sub" style="margin-top:12px;line-height:1.6">
+        <b>Как считается:</b> к распределению = пул + прибавка − вычеты; доля человека = к распределению ÷ Σ(дни × КТУ) × дни × КТУ.
+        КТУ задаётся на месяц и подставляется из прошлого месяца. Проведение создаёт по человеку одно начисление «Сдельная (бригада)» в Зарплатной ведомости на последний день месяца.
+        Таблицы создаются файлом <code>brigades.sql</code>.
       </div>
     </div>
 
@@ -17080,6 +17107,363 @@ function exportChanBalCsv(){
   setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
 }
 
+// ── Бригады: месячный пул × дни × КТУ ───────────────────────────────────
+// Формула как в Excel-таблице бригады:
+//   к распределению = пул + прибавка − вычеты
+//   доля человека   = к распределению / Σ(дни × КТУ) × дни × КТУ
+let _brg = { list:null, brigadeId:null, period:null, month:null, stageMap:{}, dirty:false, loading:false };
+const _brgEsc = v => String(v==null?'':v).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const _brgKey = s => String(s||'').trim().toLowerCase();
+const _brgNum = v => { const n = parseFloat(String(v).replace(',','.').replace(/\s/g,'')); return isFinite(n)?n:0; };
+
+// Чистый расчёт (без обращения к базе) — удобно проверять отдельно
+function brgCalc(m, stageMap){
+  stageMap = stageMap || {};
+  const ded = (m.deductions||[]).reduce((s,d)=>s+(+d.amount||0),0);
+  const dist = (+m.pool||0) + (+m.extra||0) - ded;
+  const lines = (m.rows||[]).map(r=>{
+    const days = +r.days||0;
+    const ktu = (r.ktu===''||r.ktu==null||isNaN(+r.ktu)) ? 1 : +r.ktu;
+    return { name:r.name, days, ktu, w:days*ktu, raw:0, share:0, stage:stageMap[_brgKey(r.name)]||0, net:0 };
+  });
+  const totalW = lines.reduce((s,l)=>s+l.w,0);
+  const unit = totalW>0 ? dist/totalW : 0;
+  lines.forEach(l=>{ l.raw = unit*l.w; l.share = Math.round(l.raw); });
+  // Округление до тенге: разницу забирает самая большая доля, чтобы сумма сошлась с пулом
+  if(totalW>0 && lines.length){
+    const diff = Math.round(dist) - lines.reduce((s,l)=>s+l.share,0);
+    if(diff!==0){
+      let big = lines[0]; lines.forEach(l=>{ if(l.raw>big.raw) big=l; });
+      big.share += diff;
+    }
+  }
+  lines.forEach(l=>{ l.net = l.share - (m.deduct_stage_paid ? l.stage : 0); });
+  return { ded, dist, totalW, unit, lines, totalShare:lines.reduce((s,l)=>s+l.share,0), totalNet:lines.reduce((s,l)=>s+l.net,0),
+           totalStage:lines.reduce((s,l)=>s+l.stage,0), days:lines.reduce((s,l)=>s+l.days,0) };
+}
+
+function _brgPeriodNow(){ const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function _brgPrevPeriod(p){ const [y,m] = p.split('-').map(Number); const d = new Date(y, m-2, 1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function _brgNextPeriod(p){ const [y,m] = p.split('-').map(Number); const d = new Date(y, m, 1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function _brgLastDay(p){ const [y,m] = p.split('-').map(Number); return p+'-'+String(new Date(y, m, 0).getDate()).padStart(2,'0'); }
+function _brgBrigade(){ return (_brg.list||[]).find(b=>String(b.id)===String(_brg.brigadeId)); }
+
+async function initBrigadesPage(force){
+  const body = document.getElementById('brg-body');
+  if(!body) return;
+  if(!_brg.period) _brg.period = _brgPeriodNow();
+  const pe = document.getElementById('brg-period'); if(pe) pe.value = _brg.period;
+  if(_brg.loading) return;
+  _brg.loading = true;
+  body.innerHTML = '<div style="padding:24px;color:var(--text3)">Загрузка…</div>';
+  try{
+    if(force || !_brg.list) _brg.list = await sbFetch('brigades','select=*&order=name');
+    if(!Array.isArray(_brg.list)) throw new Error('пустой ответ');
+    if(!_brgBrigade()) _brg.brigadeId = _brg.list.length ? _brg.list[0].id : null;
+    brgFillSelect();
+    await brgLoadMonth();
+  }catch(e){
+    _brg.list = null;
+    body.innerHTML = '<div class="card" style="padding:16px;line-height:1.6">Не удалось загрузить бригады: '+_brgEsc(e.message)+
+      '<br><span style="color:var(--text3)">Проверьте, что в Supabase выполнен файл <code>brigades.sql</code> (таблицы brigades и brigade_months).</span></div>';
+  }finally{ _brg.loading = false; }
+}
+
+function brgFillSelect(){
+  const sel = document.getElementById('brg-select'); if(!sel) return;
+  sel.innerHTML = (_brg.list||[]).map(b=>'<option value="'+_brgEsc(b.id)+'"'+(String(b.id)===String(_brg.brigadeId)?' selected':'')+'>'+_brgEsc(b.name)+'</option>').join('') || '<option value="">— бригад нет —</option>';
+}
+
+async function brgLoadMonth(){
+  const b = _brgBrigade();
+  _brg.month = null; _brg.stageMap = {}; _brg.dirty = false;
+  if(!b){ renderBrigades(); return; }
+  const p = _brg.period;
+  const rows = await sbFetch('brigade_months', 'select=*&brigade_id=eq.'+b.id+'&period=eq.'+p);
+  if(rows && rows.length){
+    const m = rows[0];
+    m.rows = m.rows||[]; m.deductions = m.deductions||[]; m.accrual_ids = m.accrual_ids||[];
+    _brg.month = m;
+  } else {
+    // КТУ берём из прошлого месяца этой бригады — он меняется редко
+    let prevKtu = {};
+    try{
+      const pr = await sbFetch('brigade_months','select=rows&brigade_id=eq.'+b.id+'&period=eq.'+_brgPrevPeriod(p));
+      if(pr && pr[0]) (pr[0].rows||[]).forEach(r=>{ prevKtu[_brgKey(r.name)] = r.ktu; });
+    }catch(e){}
+    _brg.month = { id:null, brigade_id:b.id, period:p, pool:0, extra:0, deductions:[], deduct_stage_paid:false,
+      status:'draft', accrual_ids:[], note:'',
+      rows:(b.members||[]).map(n=>({name:n, days:0, ktu: prevKtu[_brgKey(n)]!=null ? prevKtu[_brgKey(n)] : 1})) };
+  }
+  brgSyncRows();
+  // Что уже начислено по этапам за этот месяц (для режима «вместе»)
+  try{
+    const acc = await sbFetchAllPages('salary_accruals',
+      'select=emp_name,amount,comment,date&type=eq.salary&date=gte.'+p+'-01&date=lte.'+_brgLastDay(p));
+    (acc||[]).forEach(a=>{
+      const c = String(a.comment||'');
+      if(c.indexOf('Сдельная')!==0) return;
+      const k = _brgKey(a.emp_name);
+      _brg.stageMap[k] = (_brg.stageMap[k]||0) + (+a.amount||0);
+    });
+  }catch(e){ console.warn('Бригады: не удалось загрузить начисления по этапам', e.message); }
+  renderBrigades();
+}
+
+// Состав бригады → строки месяца (добавляем недостающих; лишних с нулём дней убираем)
+function brgSyncRows(){
+  const b = _brgBrigade(), m = _brg.month; if(!b||!m||m.status==='posted') return;
+  const have = new Set(m.rows.map(r=>_brgKey(r.name)));
+  (b.members||[]).forEach(n=>{ if(!have.has(_brgKey(n))) m.rows.push({name:n, days:0, ktu:1}); });
+  const mem = new Set((b.members||[]).map(_brgKey));
+  m.rows = m.rows.filter(r=>mem.has(_brgKey(r.name)) || (+r.days||0)>0);
+}
+
+function brgMarkDirty(){ _brg.dirty = true; const d = document.getElementById('brg-dirty'); if(d) d.style.display = ''; }
+function brgConfirmLeave(){ return !_brg.dirty || confirm('Есть несохранённые изменения. Перейти без сохранения?'); }
+
+async function brgChangeBrigade(id){
+  if(!brgConfirmLeave()){ brgFillSelect(); return; }
+  _brg.brigadeId = id; await brgLoadMonth();
+}
+async function brgChangePeriod(v){
+  if(!v) return;
+  if(!brgConfirmLeave()){ const pe = document.getElementById('brg-period'); if(pe) pe.value = _brg.period; return; }
+  _brg.period = v; await brgLoadMonth();
+}
+
+async function brgNewBrigade(){
+  const name = (prompt('Название бригады (например, «Бригада 2 — сборка корпусной мебели»):')||'').trim();
+  if(!name) return;
+  try{
+    const r = await sbInsert('brigades', {name, members:[], active:true});
+    _brg.list.push(r); _brg.brigadeId = r.id; brgFillSelect(); await brgLoadMonth();
+  }catch(e){ alert('Не удалось создать бригаду: '+e.message); }
+}
+async function brgRenameBrigade(){
+  const b = _brgBrigade(); if(!b) return;
+  const name = (prompt('Новое название бригады:', b.name)||'').trim();
+  if(!name || name===b.name) return;
+  try{ await sbPatch('brigades','id=eq.'+b.id,{name}); b.name = name; brgFillSelect(); renderBrigades(); }
+  catch(e){ alert('Не удалось переименовать: '+e.message); }
+}
+async function brgSaveMembers(b){
+  await sbPatch('brigades','id=eq.'+b.id,{members:b.members});
+}
+async function brgAddMember(){
+  const b = _brgBrigade(), inp = document.getElementById('brg-new-member'); if(!b||!inp) return;
+  const name = inp.value.trim(); if(!name) return;
+  if((b.members||[]).some(n=>_brgKey(n)===_brgKey(name))){ inp.value=''; return; }
+  const known = (typeof employeesData!=='undefined'?employeesData:[]).some(e=>_brgKey(e.name)===_brgKey(name));
+  if(!known && !confirm('«'+name+'» нет в списке сотрудников. Начисление придёт под этим именем, оно может не попасть в карточку сотрудника. Добавить всё равно?')) return;
+  try{
+    b.members = [...(b.members||[]), name]; await brgSaveMembers(b);
+    inp.value=''; brgSyncRows(); renderBrigades();
+  }catch(e){ b.members.pop(); alert('Не удалось добавить: '+e.message); }
+}
+async function brgRemoveMember(i){
+  const b = _brgBrigade(); if(!b) return;
+  const name = b.members[i];
+  if(!confirm('Убрать «'+name+'» из состава бригады? В расчётах прошлых месяцев он останется.')) return;
+  const old = b.members.slice();
+  try{ b.members.splice(i,1); await brgSaveMembers(b); brgSyncRows(); renderBrigades(); }
+  catch(e){ b.members = old; alert('Не удалось убрать: '+e.message); }
+}
+
+function _brgEditable(){ return _brg.month && _brg.month.status!=='posted'; }
+function brgSetPool(v){ _brg.month.pool = _brgNum(v); brgMarkDirty(); brgRefresh(); }
+function brgSetExtra(v){ _brg.month.extra = _brgNum(v); brgMarkDirty(); brgRefresh(); }
+function brgSetNote(v){ _brg.month.note = v; brgMarkDirty(); }
+function brgSetDays(i,v){ _brg.month.rows[i].days = _brgNum(v); brgMarkDirty(); brgRefresh(); }
+function brgSetKtu(i,v){ _brg.month.rows[i].ktu = v===''?1:_brgNum(v); brgMarkDirty(); brgRefresh(); }
+function brgSetStageMode(on){ _brg.month.deduct_stage_paid = !!on; brgMarkDirty(); brgRefresh(); }
+function brgAddDed(){ _brg.month.deductions.push({name:'', amount:0}); brgMarkDirty(); renderBrigades(); }
+function brgDedName(i,v){ _brg.month.deductions[i].name = v; brgMarkDirty(); }
+function brgDedAmt(i,v){ _brg.month.deductions[i].amount = _brgNum(v); brgMarkDirty(); brgRefresh(); }
+function brgDelDed(i){ _brg.month.deductions.splice(i,1); brgMarkDirty(); renderBrigades(); }
+
+async function brgSave(silent){
+  const m = _brg.month, b = _brgBrigade(); if(!m||!b) return false;
+  const payload = { pool:m.pool||0, extra:m.extra||0, rows:m.rows, deductions:m.deductions.filter(d=>(d.name||'').trim()||(+d.amount||0)),
+    deduct_stage_paid:!!m.deduct_stage_paid, status:m.status, accrual_ids:m.accrual_ids||[], posted_date:m.posted_date||null,
+    note:m.note||'', updated_at:new Date().toISOString() };
+  try{
+    if(m.id) await sbPatch('brigade_months','id=eq.'+m.id, payload);
+    else { const r = await sbInsert('brigade_months', {...payload, brigade_id:b.id, period:m.period}); m.id = r.id; }
+    m.deductions = payload.deductions;
+    _brg.dirty = false;
+    if(!silent) renderBrigades();
+    return true;
+  }catch(e){ alert('Не удалось сохранить: '+e.message); return false; }
+}
+
+// Провести: создаёт по человеку одно начисление в Зарплатной ведомости
+async function brgPost(){
+  const m = _brg.month, b = _brgBrigade(); if(!m||!b||m.status==='posted') return;
+  const c = brgCalc(m, _brg.stageMap);
+  if(c.totalW<=0){ alert('Проставьте дни и КТУ: сумма «дни × КТУ» равна нулю.'); return; }
+  if(c.dist<=0){ alert('К распределению получилось '+fmtCurrency(c.dist)+'. Проверьте пул и вычеты.'); return; }
+  const pay = c.lines.filter(l=>l.net>0);
+  const skipped = c.lines.filter(l=>l.net<=0 && l.days>0);
+  let msg = 'Провести начисления за '+m.period+' по бригаде «'+b.name+'»?\n\nЛюдей: '+pay.length+'\nСумма начислений: '+fmtCurrency(pay.reduce((s,l)=>s+l.net,0));
+  if(skipped.length) msg += '\n\nБез начисления (доля не больше уже начисленного по этапам): '+skipped.map(l=>l.name).join(', ');
+  if(!confirm(msg)) return;
+  const date = _brgLastDay(m.period), ids = [];
+  try{
+    for(const l of pay){
+      const comment = 'Бригада «'+b.name+'» — месячный пул '+m.period+' ('+l.days+' дн. × КТУ '+l.ktu+')'+(m.deduct_stage_paid&&l.stage?'; за вычетом начисленного по этапам '+Math.round(l.stage):'');
+      const r = await sbInsert('salary_accruals', { emp_name:l.name, date, amount:l.net, deducted:0, net:l.net, type:'salary', comment,
+        details:{accruals:[{type:'Сдельная (бригада)', amount:l.net}], deductions:[]} });
+      ids.push(r.id);
+      if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals.push(r);
+    }
+    m.status = 'posted'; m.accrual_ids = ids; m.posted_date = date;
+    if(!(await brgSave(true))) { alert('Начисления созданы ('+ids.length+'), но статус расчёта сохранить не удалось. Нажмите «Сохранить».'); }
+    renderBrigades();
+  }catch(e){
+    // Откатываем уже созданные, чтобы не остались «хвосты»
+    for(const id of ids){ try{ await sbDelete('salary_accruals','id=eq.'+id); }catch(_){} }
+    if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>!ids.includes(a.id));
+    alert('Не удалось провести: '+e.message+'\nСозданные начисления отменены.');
+  }
+}
+async function brgUnpost(){
+  const m = _brg.month; if(!m||m.status!=='posted') return;
+  if(!confirm('Снять проведение? Начисления этой бригады за '+m.period+' будут удалены из Зарплатной ведомости.')) return;
+  try{
+    for(const id of (m.accrual_ids||[])){
+      await sbDelete('salary_accruals','id=eq.'+id);
+      if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>a.id!==id);
+    }
+    m.status = 'draft'; m.accrual_ids = []; m.posted_date = null;
+    await brgSave(true); renderBrigades();
+  }catch(e){ alert('Не удалось снять проведение: '+e.message); }
+}
+
+
+function brgKpiHtml(c){
+  const m = _brg.month, money = n => fmtCurrency(Math.round(n));
+  const kpi = (l,v,sub,col) => '<div class="kpi"><div class="kpi-label">'+l+'</div><div class="kpi-value"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div>'+(sub?'<div class="kpi-change">'+sub+'</div>':'')+'</div>';
+  return kpi('Пул бригады', money((+m.pool||0)+(+m.extra||0)), 'сумма, сделанная за месяц')+
+    kpi('Вычеты', money(c.ded), (m.deductions||[]).length+' поз.')+
+    kpi('К распределению', money(c.dist), 'Σ дни × КТУ = '+(Math.round(c.totalW*100)/100), c.dist>0?'var(--green)':'var(--red)')+
+    kpi('Стоимость 1 «балла»', money(c.unit), '1 день при КТУ 1');
+}
+// Обновляет только расчётные ячейки — поля ввода не пересоздаются, фокус не теряется
+function brgRefresh(){
+  const m = _brg.month; if(!m) return;
+  const c = brgCalc(m, _brg.stageMap), money = n => fmtCurrency(Math.round(n));
+  const set = (id, html, color) => { const e = document.getElementById(id); if(e){ e.innerHTML = html; if(color!==undefined) e.style.color = color; } };
+  const k = document.getElementById('brg-kpi'); if(k) k.innerHTML = brgKpiHtml(c);
+  c.lines.forEach((l,i)=>{
+    set('brg-w-'+i, String(Math.round(l.w*100)/100));
+    set('brg-s-'+i, money(l.share));
+    set('brg-st-'+i, l.stage?money(l.stage):'—', l.stage?'var(--amber,#f5a623)':'var(--text3)');
+    set('brg-n-'+i, money(l.net)+(l.net<0?' ⚠':''), l.net<0?'var(--red)':'var(--green)');
+  });
+  set('brg-t-days', String(Math.round(c.days*100)/100));
+  set('brg-t-w', String(Math.round(c.totalW*100)/100));
+  set('brg-t-s', money(c.totalShare));
+  set('brg-t-st', c.totalStage?money(c.totalStage):'—');
+  set('brg-t-n', money(c.totalNet));
+  set('brg-warn', c.lines.some(l=>l.net<0)
+    ? '<div style="font-size:12px;color:var(--red);margin-top:8px">⚠ У части людей по этапам уже начислено больше, чем их доля пула. Таким людям начисление по пулу не создаётся.</div>' : '');
+}
+
+function renderBrigades(){
+  const body = document.getElementById('brg-body'); if(!body) return;
+  const b = _brgBrigade(), m = _brg.month;
+  if(!b){
+    body.innerHTML = '<div class="card" style="padding:20px;line-height:1.7">Бригад пока нет. Нажмите «＋ Бригада», затем добавьте состав.</div>'; return;
+  }
+  if(!m) return;
+  const ed = m.status!=='posted', dis = ed?'':' disabled';
+  const c = brgCalc(m, _brg.stageMap);
+  const money = n => fmtCurrency(Math.round(n));
+  let h = '<div id="brg-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px">'+brgKpiHtml(c)+'</div>';
+
+  // Статус
+  h += '<div class="card" style="padding:12px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap'+(ed?'':';border:1px solid var(--green)')+'">'+
+    (ed ? '<span class="badge badge-amber">Черновик</span><span style="font-size:12px;color:var(--text3)">Изменения не попадут в зарплатную ведомость, пока вы не проведёте расчёт.</span>'
+        : '<span class="badge badge-green">Проведено '+_brgEsc(m.posted_date||'')+'</span><span style="font-size:12px;color:var(--text3)">Начислений: '+(m.accrual_ids||[]).length+'. Чтобы изменить цифры, снимите проведение.</span>')+
+    '<span id="brg-dirty" class="badge badge-red" style="'+(_brg.dirty?'':'display:none')+'">Не сохранено</span></div>';
+
+  // Пул и вычеты
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:12px">'+
+    '<div class="card" style="padding:14px"><div style="font-weight:600;margin-bottom:10px">Пул за месяц</div>'+
+      '<label class="label">Сумма, сделанная бригадой (Jalpy somma), ₸</label>'+
+      '<input id="brg-pool" type="text" inputmode="decimal" value="'+(m.pool||'')+'" placeholder="0" style="width:100%"'+dis+' onchange="brgSetPool(this.value)">'+
+      '<label class="label" style="margin-top:10px">Прибавка к пулу (доп. расход из кассы и т.п.), ₸</label>'+
+      '<input id="brg-extra" type="text" inputmode="decimal" value="'+(m.extra||'')+'" placeholder="0" style="width:100%"'+dis+' onchange="brgSetExtra(this.value)">'+
+      '<label class="label" style="margin-top:10px">Примечание</label>'+
+      '<input id="brg-note" type="text" value="'+_brgEsc(m.note||'')+'" style="width:100%"'+dis+' onchange="brgSetNote(this.value)">'+
+    '</div>'+
+    '<div class="card" style="padding:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-weight:600">Вычеты из пула</div>'+
+      (ed?'<button class="btn btn-ghost btn-sm" onclick="brgAddDed()">＋ Вычет</button>':'')+'</div>'+
+      ((m.deductions||[]).length ? (m.deductions||[]).map((d,i)=>
+        '<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'+
+        '<input id="brg-dn-'+i+'" type="text" value="'+_brgEsc(d.name)+'" placeholder="Кому / за что" style="flex:1;min-width:0"'+dis+' onchange="brgDedName('+i+',this.value)">'+
+        '<input id="brg-da-'+i+'" type="text" inputmode="decimal" value="'+(d.amount||'')+'" placeholder="₸" style="width:110px"'+dis+' onchange="brgDedAmt('+i+',this.value)">'+
+        (ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgDelDed('+i+')">✕</span>':'')+'</div>').join('')
+        : '<div style="font-size:12px;color:var(--text3)">Нет вычетов. Сюда вносятся суммы, которые идут не сборщикам: помощник, шлифовка, маляр, краска.</div>')+
+    '</div></div>';
+
+  // Таблица
+  const stageNote = '<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.5;margin:0 0 10px"><input type="checkbox" style="width:auto;margin-top:2px"'+(m.deduct_stage_paid?' checked':'')+dis+' onchange="brgSetStageMode(this.checked)">'+
+    '<span><b>Вычесть то, что уже начислено по этапам за этот месяц.</b> Включайте, если часть работ этой бригады проводилась через этапы заказов (КТУ по этапам): тогда по пулу доначисляется только разница, и никто не получит дважды. Если выключено, пул считается отдельно и начисляется целиком.</span></label>';
+  h += '<div class="card" style="padding:14px;margin-bottom:12px">'+stageNote+'<div style="overflow-x:auto"><table class="data-table" style="min-width:720px"><thead><tr>'+
+    '<th>Сборщик</th><th style="text-align:right;width:90px">Дни</th><th style="text-align:right;width:90px">КТУ</th><th style="text-align:right">Дни × КТУ</th>'+
+    '<th style="text-align:right">Доля пула</th><th style="text-align:right" title="Начислено за месяц через этапы заказов (Сдельная — …)">Уже по этапам</th><th style="text-align:right">К начислению</th></tr></thead><tbody>';
+  c.lines.forEach((l,i)=>{
+    const neg = l.net<0;
+    h += '<tr><td>'+_brgEsc(l.name)+'</td>'+
+      '<td style="text-align:right"><input id="brg-d-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].days||'')+'" placeholder="0" style="width:70px;text-align:right"'+dis+' onchange="brgSetDays('+i+',this.value)"></td>'+
+      '<td style="text-align:right"><input id="brg-k-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].ktu==null?1:m.rows[i].ktu)+'" style="width:70px;text-align:right"'+dis+' onchange="brgSetKtu('+i+',this.value)"></td>'+
+      '<td id="brg-w-'+i+'" style="text-align:right;font-family:monospace"></td>'+
+      '<td id="brg-s-'+i+'" style="text-align:right;font-family:monospace"></td>'+
+      '<td id="brg-st-'+i+'" style="text-align:right;font-family:monospace"></td>'+
+      '<td id="brg-n-'+i+'" style="text-align:right;font-family:monospace;font-weight:600"></td></tr>';
+  });
+  if(!c.lines.length) h += '<tr><td colspan="7" style="text-align:center;color:var(--text3)">Состав бригады пуст — добавьте сотрудников ниже</td></tr>';
+  h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Итого</td><td id="brg-t-days" style="text-align:right"></td><td></td>'+
+    '<td id="brg-t-w" style="text-align:right;font-family:monospace"></td><td id="brg-t-s" style="text-align:right;font-family:monospace"></td>'+
+    '<td id="brg-t-st" style="text-align:right;font-family:monospace"></td><td id="brg-t-n" style="text-align:right;font-family:monospace"></td></tr>';
+  h += '</tbody></table></div><div id="brg-warn"></div></div>';
+
+  // Состав
+  h += '<div class="card" style="padding:14px;margin-bottom:12px"><div style="font-weight:600;margin-bottom:8px">Состав бригады</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+
+    ((b.members||[]).map((n,i)=>'<span class="badge badge-blue" style="font-size:12px;display:inline-flex;gap:6px;align-items:center">'+_brgEsc(n)+
+      '<span style="cursor:pointer" title="Убрать из состава" onclick="brgRemoveMember('+i+')">✕</span></span>').join('')||'<span style="font-size:12px;color:var(--text3)">пока никого</span>')+
+    '</div><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="brg-new-member" list="brg-emp-list" placeholder="Фамилия Имя" style="width:260px">'+
+    '<datalist id="brg-emp-list">'+((typeof employeesData!=='undefined'?employeesData:[]).map(e=>'<option value="'+_brgEsc(e.name)+'">').join(''))+'</datalist>'+
+    '<button class="btn btn-ghost btn-sm" onclick="brgAddMember()">＋ В состав</button></div></div>';
+
+  // Кнопки
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+    (ed?'<button class="btn btn-ghost" onclick="brgSave()">💾 Сохранить</button><button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>'
+       :'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgUnpost()">↩ Снять проведение</button>')+
+    '<button class="btn btn-ghost" onclick="exportBrigadeCsv()">📥 CSV</button></div>';
+
+  body.innerHTML = h;
+  brgRefresh();
+}
+
+async function brgPostAfterSave(){ if(await brgSave(true)) await brgPost(); }
+
+function exportBrigadeCsv(){
+  const m = _brg.month, b = _brgBrigade(); if(!m||!b){ alert('Нет данных'); return; }
+  const c = brgCalc(m, _brg.stageMap);
+  const q = v => '"'+String(v).replace(/"/g,'""')+'"';
+  const out = [['Бригада',b.name,'Период',m.period].map(q).join(';'),
+    ['Пул',m.pool||0,'Прибавка',m.extra||0,'Вычеты',c.ded,'К распределению',Math.round(c.dist)].join(';'),
+    ['Сборщик','Дни','КТУ','Дни×КТУ','Доля пула','Уже по этапам','К начислению'].map(q).join(';')];
+  c.lines.forEach(l=>out.push([q(l.name),l.days,l.ktu,l.w,l.share,l.stage,l.net].join(';')));
+  const blob = new Blob(['﻿'+out.join('\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'brigada_'+m.period+'.csv'; document.body.appendChild(a); a.click(); a.remove();
+}
+
 function showPage(id, el){
   const page = document.getElementById('page-'+id);
   if(!page) return;
@@ -17093,7 +17477,7 @@ function showPage(id, el){
     fab.style.display = (id==='money' && (activeMoneyTab==='cash'||activeMoneyTab==='bank')) ? 'flex' : 'none'; if(fab) fab.style.flexDirection='column';
   }
   if(el) el.classList.add('active');
-  const titles={dashboard:'Дашборд',mrp:'Производство (MRP)',warehouse:'Склад',purchases:'Закупки',suppliers:'Поставщики',catalog:'Каталог продукции',sales:'Продажи',customers:'Покупатели',crm:'CRM',finance:'Финансы — P&L',money:'Деньги',channels:'Центры прибыли',chanbal:'Баланс по каналам',money_salon:'Касса салона',reconcile:'Сверка с офисом',hr:'Сотрудники',wages:'Сдельная оплата',techcards:'Тех. карты',mycabinet:'Личный кабинет',ai:'AI Ассистент'};
+  const titles={dashboard:'Дашборд',mrp:'Производство (MRP)',warehouse:'Склад',purchases:'Закупки',suppliers:'Поставщики',catalog:'Каталог продукции',sales:'Продажи',customers:'Покупатели',crm:'CRM',finance:'Финансы — P&L',money:'Деньги',channels:'Центры прибыли',chanbal:'Баланс по каналам',brigades:'Бригады (пул и КТУ)',money_salon:'Касса салона',reconcile:'Сверка с офисом',hr:'Сотрудники',wages:'Сдельная оплата',techcards:'Тех. карты',mycabinet:'Личный кабинет',ai:'AI Ассистент'};
   document.getElementById('topbar-title').textContent=titles[id]||id;
   if(id==='mrp'){
     // Вкладка "Производственные заказы" открывается первой по умолчанию, но
@@ -17264,6 +17648,7 @@ function showPage(id, el){
   if(id==='mycabinet') setTimeout(initUserPrefsUI, 300);
   if(id==='expense_cats') initExpenseCatsPage();
   if(id==='chanbal') initChanBalPage();
+  if(id==='brigades') initBrigadesPage();
   if(id==='reconcile'){
     const loads=[loadOrdersFromDB()];
     if(!_cacheLoaded.money) loads.push(loadMoneyFromDB());
@@ -22106,6 +22491,7 @@ const ALL_PAGES = [
   {id:'money_salon',label:'Касса салона'},
   {id:'hr',         label:'Сотрудники'},
   {id:'wages',      label:'Сдельная оплата'},
+  {id:'brigades',   label:'Бригады (пул и КТУ)'},
   {id:'techcards',  label:'Тех. карты'},
   {id:'mycabinet',  label:'Личный кабинет'},
   {id:'ai',         label:'AI Ассистент'},
