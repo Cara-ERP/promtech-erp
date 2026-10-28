@@ -17125,12 +17125,16 @@ function brgCalc(m, stageMap){
   const fv = +m.foreman_value||0;
   const bonus = Math.round(m.foreman_mode==='percent' ? gross*fv/100 : fv);
   const fromPool = m.foreman_from_pool!==false;
-  const dist = gross - ded - (fromPool ? bonus : 0);
   const lines = (m.rows||[]).map(r=>{
     const days = +r.days||0;
     const ktu = (r.ktu===''||r.ktu==null||isNaN(+r.ktu)) ? 1 : +r.ktu;
-    return { name:r.name, days, ktu, w:days*ktu, raw:0, share:0, stage:stageMap[_brgKey(r.name)]||0, net:0 };
+    // piece — сдельщик; pool_salary — оклад вычитается из пула, в делении не участвует; share_salary — делит пул, оклад засчитывается
+    const mode = (r.mode==='pool_salary'||r.mode==='share_salary') ? r.mode : 'piece';
+    const salary = mode==='piece' ? 0 : (+r.salary||0);
+    return { name:r.name, days, ktu, mode, salary, w:mode==='pool_salary'?0:days*ktu, raw:0, share:0, stage:stageMap[_brgKey(r.name)]||0, net:0 };
   });
+  const salaryPool = lines.filter(l=>l.mode==='pool_salary').reduce((t,l)=>t+l.salary,0);
+  const dist = gross - ded - (fromPool ? bonus : 0) - salaryPool;
   const totalW = lines.reduce((s,l)=>s+l.w,0);
   const unit = totalW>0 ? dist/totalW : 0;
   lines.forEach(l=>{ l.raw = unit*l.w; l.share = Math.round(l.raw); });
@@ -17138,12 +17142,18 @@ function brgCalc(m, stageMap){
   if(totalW>0 && lines.length){
     const diff = Math.round(dist) - lines.reduce((s,l)=>s+l.share,0);
     if(diff!==0){
-      let big = lines[0]; lines.forEach(l=>{ if(l.raw>big.raw) big=l; });
+      const part = lines.filter(l=>l.w>0);
+      let big = part[0]; part.forEach(l=>{ if(l.raw>big.raw) big=l; });
       big.share += diff;
     }
   }
-  lines.forEach(l=>{ l.net = l.share - (m.deduct_stage_paid ? l.stage : 0); });
-  return { ded, gross, bonus, fromPool, dist, totalW, unit, lines, totalShare:lines.reduce((s,l)=>s+l.share,0), totalNet:lines.reduce((s,l)=>s+l.net,0),
+  lines.forEach(l=>{
+    const st = m.deduct_stage_paid ? l.stage : 0;
+    if(l.mode==='pool_salary') l.net = 0;
+    else if(l.mode==='share_salary') l.net = Math.max(0, l.share - l.salary - st);
+    else l.net = l.share - st;
+  });
+  return { ded, gross, bonus, fromPool, salaryPool, dist, totalW, unit, lines, totalShare:lines.reduce((s,l)=>s+l.share,0), totalNet:lines.reduce((s,l)=>s+l.net,0),
            totalStage:lines.reduce((s,l)=>s+l.stage,0), days:lines.reduce((s,l)=>s+l.days,0) };
 }
 
@@ -17195,13 +17205,13 @@ async function brgLoadMonth(){
     try{
       const pr = await sbFetch('brigade_months','select=*&brigade_id=eq.'+b.id+'&period=eq.'+_brgPrevPeriod(p));
       if(pr && pr[0]){
-        (pr[0].rows||[]).forEach(r=>{ prevKtu[_brgKey(r.name)] = r.ktu; });
+        (pr[0].rows||[]).forEach(r=>{ prevKtu[_brgKey(r.name)] = r; });
         prevF = { foreman:pr[0].foreman||'', foreman_mode:pr[0].foreman_mode||'fixed', foreman_value:+pr[0].foreman_value||0, foreman_from_pool:pr[0].foreman_from_pool!==false };
       }
     }catch(e){}
     _brg.month = { id:null, brigade_id:b.id, period:p, pool:0, extra:0, deductions:[], deduct_stage_paid:false, pool_source:'manual', ...prevF,
       status:'draft', accrual_ids:[], note:'',
-      rows:(b.members||[]).map(n=>({name:n, days:0, ktu: prevKtu[_brgKey(n)]!=null ? prevKtu[_brgKey(n)] : 1})) };
+      rows:(b.members||[]).map(n=>{ const pr0 = prevKtu[_brgKey(n)]; return {name:n, days:0, ktu: pr0&&pr0.ktu!=null ? pr0.ktu : 1, mode: pr0&&pr0.mode||'piece', salary: pr0&&pr0.salary||0}; }) };
   }
   brgSyncRows();
   // Что уже начислено по этапам за этот месяц (для режима «вместе»)
@@ -17225,7 +17235,7 @@ async function brgLoadMonth(){
 function brgSyncRows(){
   const b = _brgBrigade(), m = _brg.month; if(!b||!m||m.status==='posted') return;
   const have = new Set(m.rows.map(r=>_brgKey(r.name)));
-  (b.members||[]).forEach(n=>{ if(!have.has(_brgKey(n))) m.rows.push({name:n, days:0, ktu:1}); });
+  (b.members||[]).forEach(n=>{ if(!have.has(_brgKey(n))) m.rows.push({name:n, days:0, ktu:1, mode:'piece', salary:0}); });
   const mem = new Set((b.members||[]).map(_brgKey));
   m.rows = m.rows.filter(r=>mem.has(_brgKey(r.name)) || (+r.days||0)>0);
 }
@@ -17353,6 +17363,15 @@ function brgSetForeman(v){ _brg.month.foreman = v.trim(); brgMarkDirty(); }
 function brgSetFMode(v){ _brg.month.foreman_mode = v; brgMarkDirty(); renderBrigades(); }
 function brgSetFValue(v){ _brg.month.foreman_value = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetFFrom(on){ _brg.month.foreman_from_pool = !!on; brgMarkDirty(); brgRefresh(); }
+function brgSetMode(i,v){
+  const r = _brg.month.rows[i]; r.mode = v;
+  if(v!=='piece' && !(+r.salary)){
+    const e = (typeof employeesData!=='undefined'?employeesData:[]).find(x=>_brgKey(x.name)===_brgKey(r.name));
+    if(e && +e.salary) r.salary = +e.salary;
+  }
+  brgMarkDirty(); renderBrigades();
+}
+function brgSetSalary(i,v){ _brg.month.rows[i].salary = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetPool(v){ _brg.month.pool = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetExtra(v){ _brg.month.extra = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetNote(v){ _brg.month.note = v; brgMarkDirty(); }
@@ -17387,14 +17406,18 @@ async function brgPost(){
   if(c.dist<=0){ alert('К распределению получилось '+fmtCurrency(c.dist)+'. Проверьте пул и вычеты.'); return; }
   if(c.bonus>0 && !(m.foreman||'').trim()){ alert('Указана бригадирская доплата, но не выбран бригадир.'); return; }
   const pay = c.lines.filter(l=>l.net>0);
-  const skipped = c.lines.filter(l=>l.net<=0 && l.days>0);
+  const skipped = c.lines.filter(l=>l.net<=0 && l.days>0 && l.mode==='piece');
+  const covered = c.lines.filter(l=>l.mode==='share_salary' && l.net<=0);
+  const poolSal = c.lines.filter(l=>l.mode==='pool_salary');
   let msg = 'Провести начисления за '+m.period+' по бригаде «'+b.name+'»?\n\nЛюдей: '+pay.length+'\nСумма начислений: '+fmtCurrency(pay.reduce((s,l)=>s+l.net,0))+(c.bonus>0?'\nБригадирская доплата ('+m.foreman+'): '+fmtCurrency(c.bonus)+(c.fromPool?' (из пула)':' (сверх пула)'):'');
+  if(poolSal.length) msg += '\n\nОклад вычтен из пула (начисляется отдельно в «Начислениях ЗП»): '+poolSal.map(l=>l.name+' '+fmtCurrency(l.salary)).join(', ');
+  if(covered.length) msg += '\n\nОклад покрывает долю пула, доплаты нет: '+covered.map(l=>l.name).join(', ');
   if(skipped.length) msg += '\n\nБез начисления (доля не больше уже начисленного по этапам): '+skipped.map(l=>l.name).join(', ');
   if(!confirm(msg)) return;
   const date = _brgLastDay(m.period), ids = [];
   try{
     for(const l of pay){
-      const comment = 'Бригада «'+b.name+'» — месячный пул '+m.period+' ('+l.days+' дн. × КТУ '+l.ktu+')'+(m.deduct_stage_paid&&l.stage?'; за вычетом начисленного по этапам '+Math.round(l.stage):'');
+      const comment = 'Бригада «'+b.name+'» — месячный пул '+m.period+' ('+l.days+' дн. × КТУ '+l.ktu+')'+(l.mode==='share_salary'?'; за вычетом оклада '+Math.round(l.salary):'')+(m.deduct_stage_paid&&l.stage?'; за вычетом начисленного по этапам '+Math.round(l.stage):'');
       const r = await sbInsert('salary_accruals', { emp_name:l.name, date, amount:l.net, deducted:0, net:l.net, type:'salary', comment,
         details:{accruals:[{type:'Сдельная (бригада)', amount:l.net}], deductions:[]} });
       ids.push(r.id);
@@ -17435,7 +17458,7 @@ function brgKpiHtml(c){
   const m = _brg.month, money = n => fmtCurrency(Math.round(n));
   const kpi = (l,v,sub,col) => '<div class="kpi"><div class="kpi-label">'+l+'</div><div class="kpi-value"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div>'+(sub?'<div class="kpi-change">'+sub+'</div>':'')+'</div>';
   return kpi('Пул бригады', money((+m.pool||0)+(+m.extra||0)), 'сумма, сделанная за месяц')+
-    kpi('Вычеты', money(c.ded), (m.deductions||[]).length+' поз.')+(c.bonus>0?kpi('Бригадирская доплата', money(c.bonus), c.fromPool?'из пула':'сверх пула'):'')+
+    kpi('Вычеты', money(c.ded), (m.deductions||[]).length+' поз.')+(c.bonus>0?kpi('Бригадирская доплата', money(c.bonus), c.fromPool?'из пула':'сверх пула'):'')+(c.salaryPool>0?kpi('Оклады из пула', money(c.salaryPool), 'вычтено до деления'):'')+
     kpi('К распределению', money(c.dist), 'Σ дни × КТУ = '+(Math.round(c.totalW*100)/100), c.dist>0?'var(--green)':'var(--red)')+
     kpi('Стоимость 1 «балла»', money(c.unit), '1 день при КТУ 1');
 }
@@ -17447,10 +17470,11 @@ function brgRefresh(){
   const k = document.getElementById('brg-kpi'); if(k) k.innerHTML = brgKpiHtml(c);
   c.lines.forEach((l,i)=>{
     set('brg-w-'+i, String(Math.round(l.w*100)/100));
-    set('brg-s-'+i, money(l.share));
+    set('brg-s-'+i, l.mode==='pool_salary' ? '—' : money(l.share));
     set('brg-st-'+i, l.stage?money(l.stage):'—', l.stage?'var(--amber,#f5a623)':'var(--text3)');
-    set('brg-n-'+i, money(l.net)+(l.net<0?' ⚠':''), l.net<0?'var(--red)':'var(--green)');
+    set('brg-n-'+i, l.mode==='pool_salary' ? 'оклад отдельно' : money(l.net)+(l.net<0?' ⚠':'')+(l.mode==='share_salary'&&l.share-l.salary<=0?' (оклад покрывает)':''), l.net<0?'var(--red)':(l.mode==='pool_salary'?'var(--text3)':'var(--green)'));
   });
+  set('brg-t-sal', c.lines.some(l=>l.salary)?money(c.lines.reduce((t,l)=>t+l.salary,0)):'—');
   set('brg-t-days', String(Math.round(c.days*100)/100));
   set('brg-t-w', String(Math.round(c.totalW*100)/100));
   set('brg-t-s', money(c.totalShare));
@@ -17519,11 +17543,16 @@ function renderBrigades(){
   const stageNote = '<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.5;margin:0 0 10px"><input type="checkbox" style="width:auto;margin-top:2px"'+(m.deduct_stage_paid?' checked':'')+dis+' onchange="brgSetStageMode(this.checked)">'+
     '<span><b>Вычесть то, что уже начислено по этапам за этот месяц.</b> Включайте, если часть работ этой бригады проводилась через этапы заказов (КТУ по этапам): тогда по пулу доначисляется только разница, и никто не получит дважды. Если выключено, пул считается отдельно и начисляется целиком.</span></label>';
   h += '<div class="card" style="padding:14px;margin-bottom:12px">'+stageNote+'<div style="overflow-x:auto"><table class="data-table" style="min-width:720px"><thead><tr>'+
-    '<th>Сборщик</th><th style="text-align:right;width:90px">Дни</th><th style="text-align:right;width:90px">КТУ</th><th style="text-align:right">Дни × КТУ</th>'+
+    '<th>Сборщик</th><th title="Сдельщик — получает долю пула. Оклад из пула — оклад вычитается из пула, в делении не участвует. Оклад с зачётом — участвует в делении, из его доли вычитается оклад.">Расчёт</th><th style="text-align:right;width:100px">Оклад, ₸</th><th style="text-align:right;width:90px">Дни</th><th style="text-align:right;width:90px">КТУ</th><th style="text-align:right">Дни × КТУ</th>'+
     '<th style="text-align:right">Доля пула</th><th style="text-align:right" title="Начислено за месяц через этапы заказов (Сдельная — …)">Уже по этапам</th><th style="text-align:right">К начислению</th></tr></thead><tbody>';
   c.lines.forEach((l,i)=>{
     const neg = l.net<0;
     h += '<tr><td>'+_brgEsc(l.name)+'</td>'+
+      '<td><select style="width:auto;font-size:12px"'+dis+' onchange="brgSetMode('+i+',this.value)">'+
+        '<option value="piece"'+(l.mode==='piece'?' selected':'')+'>Сдельщик</option>'+
+        '<option value="pool_salary"'+(l.mode==='pool_salary'?' selected':'')+'>Оклад — из пула</option>'+
+        '<option value="share_salary"'+(l.mode==='share_salary'?' selected':'')+'>Оклад — с зачётом</option></select></td>'+
+      '<td style="text-align:right"><input id="brg-sal-'+i+'" type="text" inputmode="decimal" value="'+(l.mode==='piece'?'':(m.rows[i].salary||''))+'" placeholder="'+(l.mode==='piece'?'—':'₸')+'" style="width:90px;text-align:right"'+(ed&&l.mode!=='piece'?'':' disabled')+' onchange="brgSetSalary('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input id="brg-d-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].days||'')+'" placeholder="0" style="width:70px;text-align:right"'+dis+' onchange="brgSetDays('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input id="brg-k-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].ktu==null?1:m.rows[i].ktu)+'" style="width:70px;text-align:right"'+dis+' onchange="brgSetKtu('+i+',this.value)"></td>'+
       '<td id="brg-w-'+i+'" style="text-align:right;font-family:monospace"></td>'+
@@ -17531,8 +17560,8 @@ function renderBrigades(){
       '<td id="brg-st-'+i+'" style="text-align:right;font-family:monospace"></td>'+
       '<td id="brg-n-'+i+'" style="text-align:right;font-family:monospace;font-weight:600"></td></tr>';
   });
-  if(!c.lines.length) h += '<tr><td colspan="7" style="text-align:center;color:var(--text3)">Состав бригады пуст — добавьте сотрудников ниже</td></tr>';
-  h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Итого</td><td id="brg-t-days" style="text-align:right"></td><td></td>'+
+  if(!c.lines.length) h += '<tr><td colspan="9" style="text-align:center;color:var(--text3)">Состав бригады пуст — добавьте сотрудников ниже</td></tr>';
+  h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Итого</td><td></td><td id="brg-t-sal" style="text-align:right;font-family:monospace"></td><td id="brg-t-days" style="text-align:right"></td><td></td>'+
     '<td id="brg-t-w" style="text-align:right;font-family:monospace"></td><td id="brg-t-s" style="text-align:right;font-family:monospace"></td>'+
     '<td id="brg-t-st" style="text-align:right;font-family:monospace"></td><td id="brg-t-n" style="text-align:right;font-family:monospace"></td></tr>';
   h += '</tbody></table></div><div id="brg-warn"></div></div>';
@@ -17726,7 +17755,8 @@ wages: { title:'Сдельная оплата',
 
 brigades: { title:'Бригады (пул и КТУ)',
   about:'Месячный расчёт зарплаты бригады: общий пул делится между сборщиками по дням и КТУ. Работает вместе с начислением по этапам заказов.',
-  how:['Создайте бригаду («＋ Бригада»), добавьте состав, выберите месяц.','Пул: «Вручную» или «Из рабочего листа производства» (по завершённым этапам бригады за месяц).','Вычеты: суммы, которые идут не сборщикам (помощник, шлифовка, маляр). Бригадир: доплата суммой или процентом, из пула или сверх него.','В таблице введите дни и КТУ каждого. Доля = к распределению ÷ Σ(дни × КТУ) × дни × КТУ.','Если часть работ уже начислена по этапам, включите «Вычесть уже начисленное по этапам», чтобы не заплатить дважды.','«💾 Сохранить» сохраняет черновик; «✅ Провести начисления» создаёт начисления в Зарплатной ведомости; «↩ Снять проведение» отменяет их.'] },
+  how:['Создайте бригаду («＋ Бригада»), добавьте состав, выберите месяц.','Пул: «Вручную» или «Из рабочего листа производства» (по завершённым этапам бригады за месяц).','Вычеты: суммы, которые идут не сборщикам (помощник, шлифовка, маляр). Бригадир: доплата суммой или процентом, из пула или сверх него.','В таблице введите дни и КТУ каждого. Доля = к распределению ÷ Σ(дни × КТУ) × дни × КТУ.','Сотрудники на окладе: в колонке «Расчёт» выберите «Оклад — из пула» (оклад вычитается из пула до деления, человек в делении не участвует, оклад начисляется отдельно в «Начислениях ЗП») или «Оклад — с зачётом» (человек делит пул по дням и КТУ, а из его доли вычитается оклад; если оклад больше доли, доплаты нет). Оклад подставляется из карточки сотрудника.',
+       'Если часть работ уже начислена по этапам, включите «Вычесть уже начисленное по этапам», чтобы не заплатить дважды.','«💾 Сохранить» сохраняет черновик; «✅ Провести начисления» создаёт начисления в Зарплатной ведомости; «↩ Снять проведение» отменяет их.'] },
 
 chanbal: { title:'Баланс по каналам',
   about:'Сколько отгружено, сколько оплачено и сколько осталось отгрузить по каждому каналу (салоны, дилеры, офис).',
