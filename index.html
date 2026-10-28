@@ -17172,6 +17172,8 @@ async function initBrigadesPage(force){
   _brg.loading = true;
   body.innerHTML = '<div style="padding:24px;color:var(--text3)">Загрузка…</div>';
   try{
+    // Список сотрудников нужен для подсказок и окладов — подгружаем, даже если раздел «Сотрудники» не открывали
+    if(typeof employeesData!=='undefined' && !employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
     if(force || !_brg.list) _brg.list = await sbFetch('brigades','select=*&order=name');
     if(!Array.isArray(_brg.list)) throw new Error('пустой ответ');
     if(!_brgBrigade()) _brg.brigadeId = _brg.list.length ? _brg.list[0].id : null;
@@ -17522,10 +17524,11 @@ function renderBrigades(){
       (ed?'<button class="btn btn-ghost btn-sm" onclick="brgAddDed()">＋ Вычет</button>':'')+'</div>'+
       ((m.deductions||[]).length ? (m.deductions||[]).map((d,i)=>
         '<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'+
-        '<input id="brg-dn-'+i+'" type="text" value="'+_brgEsc(d.name)+'" placeholder="Кому / за что" style="flex:1;min-width:0"'+dis+' onchange="brgDedName('+i+',this.value)">'+
+        '<input id="brg-dn-'+i+'" list="brg-emp-list" type="text" value="'+_brgEsc(d.name)+'" placeholder="Выберите сотрудника или впишите" style="flex:1;min-width:0"'+dis+' onchange="brgDedName('+i+',this.value)">'+
         '<input id="brg-da-'+i+'" type="text" inputmode="decimal" value="'+(d.amount||'')+'" placeholder="₸" style="width:110px"'+dis+' onchange="brgDedAmt('+i+',this.value)">'+
         (ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgDelDed('+i+')">✕</span>':'')+'</div>').join('')
         : '<div style="font-size:12px;color:var(--text3)">Нет вычетов. Сюда вносятся суммы, которые идут не сборщикам: помощник, шлифовка, маляр, краска.</div>')+
+      '<div style="font-size:11px;color:var(--text3);margin-top:6px">В поле «кому / за что» можно выбрать сотрудника из списка (начните вводить фамилию) или написать своё, например «краска».</div>'+
     '</div>'+
     '<div class="card" style="padding:14px"><div style="font-weight:600;margin-bottom:10px">Бригадир и доплата</div>'+
       '<label class="label">Бригадир</label>'+
@@ -17572,7 +17575,7 @@ function renderBrigades(){
     ((b.members||[]).map((n,i)=>'<span class="badge badge-blue" style="font-size:12px;display:inline-flex;gap:6px;align-items:center">'+_brgEsc(n)+
       '<span style="cursor:pointer" title="Убрать из состава" onclick="brgRemoveMember('+i+')">✕</span></span>').join('')||'<span style="font-size:12px;color:var(--text3)">пока никого</span>')+
     '</div><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="brg-new-member" list="brg-emp-list" placeholder="Фамилия Имя" style="width:260px">'+
-    '<datalist id="brg-emp-list">'+((typeof employeesData!=='undefined'?employeesData:[]).map(e=>'<option value="'+_brgEsc(e.name)+'">').join(''))+'</datalist>'+
+    '<datalist id="brg-emp-list">'+((typeof employeesData!=='undefined'?employeesData:[]).filter(e=>(e.status||'active')!=='fired').map(e=>'<option value="'+_brgEsc(e.name)+'">').join(''))+'</datalist>'+
     '<button class="btn btn-ghost btn-sm" onclick="brgAddMember()">＋ В состав</button></div></div>';
 
   // Кнопки
