@@ -5794,6 +5794,7 @@ window.onerror = function(msg, src, line, col){
             <input id="pur-debt-search" type="search" placeholder="🔍 Поиск поставщика..." 
               style="font-size:13px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:280px"
               oninput="filterPurDebts()">
+            <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="exportPurDebtsXlsx()">📥 Excel</button>
           </div>
           <div style="overflow:auto">
             <table class="data-table" style="font-size:12px">
@@ -26680,6 +26681,25 @@ function filterPurDebts(){
     !search || r.name.toLowerCase().includes(search) || (r.bin||'').includes(search)
   );
   renderPurDebtsTable(rows);
+}
+
+// Выгрузка «Долги и авансы поставщикам» в Excel (в файл попадает то, что видно в таблице, с учётом поиска)
+function exportPurDebtsXlsx(){
+  if(typeof XLSX==='undefined'){ alert('Библиотека Excel ещё загружается. Подождите пару секунд и попробуйте снова.'); return; }
+  const search = (document.getElementById('pur-debt-search')?.value||'').toLowerCase();
+  const rows = (window._purDebtRows||[]).filter(r=> !search || r.name.toLowerCase().includes(search) || (r.bin||'').includes(search));
+  if(!rows.length){ alert('Нет данных для выгрузки. Откройте вкладку «Закупки» и дождитесь загрузки таблицы.'); return; }
+  const head = ['Поставщик','БИН/ИИН','ЭСФ (поставлено), ₸','Оплачено, ₸','Долг, ₸','Аванс, ₸','Статус'];
+  const data = rows.map(r=>[ r.name, r.bin||'', Math.round(r.esf), Math.round(r.paid), r.debt>0?Math.round(r.debt):0, r.debt<0?Math.round(-r.debt):0, r.debt>0?'Долг':'Аванс' ]);
+  const sum = i => data.reduce((t,r)=>t+r[i],0);
+  data.push(['ИТОГО ('+rows.length+' поставщиков)','',sum(2),sum(3),sum(4),sum(5),'']);
+  const today = new Date().toLocaleDateString('ru-RU');
+  const ws = XLSX.utils.aoa_to_sheet([['Долги и авансы поставщикам — на '+today],['Долг = поставлено по ЭСФ − оплачено из журнала расходов. Аванс — оплачено больше, чем поставлено.'],[],head,...data]);
+  ws['!cols'] = [{wch:44},{wch:16},{wch:20},{wch:18},{wch:18},{wch:18},{wch:10}];
+  ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Долги и авансы');
+  XLSX.writeFile(wb, 'Долги_и_авансы_поставщикам_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
 
 function renderPurDebtsTable(debtRows){
