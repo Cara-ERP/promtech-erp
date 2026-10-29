@@ -17710,7 +17710,7 @@ mrp: { title:'Производство',
    shopfloor:{ name:'🏭 Производство', what:'Отчёт по выработке в разрезе вида деятельности (Стул, Стол, Кровать, Мягкая мебель, Корпусная мебель).',
      how:['Переключайте вид деятельности вкладками. «📥 Выгрузить в Excel» сохраняет отчёт.'] },
    worksheet:{ name:'📋 Рабочий лист производства', what:'Главный рабочий экран цеха: по каждой позиции заказа — цех, этапы, исполнители, материалы, техкарта и статус.',
-     how:['«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период; «+ Заказ» добавляет заказ вручную.','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','В этапе можно выбрать «Бригаду» вместо исполнителей: тогда личных начислений нет, а сумма этапа идёт в месячный пул бригады (раздел «Бригады»).','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
+     how:['«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период, пропуская завершённые, отменённые и уже отгруженные; «+ Заказ» добавляет заказ вручную (для закрытого заказа программа спросит подтверждение). У таких позиций в таблице стоит метка «🚚».','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','В этапе можно выбрать «Бригаду» вместо исполнителей: тогда личных начислений нет, а сумма этапа идёт в месячный пул бригады (раздел «Бригады»).','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
    techcards:{ name:'📐 Технологические карты', what:'Шаблоны этапов производства для изделий и категорий.',
      how:['«+ Новый шаблон» создаёт шаблон этапов. Шаблон можно привязать к изделию или категории и подтягивать в рабочий лист.'] },
    workload:{ name:'📊 Загрузка цехов', what:'Незавершённые этапы по цехам и срочности.',
@@ -36591,8 +36591,12 @@ async function addOrdersToWorksheetByPeriod(days){
     return iso && iso>=sinceStr;
   });
   if(!matching.length){ alert(`Заказов за этот период не найдено (от ${sinceStr}).`); return; }
-  const pairs = matching.flatMap(o=>(o.items||[]).map((it,i)=>({orderNum:o.num, itemIdx:i})));
-  if(!confirm(`Будет добавлено заказов: ${matching.length} (позиций: ${pairs.length}), с датой от ${sinceStr} до сегодня.\n\nПродолжить?`)) return;
+  // Завершённые, отменённые и уже отгруженные заказы в производство не добавляем
+  const open = matching.filter(o=>!orderClosedReason(o));
+  const skipped = matching.length - open.length;
+  if(!open.length){ alert(`За этот период ${matching.length} заказ(ов), но все они уже завершены, отменены или отгружены покупателю — добавлять нечего.\n\nЧтобы добавить такой заказ осознанно, используйте кнопку «+ Заказ» с номером.`); return; }
+  const pairs = open.flatMap(o=>(o.items||[]).map((it,i)=>({orderNum:o.num, itemIdx:i})));
+  if(!confirm(`Будет добавлено заказов: ${open.length} (позиций: ${pairs.length}), с датой от ${sinceStr} до сегодня.`+(skipped?`\n\nПропущено закрытых и отгруженных заказов: ${skipped}.`:'')+`\n\nПродолжить?`)) return;
   await addManyItemsToWorksheet(pairs);
   renderProdWorksheet();
 }
@@ -36602,6 +36606,8 @@ async function addOrderToWorksheetByNum(){
   if(!num) return;
   const order = findOrderBySearchNum(num);
   if(!order){ alert('Заказ №'+num+' не найден.'); return; }
+  const closedWhy = orderClosedReason(order);
+  if(closedWhy && !confirm(`Заказ ${order.num} уже ${closedWhy}.\n\nДобавить его на рабочий лист производства всё равно (например, для доработки или реставрации)?`)) return;
   const pairs = (order.items||[]).map((it,i)=>({orderNum:order.num, itemIdx:i}));
   await addManyItemsToWorksheet(pairs);
   document.getElementById('pwb-add-order').value='';
@@ -36657,8 +36663,20 @@ function pwbPopulateFilters(){
     stSel.innerHTML='<option value="">Все этапы</option>'+PROD_STAGE_NAMES().map(s=>`<option value="${s}">${s}</option>`).join('');
   }
   const exSel = document.getElementById('pwb-f-exec');
-  if(exSel && exSel.options.length<=1){
-    exSel.innerHTML='<option value="">Все исполнители</option>'+employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('');
+  if(exSel){
+    if(!window._pwbBrigades && typeof loadPwbBrigades==='function') loadPwbBrigades();
+    // Бригады: из справочника + те, что уже назначены на этапы
+    const brs = new Set((window._pwbBrigades||[]).map(b=>b.name));
+    Object.values(prodProgress).forEach(pp=>(pp.stages||[]).forEach(st=>{ if(st.brigade && st.brigadeName) brs.add(st.brigadeName); }));
+    const esc = v=>String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const sig = [...brs].join('|')+'#'+employeesData.length;
+    if(exSel.dataset.sig!==sig){
+      const cur = exSel.value;
+      exSel.innerHTML='<option value="">Все исполнители</option>'+
+        (brs.size?'<optgroup label="Бригады">'+[...brs].map(n=>`<option value="${esc('👥 '+n)}">👥 ${esc(n)}</option>`).join('')+'</optgroup>':'')+
+        '<optgroup label="Сотрудники">'+employeesData.map(e=>`<option value="${esc(e.name)}">${esc(e.name)}</option>`).join('')+'</optgroup>';
+      exSel.value = cur; exSel.dataset.sig = sig;
+    }
   }
   const wsSel = document.getElementById('pwb-f-workshop');
   if(wsSel && wsSel.options.length<=1){
@@ -36734,6 +36752,7 @@ function renderProdWorksheet(){
       <td style="font-size:11px">
         <div style="font-family:monospace;color:var(--accent)">${r.orderNum}</div>
         <div style="color:var(--text3)">${channel?PL_CHANNEL_LABELS[channel]||channel:'—'}</div>
+        ${(()=>{ const w=orderClosedReason(r.order); return w?`<div><span class="badge badge-amber" style="font-size:10px" title="Заказ уже ${w}. Проверьте, нужна ли по нему работа.">🚚 ${w}</span></div>`:''; })()}
       </td>
       <td style="font-size:11px">
         <div>${r.order.date||'—'}</div>
@@ -36910,6 +36929,22 @@ function removePwbStage(idx){
   renderProdWorksheet();
 }
 
+// Закрыт ли заказ для производства: завершён, отменён или уже отгружен покупателю (реализация ≥ 99% суммы).
+// Возвращает текст причины или '' если заказ открыт.
+function orderClosedReason(o){
+  if(!o) return '';
+  if(o.status==='cancelled') return 'отменён';
+  if(o.status==='done') return 'завершён';
+  try{
+    const total = orderTotal(o);
+    if(total>0 && Array.isArray(realizationsData) && realizationsData.length){
+      const rev = realizationsData.reduce((t,r)=> r.order_num===o.num ? t+(r.revenue||0) : t, 0);
+      if(rev >= total*0.99) return 'отгружен покупателю';
+    }
+  }catch(e){}
+  return '';
+}
+
 // Исполнители этапа для отображения: бригада или список сотрудников
 function stageExecNames(s){
   return s.brigade ? ['👥 '+(s.brigadeName||'бригада')] : (s.assignees||[]).map(a=>a.name);
@@ -36920,6 +36955,7 @@ async function loadPwbBrigades(){
   try{ window._pwbBrigades = (await sbFetch('brigades','select=id,name&active=eq.true&order=name'))||[]; }
   catch(e){ window._pwbBrigades = []; }
   window._pwbBrigadesLoading = false;
+  if(document.getElementById('pwb-f-exec') && typeof pwbPopulateFilters==='function'){ try{ pwbPopulateFilters(); }catch(e){} }
   if(typeof _pwbCurrentItemKey!=='undefined' && _pwbCurrentItemKey && document.getElementById('pwb-stages-list') && prodProgress[_pwbCurrentItemKey]) renderPwbStagesList();
 }
 function setPwbStageBrigade(idx, id){
@@ -36939,6 +36975,12 @@ async function postPwbStage(idx){
   const p = prodProgress[_pwbCurrentItemKey];
   const s = p.stages[idx];
   if(!s.stage){ alert('Укажите название этапа.'); return; }
+  {
+    const row0 = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
+    const ord0 = row0 && ordersData.find(o=>o.num===row0.orderNum);
+    const why0 = orderClosedReason(ord0);
+    if(why0 && !confirm(`Внимание: заказ ${ord0.num} уже ${why0}.\n\nЗавершить этап «${s.stage}» и ${s.brigade?'добавить его сумму в пул бригады':'начислить сдельную оплату'}?`)) return;
+  }
   if(s.brigade){
     const today0 = new Date().toISOString().slice(0,10);
     s.posted = true; s.postedDate = today0; s.accrualIds = [];
