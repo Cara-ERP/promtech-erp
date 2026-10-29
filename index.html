@@ -2417,6 +2417,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab active" onclick="showMrpTab('orders',this)">Производственные заказы</div>
         <div class="tab" onclick="showMrpTab('shopfloor',this)">🏭 Производство</div>
         <div class="tab" onclick="showMrpTab('worksheet',this)">📋 Рабочий лист производства</div>
+        <div class="tab" onclick="showMrpTab('board',this)">🗂 Доска этапов</div>
         <div class="tab" onclick="showMrpTab('techcards',this)">📐 Технологические карты</div>
         <div class="tab" onclick="showMrpTab('workload',this)">📊 Загрузка цехов</div>
         <div class="tab" onclick="showMrpTab('worklog',this)">📅 Журнал работ</div>
@@ -2494,6 +2495,22 @@ window.onerror = function(msg, src, line, col){
       </div>
 
       <!-- TAB: Рабочий лист производства -->
+      <div class="mrp-tab" id="mrp-board" style="display:none">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <div class="tabs" style="margin:0">
+            <div class="tab active" id="brd-v-matrix" onclick="brdSetView('matrix')">📊 Таблица</div>
+            <div class="tab" id="brd-v-kanban" onclick="brdSetView('kanban')">🗂 Доска по цехам</div>
+          </div>
+          <input id="brd-search" type="text" placeholder="Заказ или изделие…" style="width:170px;font-size:12px" oninput="renderBoard()">
+          <select id="brd-ws" onchange="renderBoard()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brd-noexec" onchange="renderBoard()"> без исполнителя</label>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brd-done" onchange="renderBoard()"> показывать завершённые</label>
+          <button class="btn btn-ghost btn-sm" onclick="initBoard()">🔄</button>
+        </div>
+        <div class="section-sub" style="margin-bottom:10px">Те же позиции и этапы, что в Рабочем листе, но на одном экране. Исполнителя выбирают прямо в ячейке; в шапке столбца «Всем…» назначает одного человека на все свободные этапы столбца.</div>
+        <div id="brd-body" style="overflow:auto"></div>
+      </div>
+
       <div class="mrp-tab" id="mrp-worksheet" style="display:none">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <button class="btn btn-ghost btn-sm" onclick="addOrdersToWorksheetByPeriod(3)">+ За 3 дня</button>
@@ -17794,6 +17811,8 @@ mrp: { title:'Производство',
      how:['Переключайте вид деятельности вкладками. «📥 Выгрузить в Excel» сохраняет отчёт.'] },
    worksheet:{ name:'📋 Рабочий лист производства', what:'Главный рабочий экран цеха: по каждой позиции заказа — цех, этапы, исполнители, материалы, техкарта и статус.',
      how:['В открытой позиции кнопка «📐 Заполнить по техкарте» создаёт сразу все этапы шаблона (цех, расценка, количество) и сразу предлагает выбрать исполнителя на каждый этап из участников цеха (если в цехе один участник — он подставляется сам). В карточке этапа исполнитель добавляется одним выбором из списка. Если в техкарте указан полуфабрикат, при «▶️ Начать работу» он спишется со склада автоматически.','«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период, пропуская завершённые, отменённые и уже отгруженные; «+ Заказ» добавляет заказ вручную (для закрытого заказа программа спросит подтверждение). У таких позиций в таблице стоит метка «🚚».','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','В этапе можно выбрать «Бригаду» вместо исполнителей: тогда личных начислений нет, а сумма этапа идёт в месячный пул бригады (раздел «Бригады»).','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
+   board:{ name:'🗂 Доска этапов', what:'Все позиции и их этапы на одном экране — удобно, когда этапов много.',
+     how:['«📊 Таблица»: строки — позиции, столбцы — этапы. В ячейке выбирается исполнитель (сначала участники цеха), кнопки ▶ начать и ✅ завершить. Зелёный фон — готово, жёлтый — в работе.','В шапке столбца список «Всем свободным…» назначает одного человека сразу на все этапы столбца, где исполнитель ещё не выбран.','«🗂 Доска по цехам»: колонки — цеха, карточка позиции стоит в цехе своего текущего (первого незавершённого) этапа и переезжает дальше после ✅.','Фильтры: поиск, цех, «без исполнителя», «показывать завершённые». Клик по названию позиции открывает полную карточку этапов (несколько исполнителей, КТУ, бригада, материалы).'] },
    techcards:{ name:'📐 Технологические карты', what:'Шаблоны этапов производства для изделий и категорий.',
      how:['«+ Новый шаблон» создаёт шаблон этапов. Шаблон можно привязать к изделию или категории и подтягивать в рабочий лист.'] },
    workload:{ name:'📊 Загрузка цехов', what:'Незавершённые этапы по цехам и срочности.',
@@ -18340,6 +18359,129 @@ async function pwbAutoWriteOffForStage(stageName){
     if(wh.qty < m.qty && !confirm(`На складе «${wh.name}» только ${wh.qty}, нужно ${m.qty}. Списать всё равно (остаток уйдёт в минус)?`)) continue;
     await postPwbMaterial(i);
   }
+}
+
+// ══════ Доска этапов: таблица «позиции × этапы» и канбан по цехам ══════
+let _brdView = 'matrix';
+async function initBoard(){
+  await initProdWorksheet();           // загрузит данные, если ещё не загружены
+  if(!_wsLoaded) await wsLoadWorkshops();
+  renderBoard();
+}
+function brdSetView(v){
+  _brdView = v;
+  document.getElementById('brd-v-matrix').classList.toggle('active', v==='matrix');
+  document.getElementById('brd-v-kanban').classList.toggle('active', v==='kanban');
+  renderBoard();
+}
+function brdRows(){
+  const q=(document.getElementById('brd-search')?.value||'').toLowerCase().trim();
+  const showDone=document.getElementById('brd-done')?.checked;
+  return prodWbRows.map(r=>{
+    const order=ordersData.find(o=>o.num===r.orderNum); const item=order?.items?.[r.itemIdx];
+    return {...r, order, item, p: prodProgress[r.itemKey]||{stages:[],materials:[]}};
+  }).filter(r=>{
+    if(!r.order||!r.item||!(r.p.stages||[]).length) return false;
+    if(!showDone && r.p.stages.every(s=>s.posted)) return false;
+    if(q && !(r.orderNum+' '+r.item.name).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+function brdWho(s){
+  if(s.brigade) return '👥 '+(s.brigadeName||'бригада');
+  const a=s.assignees||[]; return a.length?a.map(x=>x.name).join(', '):'';
+}
+function brdExecSelect(key, idx, s){
+  const a=s.assignees||[];
+  if(s.posted || s.brigade || a.length>1){
+    return `<div style="font-size:11px;cursor:pointer" title="Открыть этап" onclick="openPwbStageEditor('${key}')">${brdWho(s)||'—'}</div>`;
+  }
+  return `<select style="font-size:11px;width:100%;padding:2px" onchange="brdSetExec('${key}',${idx},this.value)">${pwbExecOptions(s.workshop,a[0]?a[0].name:'',true)}</select>`;
+}
+async function brdSetExec(key, idx, name){
+  const p=prodProgress[key]; const s=p.stages[idx];
+  s.assignees = name ? [{name, ktu:1}] : [];
+  try{ await saveProdProgress(key); }catch(e){ alert('Не удалось сохранить: '+e.message); }
+  renderBoard();
+}
+async function brdBulkExec(colName, name){
+  if(!name) return;
+  let n=0;
+  for(const r of brdRows()){
+    const wsF=document.getElementById('brd-ws')?.value||'';
+    r.p.stages.forEach(s=>{
+      if((s.stage||'(без названия)')!==colName || s.posted || s.brigade || (s.assignees||[]).length) return;
+      if(wsF && s.workshop!==wsF) return;
+      s.assignees=[{name,ktu:1}]; r._chg=true; n++;
+    });
+    if(r._chg){ try{ await saveProdProgress(r.itemKey); }catch(e){ alert('Не удалось сохранить: '+e.message); break; } }
+  }
+  renderBoard();
+}
+async function brdStart(key, idx){ _pwbCurrentItemKey=key; startPwbStage(idx); setTimeout(renderBoard,300); }
+async function brdPost(key, idx){ _pwbCurrentItemKey=key; await postPwbStage(idx); renderBoard(); }
+async function brdUnpost(key, idx){ _pwbCurrentItemKey=key; await unpostPwbStage(idx); renderBoard(); }
+function brdActions(key, idx, s){
+  if(s.posted) return `<span style="color:var(--green);font-size:11px">✅ ${s.postedDate?s.postedDate.slice(5).split('-').reverse().join('.'):''}</span> <a href="#" style="font-size:10px;color:var(--text3)" onclick="event.preventDefault();brdUnpost('${key}',${idx})">↩</a>`;
+  return (!s.started?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px" onclick="brdStart('${key}',${idx})">▶</button> `:'<span title="В работе" style="font-size:11px">🔨</span> ')
+        +`<button class="btn btn-primary btn-sm" style="font-size:10px;padding:1px 6px" onclick="brdPost('${key}',${idx})">✅</button>`;
+}
+function renderBoard(){
+  const body=document.getElementById('brd-body'); if(!body) return;
+  const wsSel=document.getElementById('brd-ws');
+  if(wsSel && wsSel.dataset.n!==String(PIECE_WORKSHOPS.length)){
+    const cur=wsSel.value;
+    wsSel.innerHTML='<option value="">Все цеха</option>'+PIECE_WORKSHOPS.map(w=>`<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
+    wsSel.dataset.n=String(PIECE_WORKSHOPS.length); wsSel.value=cur;
+  }
+  const wsF=wsSel?.value||''; const noExec=document.getElementById('brd-noexec')?.checked;
+  const rows=brdRows();
+  if(!rows.length){ body.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">Нет позиций с этапами. Добавьте заказы и этапы в «Рабочем листе производства».</div>'; return; }
+  const esc=t=>String(t).replace(/</g,'&lt;');
+  if(_brdView==='kanban'){
+    const cols = PIECE_WORKSHOPS.filter(w=>!wsF||w.id===wsF).map(w=>({id:w.id,title:w.icon+' '+w.name,cards:[]}));
+    cols.push({id:'',title:'❔ Цех не указан',cards:[]});
+    rows.forEach(r=>{
+      const idx=r.p.stages.findIndex(s=>!s.posted); if(idx<0) return;
+      const s=r.p.stages[idx];
+      if(noExec && brdWho(s)) return;
+      const col=cols.find(c=>c.id===(s.workshop||'')); if(col) col.cards.push({r,idx,s});
+    });
+    body.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start;min-width:max-content">'+cols.filter(c=>c.cards.length||c.id!=='').map(c=>`
+      <div style="width:250px;background:var(--bg3);border-radius:10px;padding:8px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;display:flex;justify-content:space-between"><span>${c.title}</span><span style="color:var(--accent)">${c.cards.length}</span></div>
+        ${c.cards.map(({r,idx,s})=>`<div class="card" style="padding:8px 10px;margin-bottom:8px;${s.started?'border-left:3px solid var(--amber)':''}">
+          <div style="font-size:11px;color:var(--accent);font-family:monospace;cursor:pointer" onclick="openPwbStageEditor('${r.itemKey}')">${esc(r.orderNum)} · ${posBadge(r.itemIdx+1)}</div>
+          <div style="font-size:12px;font-weight:600;margin:2px 0">${esc(r.item.name)}</div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Этап ${idx+1}/${r.p.stages.length}: ${esc(s.stage||'(без названия)')}</div>
+          ${brdExecSelect(r.itemKey,idx,s)}
+          <div style="margin-top:6px">${brdActions(r.itemKey,idx,s)}</div>
+        </div>`).join('')||'<div style="font-size:11px;color:var(--text3);padding:6px">Пусто</div>'}
+      </div>`).join('')+'</div>';
+    return;
+  }
+  // матрица: столбцы — названия этапов в порядке появления
+  const colOrder=[]; const pos={};
+  rows.forEach(r=>r.p.stages.forEach((s,i)=>{ const n=s.stage||'(без названия)'; if(!(n in pos)){ pos[n]={sum:0,c:0}; colOrder.push(n);} pos[n].sum+=i; pos[n].c++; }));
+  colOrder.sort((a,b)=>pos[a].sum/pos[a].c-pos[b].sum/pos[b].c);
+  const bg=s=>s.posted?'rgba(61,214,140,.14)':s.started?'rgba(245,166,35,.16)':'transparent';
+  body.innerHTML=`<table class="data-table" style="min-width:max-content"><thead><tr>
+      <th style="position:sticky;left:0;background:var(--bg2);z-index:1">Заказ · изделие</th>
+      ${colOrder.map(n=>`<th style="min-width:150px">${esc(n)}<br><select style="font-size:10px;width:100%;margin-top:3px" onchange="brdBulkExec(${JSON.stringify(n).replace(/"/g,'&quot;')},this.value);this.value=''">${pwbExecOptions('', '', false).replace('<optgroup','<option value="">Всем свободным…</option><optgroup')}</select></th>`).join('')}
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td style="position:sticky;left:0;background:var(--bg2);z-index:1;cursor:pointer;min-width:180px" onclick="openPwbStageEditor('${r.itemKey}')">
+        <span style="font-family:monospace;color:var(--accent);font-size:11px">${esc(r.orderNum)}</span> ${posBadge(r.itemIdx+1)}<div style="font-size:12px">${esc(r.item.name)}</div></td>
+      ${colOrder.map(n=>{
+        const idx=r.p.stages.findIndex(s=>(s.stage||'(без названия)')===n);
+        if(idx<0) return '<td style="color:var(--text3);text-align:center">·</td>';
+        const s=r.p.stages[idx];
+        if(wsF && s.workshop!==wsF) return '<td style="color:var(--text3);text-align:center">·</td>';
+        const hi = noExec && brdWho(s) ? 'opacity:.35;' : '';
+        return `<td style="background:${bg(s)};${hi}padding:4px 6px">${brdExecSelect(r.itemKey,idx,s)}<div style="margin-top:3px">${brdActions(r.itemKey,idx,s)}</div></td>`;
+      }).join('')}
+    </tr>`).join('')}
+    </tbody></table>`;
 }
 
 function showPage(id, el){
@@ -21135,6 +21277,7 @@ function showMrpTab(tab, el){
     else renderMrpOrdersJournal();
   }
   if(tab==='worksheet') initProdWorksheet();
+  if(tab==='board') initBoard();
   if(tab==='techcards') initTechCardsTab();
   if(tab==='workload') renderWorkshopLoad();
   if(tab==='worklog') renderWorkLog();
