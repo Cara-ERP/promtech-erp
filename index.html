@@ -1705,7 +1705,7 @@ async function updateOrderInDB(num, fields){
 // Содержит всё необходимое для входа — доступен сразу при клике.
  var _USERS={
   director:   {name:'Тургамбаев Булат Сагинтаевич', initials:'ТБ', color:'#4f8ef7', label:'Директор',
-    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','chanbal','expense_cats','reconcile','hr','wages','payroll','brigades','accruals','techcards','mycabinet','ai']},
+    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','chanbal','expense_cats','reconcile','salon_report','hr','wages','payroll','brigades','accruals','techcards','mycabinet','ai']},
   manager:    {name:'Алтыбасова Акерке', initials:'АА', color:'#3dd68c', label:'Бухгалтер (продажи)',
     pages:['dashboard','catalog','sales','customers','crm','mycabinet']},
   storekeeper:{name:'Угламова Халидам',  initials:'УХ', color:'#f5a623', label:'Кладовщик',
@@ -1713,7 +1713,7 @@ async function updateOrderInDB(num, fields){
   foreman:    {name:'Алимов Шынгыс',     initials:'АШ', color:'#a78bfa', label:'Нач. цеха',
     pages:['dashboard','mrp','warehouse','wages','crm','mycabinet']},
   accountant: {name:'Болысбеков Ерлан',  initials:'БЕ', color:'#f43f5e', label:'Гл. бухгалтер',
-    pages:['dashboard','finance','money','channels','chanbal','reconcile','hr','wages','brigades','sales','customers','mycabinet']},
+    pages:['dashboard','finance','money','channels','chanbal','reconcile','salon_report','hr','wages','brigades','sales','customers','mycabinet']},
   hr:         {name:'Молдахова Сания Мактабековна', initials:'МС', color:'#10b981', label:'Бухгалтер/HR',
     pages:['dashboard','hr','wages','mycabinet']},
   buyer:      {name:'Куланбаев Арман',   initials:'КА', color:'#f59e0b', label:'Закупщик',
@@ -22949,6 +22949,7 @@ const ALL_PAGES = [
   {id:'channels',   label:'Центры прибыли'},
   {id:'chanbal',    label:'Баланс по каналам'},
   {id:'reconcile',  label:'Сверка с офисом'},
+  {id:'salon_report',label:'Отчёт салонов'},
   {id:'money_salon',label:'Касса салона'},
   {id:'hr',         label:'Сотрудники'},
   {id:'wages',      label:'Сдельная оплата'},
