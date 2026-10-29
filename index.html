@@ -17309,10 +17309,18 @@ async function brgComputeSheet(){
   (prog||[]).forEach(r=>{
     (r.stages||[]).forEach(s=>{
       if(!s || !s.posted || !s.postedDate || s.postedDate<from || s.postedDate>to) return;
-      const as = s.assignees||[]; if(!as.length) return;
-      const all = as.reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0) || 1;
-      const mine = as.filter(a=>mem.has(_brgKey(a.name))).reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0);
-      if(mine<=0) return;
+      let all, mine, who;
+      if(s.brigade){
+        // Этап назначен на бригаду: полная сумма идёт в её пул
+        if(String(s.brigade)!==String(b.id)) return;
+        all = 1; mine = 1; who = '👥 бригада';
+      } else {
+        const as = s.assignees||[]; if(!as.length) return;
+        all = as.reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0) || 1;
+        mine = as.filter(a=>mem.has(_brgKey(a.name))).reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0);
+        if(mine<=0) return;
+        who = as.map(a=>a.name).join(', ');
+      }
       let amount = 0, itemName = '';
       const order = (typeof ordersData!=='undefined') ? ordersData.find(o=>o.num===r.order_num) : null;
       const item = order && order.items ? order.items[r.item_idx] : null;
@@ -17322,7 +17330,7 @@ async function brgComputeSheet(){
       } else amount = (s.rate||0)*(s.qty||1);
       const share = amount*mine/all;
       total += share;
-      lines.push({ order:r.order_num, item:itemName, stage:s.stage||'', date:s.postedDate, amount, share, partial:mine<all, names:as.map(a=>a.name).join(', ') });
+      lines.push({ order:r.order_num, item:itemName, stage:s.stage||'', date:s.postedDate, amount, share, partial:mine<all, names:who });
     });
   });
   lines.sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:0);
@@ -17702,7 +17710,7 @@ mrp: { title:'Производство',
    shopfloor:{ name:'🏭 Производство', what:'Отчёт по выработке в разрезе вида деятельности (Стул, Стол, Кровать, Мягкая мебель, Корпусная мебель).',
      how:['Переключайте вид деятельности вкладками. «📥 Выгрузить в Excel» сохраняет отчёт.'] },
    worksheet:{ name:'📋 Рабочий лист производства', what:'Главный рабочий экран цеха: по каждой позиции заказа — цех, этапы, исполнители, материалы, техкарта и статус.',
-     how:['«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период; «+ Заказ» добавляет заказ вручную.','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
+     how:['«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период; «+ Заказ» добавляет заказ вручную.','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','В этапе можно выбрать «Бригаду» вместо исполнителей: тогда личных начислений нет, а сумма этапа идёт в месячный пул бригады (раздел «Бригады»).','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
    techcards:{ name:'📐 Технологические карты', what:'Шаблоны этапов производства для изделий и категорий.',
      how:['«+ Новый шаблон» создаёт шаблон этапов. Шаблон можно привязать к изделию или категории и подтягивать в рабочий лист.'] },
    workload:{ name:'📊 Загрузка цехов', what:'Незавершённые этапы по цехам и срочности.',
@@ -17759,7 +17767,7 @@ wages: { title:'Сдельная оплата',
 
 brigades: { title:'Бригады (пул и КТУ)',
   about:'Месячный расчёт зарплаты бригады: общий пул делится между сборщиками по дням и КТУ. Работает вместе с начислением по этапам заказов.',
-  how:['Создайте бригаду («＋ Бригада»), добавьте состав, выберите месяц.','Пул: «Вручную» или «Из рабочего листа производства» (по завершённым этапам бригады за месяц).','Вычеты: суммы, которые идут не сборщикам (помощник, шлифовка, маляр). Бригадир: доплата суммой или процентом, из пула или сверх него.','В таблице введите дни и КТУ каждого. Доля = к распределению ÷ Σ(дни × КТУ) × дни × КТУ.','Сотрудники на окладе: в колонке «Расчёт» выберите «Оклад — из пула» (оклад вычитается из пула до деления, человек в делении не участвует, оклад начисляется отдельно в «Начислениях ЗП») или «Оклад — с зачётом» (человек делит пул по дням и КТУ, а из его доли вычитается оклад; если оклад больше доли, доплаты нет). Оклад подставляется из карточки сотрудника.',
+  how:['Создайте бригаду («＋ Бригада»), добавьте состав, выберите месяц.','Пул: «Вручную» или «Из рабочего листа производства» (завершённые за месяц этапы, назначенные на бригаду, и этапы, где исполнители из её состава).','Вычеты: суммы, которые идут не сборщикам (помощник, шлифовка, маляр). Бригадир: доплата суммой или процентом, из пула или сверх него.','В таблице введите дни и КТУ каждого. Доля = к распределению ÷ Σ(дни × КТУ) × дни × КТУ.','Сотрудники на окладе: в колонке «Расчёт» выберите «Оклад — из пула» (оклад вычитается из пула до деления, человек в делении не участвует, оклад начисляется отдельно в «Начислениях ЗП») или «Оклад — с зачётом» (человек делит пул по дням и КТУ, а из его доли вычитается оклад; если оклад больше доли, доплаты нет). Оклад подставляется из карточки сотрудника.',
        'Если часть работ уже начислена по этапам, включите «Вычесть уже начисленное по этапам», чтобы не заплатить дважды.','«💾 Сохранить» сохраняет черновик; «✅ Провести начисления» создаёт начисления в Зарплатной ведомости; «↩ Снять проведение» отменяет их.'] },
 
 chanbal: { title:'Баланс по каналам',
@@ -20717,7 +20725,7 @@ function collectWorkLogEntries(){
     if(!item) return;
     (p.stages||[]).forEach(s=>{
       if(!s.posted || !s.postedDate) return;
-      const assignees = (s.assignees&&s.assignees.length) ? s.assignees : [{name:'—',ktu:1}];
+      const assignees = s.brigade ? [{name:'👥 '+(s.brigadeName||'бригада'),ktu:1}] : ((s.assignees&&s.assignees.length) ? s.assignees : [{name:'—',ktu:1}]);
       const total = computeStageAmountFor(s, item);
       const ktuSum = assignees.reduce((sum,a)=>sum+(a.ktu||1),0)||1;
       assignees.forEach(a=>{
@@ -36691,7 +36699,7 @@ function renderProdWorksheet(){
     // есть ли выбранный цех хоть у одного из этапов позиции
     if(wsF && !r.progress.stages.some(s=>s.workshop===wsF)) return false;
     if(stageF && !r.progress.stages.some(s=>s.stage===stageF)) return false;
-    if(execF && !r.progress.stages.some(s=>(s.assignees||[]).some(a=>a.name===execF))) return false;
+    if(execF && !r.progress.stages.some(s=>stageExecNames(s).includes(execF))) return false;
     return true;
   });
 
@@ -36712,7 +36720,7 @@ function renderProdWorksheet(){
     const stagesHtml = r.progress.stages.length
       ? r.progress.stages.map(s=>`<span class="badge ${s.posted?'badge-green':s.started?'badge-amber':'badge-blue'}" style="font-size:11px;font-weight:600;margin:1px">${s.stage||'(без названия)'}${s.posted?' ✓':s.started?' ▶':''}</span>`).join(' ')
       : (r.progress.completed?'<span class="badge badge-green" style="font-size:11px">Завершено без этапов</span>':'<span style="color:var(--text3)">—</span>');
-    const execNames = [...new Set(r.progress.stages.flatMap(s=>(s.assignees||[]).map(a=>a.name)))];
+    const execNames = [...new Set(r.progress.stages.flatMap(s=>stageExecNames(s)))];
     const execHtml = execNames.length
       ? execNames.map(n=>`<span class="badge badge-purple" style="font-size:11px;font-weight:600;margin:1px">${n}</span>`).join(' ')
       : '<span style="color:var(--text3)">—</span>';
@@ -36771,6 +36779,7 @@ function openPwbStageEditor(itemKey){
 }
 
 function renderPwbStagesList(){
+  if(!window._pwbBrigades) loadPwbBrigades();
   const p = prodProgress[_pwbCurrentItemKey];
   const el = document.getElementById('pwb-stages-list');
   // Сохраняем то, что уже выбрано в списках "добавить исполнителя" — иначе
@@ -36793,6 +36802,10 @@ function renderPwbStagesList(){
           <option value="">Цех — не указан</option>
           ${PIECE_WORKSHOPS.map(w=>`<option value="${w.id}" ${s.workshop===w.id?'selected':''}>${w.icon} ${w.name}</option>`).join('')}
         </select>
+        <select style="font-size:12px;width:auto" ${s.posted?'disabled':''} title="Если назначить бригаду, сумма этапа пойдёт в месячный пул бригады, а не конкретным сотрудникам" onchange="setPwbStageBrigade(${idx},this.value)">
+          <option value="">Бригада — нет</option>
+          ${(window._pwbBrigades||[]).map(b=>`<option value="${b.id}" ${String(s.brigade)===String(b.id)?'selected':''}>👥 ${String(b.name).replace(/</g,'&lt;')}</option>`).join('')}
+        </select>
         <select style="font-size:12px;width:auto" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'payMethod',this.value)">
           <option value="rate" ${s.payMethod==='rate'?'selected':''}>По расценке</option>
           <option value="percent" ${s.payMethod==='percent'?'selected':''}>% от суммы заказа по товару</option>
@@ -36803,6 +36816,7 @@ function renderPwbStagesList(){
              <input type="number" value="${s.qty||1}" placeholder="кол-во" style="width:70px;font-size:12px" ${s.posted?'disabled':''} onchange="updatePwbStageField(${idx},'qty',this.value)">`}
         <span style="font-weight:600;font-family:monospace">${fmtCurrency(computePwbStageAmount(s))}</span>
       </div>
+      ${s.brigade ? `<div style="font-size:12px;color:var(--text2);margin-bottom:6px">👥 Этап выполняет бригада «${String(s.brigadeName||'').replace(/</g,'&lt;')}». Личных начислений не будет: после завершения сумма попадёт в месячный пул бригады (раздел «Бригады», пул «Из рабочего листа»).</div>` : `
       <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Исполнители (КТУ: 1 — обычная доля, 0.5 — вдвое меньше, 1.5 — на 50% больше)</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
         ${(s.assignees||[]).map((a,ai)=>`<span class="badge badge-blue" style="font-size:11px;display:flex;align-items:center;gap:4px;flex-shrink:0;white-space:nowrap">
@@ -36815,6 +36829,7 @@ function renderPwbStagesList(){
         <select id="pwb-new-assignee-${idx}" style="font-size:12px;width:auto">${employeesData.map(e=>`<option value="${e.name}" ${keptSelections[idx]===e.name?'selected':''}>${e.name}</option>`).join('')}</select>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="addPwbAssignee(${idx})">+ Исполнитель</button>
       </div>`:''}
+      `}
       <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
         ${s.posted
           ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbStage(${idx})">↩ Снять с завершения</button>`
@@ -36895,13 +36910,43 @@ function removePwbStage(idx){
   renderProdWorksheet();
 }
 
+// Исполнители этапа для отображения: бригада или список сотрудников
+function stageExecNames(s){
+  return s.brigade ? ['👥 '+(s.brigadeName||'бригада')] : (s.assignees||[]).map(a=>a.name);
+}
+// Бригады для выбора в этапе (загружаются один раз)
+async function loadPwbBrigades(){
+  if(window._pwbBrigadesLoading) return; window._pwbBrigadesLoading = true;
+  try{ window._pwbBrigades = (await sbFetch('brigades','select=id,name&active=eq.true&order=name'))||[]; }
+  catch(e){ window._pwbBrigades = []; }
+  window._pwbBrigadesLoading = false;
+  if(typeof _pwbCurrentItemKey!=='undefined' && _pwbCurrentItemKey && document.getElementById('pwb-stages-list') && prodProgress[_pwbCurrentItemKey]) renderPwbStagesList();
+}
+function setPwbStageBrigade(idx, id){
+  const p = prodProgress[_pwbCurrentItemKey], s = p.stages[idx];
+  if(id){
+    const b = (window._pwbBrigades||[]).find(x=>String(x.id)===String(id));
+    s.brigade = b ? b.id : null; s.brigadeName = b ? b.name : '';
+  } else { s.brigade = null; s.brigadeName = ''; }
+  saveProdProgress(_pwbCurrentItemKey);
+  renderPwbStagesList();
+}
+
 // Провести этап — создаёт начисления в Зарплатной ведомости (salary_accruals),
-// разделяя сумму этапа между исполнителями пропорционально их КТУ
+// разделяя сумму этапа между исполнителями пропорционально их КТУ.
+// Если этап назначен на бригаду — личных начислений нет: сумма идёт в месячный пул бригады (раздел «Бригады»).
 async function postPwbStage(idx){
   const p = prodProgress[_pwbCurrentItemKey];
   const s = p.stages[idx];
   if(!s.stage){ alert('Укажите название этапа.'); return; }
-  if(!s.assignees || !s.assignees.length){ alert('Назначьте хотя бы одного исполнителя.'); return; }
+  if(s.brigade){
+    const today0 = new Date().toISOString().slice(0,10);
+    s.posted = true; s.postedDate = today0; s.accrualIds = [];
+    try{ await saveProdProgress(_pwbCurrentItemKey); renderPwbStagesList(); renderProdWorksheet(); }
+    catch(e){ alert('Не удалось завершить этап: '+e.message); }
+    return;
+  }
+  if(!s.assignees || !s.assignees.length){ alert('Назначьте хотя бы одного исполнителя или выберите бригаду.'); return; }
   const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
   const order = ordersData.find(o=>o.num===row.orderNum);
   const item = order.items[row.itemIdx];
@@ -37122,7 +37167,7 @@ function exportProdWorksheetExcel(){
       r.itemKey, order.num, order.date||'', order.deliveryDate||'', '№'+(r.itemIdx+1)+' '+item.name, itemCharacteristicsText(item), item.qty,
       [...new Set(p.stages.map(s=>s.workshop).filter(Boolean))].map(id=>PIECE_WORKSHOPS.find(w=>w.id===id)?.name||id).join('; '),
       p.stages.map(s=>s.stage).join('; '),
-      [...new Set(p.stages.flatMap(s=>(s.assignees||[]).map(a=>a.name)))].join('; '),
+      [...new Set(p.stages.flatMap(s=>stageExecNames(s)))].join('; '),
       p.materials.map(m=>m.name).join('; '),
       p.completed||p.stages.some(s=>s.posted) ? 'есть проводки' : 'черновик',
     ]),
