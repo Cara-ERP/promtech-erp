@@ -3698,6 +3698,7 @@ window.onerror = function(msg, src, line, col){
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-weight:600;font-size:13px">Этапы</span>
           <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="openPwbApplyTc()">📐 Заполнить по техкарте</button>
             <button class="btn btn-ghost btn-sm" onclick="addPwbStage()">+ Добавить этап</button>
             <button class="btn btn-primary btn-sm" onclick="completeWithoutStages()">✅ Завершить производство</button>
           </div>
@@ -8207,6 +8208,21 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- MODAL: Просмотр/редактирование техкарты -->
+    <div class="modal-overlay" id="pwbApplyTcModal">
+      <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title">📐 Заполнить этапы по техкарте</span>
+          <button class="modal-close" onclick="closeModal('pwbApplyTcModal')">✕</button>
+        </div>
+        <div class="form-row"><label class="label">Техкарта</label><select id="pwb-tc-sel" style="font-size:13px" onchange="pwbTcPreview()"></select></div>
+        <div id="pwb-tc-preview" style="font-size:12px;color:var(--text2);margin:8px 0 14px;line-height:1.6"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="closeModal('pwbApplyTcModal')">Отмена</button>
+          <button class="btn btn-primary" onclick="pwbApplyTc()">Заполнить</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="tcTemplateModal">
       <div class="modal" style="max-width:680px;max-height:90vh;overflow-y:auto">
         <div class="modal-header">
@@ -17777,7 +17793,7 @@ mrp: { title:'Производство',
    shopfloor:{ name:'🏭 Производство', what:'Отчёт по выработке в разрезе вида деятельности (Стул, Стол, Кровать, Мягкая мебель, Корпусная мебель).',
      how:['Переключайте вид деятельности вкладками. «📥 Выгрузить в Excel» сохраняет отчёт.'] },
    worksheet:{ name:'📋 Рабочий лист производства', what:'Главный рабочий экран цеха: по каждой позиции заказа — цех, этапы, исполнители, материалы, техкарта и статус.',
-     how:['«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период, пропуская завершённые, отменённые и уже отгруженные; «+ Заказ» добавляет заказ вручную (для закрытого заказа программа спросит подтверждение). У таких позиций в таблице стоит метка «🚚».','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','В этапе можно выбрать «Бригаду» вместо исполнителей: тогда личных начислений нет, а сумма этапа идёт в месячный пул бригады (раздел «Бригады»).','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
+     how:['В открытой позиции кнопка «📐 Заполнить по техкарте» создаёт сразу все этапы шаблона (цех, расценка, количество) и сразу предлагает выбрать исполнителя на каждый этап из участников цеха (если в цехе один участник — он подставляется сам). В карточке этапа исполнитель добавляется одним выбором из списка. Если в техкарте указан полуфабрикат, при «▶️ Начать работу» он спишется со склада автоматически.','«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период, пропуская завершённые, отменённые и уже отгруженные; «+ Заказ» добавляет заказ вручную (для закрытого заказа программа спросит подтверждение). У таких позиций в таблице стоит метка «🚚».','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','В этапе можно выбрать «Бригаду» вместо исполнителей: тогда личных начислений нет, а сумма этапа идёт в месячный пул бригады (раздел «Бригады»).','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
    techcards:{ name:'📐 Технологические карты', what:'Шаблоны этапов производства для изделий и категорий.',
      how:['«+ Новый шаблон» создаёт шаблон этапов. Шаблон можно привязать к изделию или категории и подтягивать в рабочий лист.'] },
    workload:{ name:'📊 Загрузка цехов', what:'Незавершённые этапы по цехам и срочности.',
@@ -18247,6 +18263,83 @@ async function wsDelete(id){
   if(!confirm(`Удалить цех «${w.name}»?`)) return;
   try{ await sbDelete('workshops',`id=eq.${id}`); _wsLoaded=false; wsRenderAdmin(); }
   catch(e){ alert('Не удалось удалить: '+e.message); }
+}
+
+// Список исполнителей для цеха: сначала участники цеха, затем остальные
+function pwbExecOptions(workshopId, selected, withPlaceholder){
+  const mem = ((_wsMeta[workshopId]||{}).members||[]);
+  const all = (employeesData||[]).map(e=>e.name);
+  const others = all.filter(n=>!mem.includes(n));
+  const o = n=>`<option value="${n}" ${selected===n?'selected':''}>${n}</option>`;
+  return (withPlaceholder?'<option value="">— выбрать —</option>':'')
+    +(mem.length?'<optgroup label="Участники цеха">'+mem.map(o).join('')+'</optgroup>':'')
+    +(others.length?`<optgroup label="${mem.length?'Остальные':'Сотрудники'}">`+others.map(o).join('')+'</optgroup>':'');
+}
+// ══════ Заполнение этапов по техкарте + автосписание полуфабриката при начале этапа ══════
+async function openPwbApplyTc(){
+  if(!techCardsData.length){
+    try{ techCardsData = await sbFetchAllPages('tech_cards','select=*') || []; }catch(e){}
+  }
+  if(!employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
+  if(!_wsLoaded) await wsLoadWorkshops();
+  const cards = techCardsData.filter(c=>(c.stages||[]).length);
+  if(!cards.length){ alert('Техкарт с этапами пока нет. Создайте шаблон в Производство → Технологические карты.'); return; }
+  const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
+  const item = row ? ordersData.find(o=>o.num===row.orderNum)?.items?.[row.itemIdx] : null;
+  const lab={template:'Шаблон',item:'По изделию',category:'По категории'};
+  // подсказка: карта по изделию → по категории → первая
+  let best = cards.find(c=>c.link_type==='item' && item && c.link_key===item.name)
+          || cards.find(c=>c.link_type==='category' && item && c.link_key===item.category) || cards[0];
+  document.getElementById('pwb-tc-sel').innerHTML = cards.map(c=>`<option value="${c.id}" ${c.id===best.id?'selected':''}>${c.name||c.link_key} · ${lab[c.link_type]||''} (${c.stages.length})</option>`).join('');
+  pwbTcPreview();
+  showModal('pwbApplyTcModal');
+}
+function pwbTcPreview(){
+  const c = techCardsData.find(x=>String(x.id)===document.getElementById('pwb-tc-sel').value);
+  document.getElementById('pwb-tc-preview').innerHTML = c ? '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Выберите исполнителя на каждый этап (список — участники цеха). Можно оставить пустым и назначить позже.</div>'
+   + c.stages.map((s,i)=>{
+    const w=PIECE_WORKSHOPS.find(x=>x.id===s.workshop);
+    const mem=((_wsMeta[s.workshop]||{}).members||[]);
+    const pre = s.responsible || (mem.length===1?mem[0]:'');
+    return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <div style="flex:1;min-width:0"><b>${i+1}. ${s.name}</b><div style="font-size:11px;color:var(--text3)">${w?w.icon+' '+w.name:'цех не указан'}${s.rate?' · ₸'+s.rate:''}${s.semi?' · спишет «'+s.semi+'»':''}</div></div>
+      <select class="pwb-tc-exec" data-i="${i}" style="font-size:12px;width:170px">${pwbExecOptions(s.workshop,pre,true)}</select></div>`;
+  }).join('') : '';
+}
+function pwbApplyTc(){
+  const c = techCardsData.find(x=>String(x.id)===document.getElementById('pwb-tc-sel').value); if(!c) return;
+  const p = prodProgress[_pwbCurrentItemKey];
+  const row = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
+  const item = ordersData.find(o=>o.num===row.orderNum).items[row.itemIdx];
+  if(p.stages.length && !confirm(`В изделии уже есть этапы (${p.stages.length}). Добавить этапы техкарты к ним?`)) return;
+  const qty = item.qty||1;
+  const picked = {}; document.querySelectorAll('#pwb-tc-preview .pwb-tc-exec').forEach(e=>{ picked[e.dataset.i]=e.value; });
+  c.stages.forEach((t,ti)=>{
+    const who = picked[ti]!=null ? picked[ti] : (t.responsible||'');
+    p.stages.push({stage:t.name||'', workshop:t.workshop||'', assignees:who?[{name:who,ktu:1}]:[],
+      payMethod:'rate', rate:+t.rate||0, percent:0, qty, started:false, startedDate:null, posted:false, accrualIds:[]});
+    if(t.semi && (+t.semiQty||0)>0){
+      const wh = warehouseData.find(w=>w.name===t.semi);
+      p.materials.push({name:t.semi, qty:Math.round(qty*(+t.semiQty)*100)/100, unit:wh?wh.unit:'шт', warehouseItemId:wh?wh.id:null,
+        posted:false, prevQty:null, forStage:t.name||'', autoOnStart:true});
+    }
+  });
+  saveProdProgress(_pwbCurrentItemKey);
+  closeModal('pwbApplyTcModal');
+  renderPwbStagesList(); renderPwbMaterialsList(); renderProdWorksheet();
+}
+// При «Начать работу» автоматически списываем полуфабрикат, привязанный к этапу
+async function pwbAutoWriteOffForStage(stageName){
+  const p = prodProgress[_pwbCurrentItemKey];
+  for(let i=0;i<p.materials.length;i++){
+    const m=p.materials[i];
+    if(!m.autoOnStart || m.posted || m.forStage!==stageName) continue;
+    if(!m.warehouseItemId){ const wh=warehouseData.find(w=>w.name===m.name); if(wh){ m.warehouseItemId=wh.id; m.unit=wh.unit; } }
+    const wh = warehouseData.find(w=>String(w.id)===String(m.warehouseItemId));
+    if(!wh){ alert(`«${m.name}» не найден на складе полуфабрикатов — этап начат, но списание сделайте вручную (блок «Материалы»).`); continue; }
+    if(wh.qty < m.qty && !confirm(`На складе «${wh.name}» только ${wh.qty}, нужно ${m.qty}. Списать всё равно (остаток уйдёт в минус)?`)) continue;
+    await postPwbMaterial(i);
+  }
 }
 
 function showPage(id, el){
@@ -19147,6 +19240,7 @@ function openTCTemplate(key){
   tcCurrentCard = card;
   tcEditStages = (card.stages||[]).map(s=>({
     name: s.name, responsible: s.responsible||'', materials: (s.materials||[]).map(m=>({...m})),
+    workshop: s.workshop||'', rate: +s.rate||0, semi: s.semi||'', semiQty: s.semiQty==null?1:+s.semiQty,
   }));
 
   const titleEl = document.getElementById('tc-modal-title');
@@ -19179,7 +19273,7 @@ function renderTCStagesList(){
     return;
   }
 
-  el.innerHTML = tcEditStages.map((s,i)=>`
+  el.innerHTML = '<datalist id="tc-semi-list">'+[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))].map(n=>`<option value="${n}">`).join('')+'</datalist>' + tcEditStages.map((s,i)=>`
     <div style="border:1px solid var(--border);border-radius:8px;
       padding:12px 14px;margin-bottom:8px;background:var(--bg2)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -19201,6 +19295,22 @@ function renderTCStagesList(){
             onclick="removeTCStage(${i})">✕</button>
         </div>
       </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+        <select style="font-size:12px;width:auto" onchange="tcEditStages[${i}].workshop=this.value">
+          <option value="">Цех — не указан</option>
+          ${PIECE_WORKSHOPS.map(w=>`<option value="${w.id}" ${s.workshop===w.id?'selected':''}>${w.icon} ${w.name}</option>`).join('')}
+        </select>
+        <input type="number" min="0" value="${s.rate||0}" style="width:80px;font-size:12px" title="Расценка, ₸ за штуку" onchange="tcEditStages[${i}].rate=parseFloat(this.value)||0"> ₸/шт
+        <select style="font-size:12px;width:auto" title="Исполнитель по умолчанию" onchange="tcEditStages[${i}].responsible=this.value">
+          <option value="">Исполнитель — выбирать из цеха при заказе</option>
+          ${(employeesData||[]).map(e=>`<option value="${e.name}" ${s.responsible===e.name?'selected':''}>${e.name}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;color:var(--text3)">Списать со склада полуфабрикатов при начале этапа:</span>
+        <input list="tc-semi-list" value="${(s.semi||'').replace(/"/g,'&quot;')}" placeholder="например, Каркас стула" style="font-size:12px;width:170px" onchange="tcEditStages[${i}].semi=this.value.trim()">
+        <input type="number" min="0" step="0.01" value="${s.semiQty==null?1:s.semiQty}" style="width:60px;font-size:12px" onchange="tcEditStages[${i}].semiQty=parseFloat(this.value)||0"> на 1 изделие
+      </div>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">
         Материалы: ${s.materials?.length?
           s.materials.map(m=>`${m.name} ${m.qty}${m.unit}`).join(', '):
@@ -19210,7 +19320,7 @@ function renderTCStagesList(){
 }
 
 function addTCStage(){
-  tcEditStages.push({name:'Новый этап', responsible:'', materials:[]});
+  tcEditStages.push({name:'Новый этап', responsible:'', materials:[], workshop:'', rate:0, semi:'', semiQty:1});
   renderTCStagesList();
 }
 
@@ -19232,7 +19342,7 @@ async function saveTCTemplate(){
     link_type: tcCurrentCard.type,
     link_key: tcCurrentCard.linkKey||null,
     name: tcCurrentCard.name,
-    stages: tcEditStages.map(s=>({name:s.name, responsible:s.responsible||'', materials:s.materials||[]})),
+    stages: tcEditStages.map(s=>({name:s.name, responsible:s.responsible||'', materials:s.materials||[], workshop:s.workshop||'', rate:+s.rate||0, semi:s.semi||'', semiQty:+s.semiQty||0})),
     updated_at: new Date().toISOString(),
   };
   try{
@@ -37201,8 +37311,8 @@ function renderPwbStagesList(){
         </span>`).join('')}
       </div>
       ${!s.posted?`<div style="display:flex;gap:6px;align-items:center">
-        <select id="pwb-new-assignee-${idx}" style="font-size:12px;width:auto">${employeesData.map(e=>`<option value="${e.name}" ${keptSelections[idx]===e.name?'selected':''}>${e.name}</option>`).join('')}</select>
-        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="addPwbAssignee(${idx})">+ Исполнитель</button>
+        <select id="pwb-new-assignee-${idx}" style="font-size:12px;width:auto" onchange="addPwbAssignee(${idx})">${pwbExecOptions(s.workshop,'',true)}</select>
+        <span style="font-size:11px;color:var(--text3)">выберите — добавится сразу</span>
       </div>`:''}
       `}
       <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
@@ -37245,6 +37355,7 @@ function startPwbStage(idx){
   saveProdProgress(_pwbCurrentItemKey);
   renderPwbStagesList();
   renderProdWorksheet();
+  pwbAutoWriteOffForStage(s.stage).catch(e=>alert('Не удалось списать полуфабрикат: '+e.message));
 }
 function updatePwbStageField(idx, field, val){
   const p = prodProgress[_pwbCurrentItemKey];
