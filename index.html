@@ -1705,7 +1705,7 @@ async function updateOrderInDB(num, fields){
 // Содержит всё необходимое для входа — доступен сразу при клике.
  var _USERS={
   director:   {name:'Тургамбаев Булат Сагинтаевич', initials:'ТБ', color:'#4f8ef7', label:'Директор',
-    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','chanbal','expense_cats','reconcile','salon_report','hr','wages','payroll','brigades','accruals','techcards','mycabinet','ai']},
+    pages:['dashboard','mrp','warehouse','purchases','esf','suppliers','catalog','sales','customers','crm','finance','money','channels','chanbal','expense_cats','reconcile','salon_report','hr','wages','payroll','brigades','workshops_admin','accruals','techcards','mycabinet','ai']},
   manager:    {name:'Алтыбасова Акерке', initials:'АА', color:'#3dd68c', label:'Бухгалтер (продажи)',
     pages:['dashboard','catalog','sales','customers','crm','mycabinet']},
   storekeeper:{name:'Угламова Халидам',  initials:'УХ', color:'#f5a623', label:'Кладовщик',
@@ -1713,7 +1713,7 @@ async function updateOrderInDB(num, fields){
   foreman:    {name:'Алимов Шынгыс',     initials:'АШ', color:'#a78bfa', label:'Нач. цеха',
     pages:['dashboard','mrp','warehouse','wages','crm','mycabinet']},
   accountant: {name:'Болысбеков Ерлан',  initials:'БЕ', color:'#f43f5e', label:'Гл. бухгалтер',
-    pages:['dashboard','finance','money','channels','chanbal','reconcile','salon_report','hr','wages','brigades','sales','customers','mycabinet']},
+    pages:['dashboard','finance','money','channels','chanbal','reconcile','salon_report','hr','wages','brigades','workshops_admin','sales','customers','mycabinet']},
   hr:         {name:'Молдахова Сания Мактабековна', initials:'МС', color:'#10b981', label:'Бухгалтер/HR',
     pages:['dashboard','hr','wages','mycabinet']},
   buyer:      {name:'Куланбаев Арман',   initials:'КА', color:'#f59e0b', label:'Закупщик',
@@ -2270,6 +2270,10 @@ window.onerror = function(msg, src, line, col){
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
       <span>Бригады (пул и КТУ)</span>
     </div>
+    <div class="nav-item" onclick="showPage('workshops_admin',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>
+      <span>Цеха и участники</span>
+    </div>
     <div class="nav-item" onclick="showPage('accruals',this)">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       <span>Начисления ЗП</span>
@@ -2606,7 +2610,7 @@ window.onerror = function(msg, src, line, col){
 
         <div class="section-sub" style="margin-bottom:10px">Все незавершённые позиции по срочности отправки</div>
         <table class="data-table">
-          <thead><tr><th>Срочность</th><th>Заказ</th><th>Товар</th><th>Цех(а)</th><th>Срок</th></tr></thead>
+          <thead><tr><th>Срочность</th><th>Заказ</th><th>Товар</th><th>Цех(а) / бригада</th><th>Срок</th></tr></thead>
           <tbody id="workload-tbody"></tbody>
         </table>
       </div>
@@ -7329,6 +7333,17 @@ window.onerror = function(msg, src, line, col){
         КТУ задаётся на месяц и подставляется из прошлого месяца. Проведение создаёт по человеку одно начисление «Сдельная (бригада)» в Зарплатной ведомости на последний день месяца.
         Таблицы создаются файлом <code>brigades.sql</code>.
       </div>
+    </div>
+
+    <!-- Цеха и участники (таблица workshops) -->
+    <div class="page" id="page-workshops_admin">
+      <div class="section-header">
+        <div><div class="section-title">Цеха и участники</div>
+          <div class="section-sub">Справочник цехов для рабочего листа, журнала работ, загрузки цехов и выпуска полуфабрикатов.</div></div>
+        <div><button class="btn btn-primary btn-sm" onclick="wsNew()">＋ Цех</button></div>
+      </div>
+      <div id="ws-admin-body"></div>
+      <div class="section-sub" style="margin-top:12px;line-height:1.6">Удалить можно только цех, в котором нет работ. Таблица создаётся файлом <code>workshops.sql</code>.</div>
     </div>
 
     <div class="page" id="page-reconcile">
@@ -17817,6 +17832,9 @@ wages: { title:'Сдельная оплата',
   about:'Выработка производственного персонала и начисления по ней: кто, какую операцию и в каком количестве выполнил.',
   how:['«+ Внести выработку» добавляет выработку: сотрудник, дата, операция, заказ, количество и ставка.','«+ Операция» добавляет операцию в справочник расценок.','Для бригад с месячным пулом и КТУ используйте раздел «Бригады».'] },
 
+workshops_admin: { title:'Цеха и участники',
+  about:'Справочник цехов: список цехов и кто в них работает. Цеха используются в рабочем листе, журнале работ, загрузке цехов и выпуске полуфабрикатов.',
+  how:['«＋ Цех» — добавить цех (название и значок).','✎ — переименовать цех или сменить значок; 🗑 — удалить (только если в цехе нет работ).','В карточке цеха добавьте участников: начните вводить фамилию и выберите сотрудника, ✕ убирает участника.','Участники цеха показываются первыми в списке «Кто делал» при выпуске полуфабрикатов.'] },
 brigades: { title:'Бригады (пул и КТУ)',
   about:'Месячный расчёт зарплаты бригады: общий пул делится между сборщиками по дням и КТУ. Работает вместе с начислением по этапам заказов.',
   how:['Создайте бригаду («＋ Бригада»), добавьте состав, выберите месяц.','Пул: «Вручную» или «Из рабочего листа производства» (завершённые за месяц этапы, назначенные на бригаду, и этапы, где исполнители из её состава).','Вычеты: суммы, которые идут не сборщикам (помощник, шлифовка, маляр). Бригадир: доплата суммой или процентом, из пула или сверх него.','В таблице введите дни и КТУ каждого. Доля = к распределению ÷ Σ(дни × КТУ) × дни × КТУ.','Сотрудники на окладе: в колонке «Расчёт» выберите «Оклад — из пула» (оклад вычитается из пула до деления, человек в делении не участвует, оклад начисляется отдельно в «Начислениях ЗП») или «Оклад — с зачётом» (человек делит пул по дням и КТУ, а из его доли вычитается оклад; если оклад больше доли, доплаты нет). Оклад подставляется из карточки сотрудника.',
@@ -18027,7 +18045,7 @@ function openSemiRelease(id){
   g('sr-date').value = d? d.date : new Date().toISOString().slice(0,10);
   g('sr-num').value = d? (d.num||'') : 'ВП-'+String((_sr.list.length||0)+1).padStart(3,'0');
   g('sr-note').value = d? (d.note||'') : '';
-  const wsSel=g('sr-ws'); wsSel.innerHTML=srWorkshopOptions(d?d.workshop:'cut');
+  const wsSel=g('sr-ws'); wsSel.innerHTML=srWorkshopOptions(d?d.workshop:'cut'); wsSel.onchange=srRenderRows;
   _sr.rows = d ? JSON.parse(JSON.stringify(d.rows||[])) : [{name:'',qty:1,unit:'шт',rate:0,who:''}];
   const names=[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))];
   g('sr-items-list').innerHTML=names.map(n=>`<option value="${n}">`).join('');
@@ -18044,7 +18062,9 @@ function srPostedBar(posted){
   bar.innerHTML = posted ? '<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="srUnpost()">↩ Отменить проведение</button>' : '';
 }
 function srWhoOptions(sel){
-  const emps=(typeof employeesData!=='undefined'?employeesData:[]).map(e=>e.name).filter(Boolean).sort();
+  const wsId=(document.getElementById('sr-ws')||{}).value;
+  const mem=((_wsMeta[wsId]||{}).members||[]);
+  const emps=[...new Set([...mem,...(typeof employeesData!=='undefined'?employeesData:[]).map(e=>e.name).filter(Boolean).sort()])];
   return '<option value="">— выберите —</option>'
     +(_sr.brigades.length?'<optgroup label="Бригады (в пул)">'+_sr.brigades.map(b=>`<option value="b:${b.id}" ${sel==='b:'+b.id?'selected':''}>👥 ${b.name}</option>`).join('')+'</optgroup>':'')
     +'<optgroup label="Сотрудники">'+emps.map(n=>`<option value="e:${n}" ${sel==='e:'+n?'selected':''}>${n}</option>`).join('')+'</optgroup>';
@@ -18141,6 +18161,94 @@ async function srUnpost(){
   }catch(e){ alert('Не удалось отменить: '+e.message); }
 }
 
+// ══════ Цеха и участники (справочник; PIECE_WORKSHOPS обновляется на месте) ══════
+let _wsMeta = {};   // id -> {members:[], sort}
+let _wsLoaded = false;
+async function wsLoadWorkshops(){
+  try{
+    const rows = await sbFetch('workshops','select=*&order=sort,name');
+    if(!rows || !rows.length) return;
+    PIECE_WORKSHOPS.length = 0;
+    _wsMeta = {};
+    rows.forEach(r=>{
+      PIECE_WORKSHOPS.push({id:r.id, name:r.name, icon:r.icon||'🏭'});
+      _wsMeta[r.id] = {members:r.members||[], sort:r.sort||100};
+      Object.keys(ACTIVITY_WORKSHOPS).forEach(k=>{ if(!ACTIVITY_WORKSHOPS[k].includes(r.id)) ACTIVITY_WORKSHOPS[k].push(r.id); });
+    });
+    _wsLoaded = true;
+    // сбросить уже построенные списки цехов
+    ['wl-workshop'].forEach(i=>{ const e=document.getElementById(i); if(e) e.innerHTML='<option value="">Все цеха</option>'; });
+  }catch(e){ console.warn('Цеха: используется встроенный список', e.message); }
+}
+setTimeout(wsLoadWorkshops, 1500);
+function wsRenderAdmin(){
+  const el = document.getElementById('ws-admin-body'); if(!el) return;
+  wsLoadWorkshops().then(async ()=>{
+    try{ if(typeof loadStaffFromDB==='function' && (!employeesData||!employeesData.length)) await loadStaffFromDB(); }catch(e){}
+    if(!_wsLoaded){ el.innerHTML='<div class="card" style="padding:16px;color:var(--red)">Таблица workshops не создана. Выполните workshops.sql в Supabase.</div>'; return; }
+    el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">'+PIECE_WORKSHOPS.map(w=>{
+      const m=(_wsMeta[w.id]||{}).members||[];
+      return `<div class="card" style="padding:14px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:14px;font-weight:600">${w.icon} ${w.name}</span>
+          <span style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm" onclick="wsEdit('${w.id}')">✎</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="wsDelete('${w.id}')">🗑</button>
+          </span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Участники (${m.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          ${m.length?m.map((n,i)=>`<span class="badge badge-blue" style="font-size:11px">${n} <a href="#" onclick="event.preventDefault();wsRemoveMember('${w.id}',${i})" style="margin-left:4px;text-decoration:none">✕</a></span>`).join(''):'<span style="font-size:11px;color:var(--text3)">Пока никого</span>'}
+        </div>
+        <div style="display:flex;gap:6px">
+          <input id="ws-add-${w.id}" list="ws-emp-list" placeholder="Добавить сотрудника…" style="font-size:12px;flex:1">
+          <button class="btn btn-ghost btn-sm" onclick="wsAddMember('${w.id}')">＋</button>
+        </div>
+      </div>`; }).join('')+'</div>'
+      +'<datalist id="ws-emp-list">'+(employeesData||[]).map(e=>`<option value="${e.name}">`).join('')+'</datalist>';
+  });
+}
+async function wsSaveMembers(id){
+  try{ await sbPatch('workshops',`id=eq.${id}`,{members:_wsMeta[id].members}); }
+  catch(e){ alert('Не удалось сохранить: '+e.message); }
+  wsRenderAdmin();
+}
+async function wsAddMember(id){
+  const inp=document.getElementById('ws-add-'+id); const n=(inp.value||'').trim(); if(!n) return;
+  const m=_wsMeta[id].members; if(m.includes(n)){ inp.value=''; return; }
+  if(!(employeesData||[]).some(e=>e.name===n) && !confirm(`«${n}» нет в списке сотрудников. Всё равно добавить?`)) return;
+  m.push(n); await wsSaveMembers(id);
+}
+async function wsRemoveMember(id,i){ _wsMeta[id].members.splice(i,1); await wsSaveMembers(id); }
+async function wsNew(){
+  const name=(prompt('Название нового цеха:')||'').trim(); if(!name) return;
+  const icon=(prompt('Значок (эмодзи):','🏭')||'🏭').trim();
+  let base=name.toLowerCase().replace(/[^a-zа-я0-9]+/g,'_').replace(/^_|_$/g,'')||'ws';
+  base='w_'+Date.now().toString(36);
+  try{ await sbInsert('workshops',{id:base,name,icon,sort:100+PIECE_WORKSHOPS.length,members:[]}); _wsLoaded=false; wsRenderAdmin(); }
+  catch(e){ alert('Не удалось добавить: '+e.message); }
+}
+async function wsEdit(id){
+  const w=PIECE_WORKSHOPS.find(x=>x.id===id); if(!w) return;
+  const name=(prompt('Название цеха:',w.name)||'').trim(); if(!name) return;
+  const icon=(prompt('Значок (эмодзи):',w.icon)||w.icon).trim();
+  try{ await sbPatch('workshops',`id=eq.${id}`,{name,icon}); wsRenderAdmin(); }
+  catch(e){ alert('Не удалось сохранить: '+e.message); }
+}
+async function wsDelete(id){
+  const w=PIECE_WORKSHOPS.find(x=>x.id===id); if(!w) return;
+  let used=0;
+  try{
+    Object.values(prodProgress||{}).forEach(p=>(p.stages||[]).forEach(s=>{ if(s.workshop===id) used++; }));
+    const rel=await sbFetch('semi_releases',`select=id&workshop=eq.${id}`).catch(()=>[]);
+    used+=(rel||[]).length;
+  }catch(e){}
+  if(used){ alert(`Цех «${w.name}» нельзя удалить: в нём есть работы (${used}). Переименуйте его, если он больше не нужен под прежним названием.`); return; }
+  if(!confirm(`Удалить цех «${w.name}»?`)) return;
+  try{ await sbDelete('workshops',`id=eq.${id}`); _wsLoaded=false; wsRenderAdmin(); }
+  catch(e){ alert('Не удалось удалить: '+e.message); }
+}
+
 function showPage(id, el){
   const page = document.getElementById('page-'+id);
   if(!page) return;
@@ -18154,7 +18262,7 @@ function showPage(id, el){
     fab.style.display = (id==='money' && (activeMoneyTab==='cash'||activeMoneyTab==='bank')) ? 'flex' : 'none'; if(fab) fab.style.flexDirection='column';
   }
   if(el) el.classList.add('active');
-  const titles={dashboard:'Дашборд',mrp:'Производство (MRP)',warehouse:'Склад',purchases:'Закупки',suppliers:'Поставщики',catalog:'Каталог продукции',sales:'Продажи',customers:'Покупатели',crm:'CRM',finance:'Финансы — P&L',money:'Деньги',channels:'Центры прибыли',chanbal:'Баланс по каналам',brigades:'Бригады (пул и КТУ)',money_salon:'Касса салона',reconcile:'Сверка с офисом',hr:'Сотрудники',wages:'Сдельная оплата',techcards:'Тех. карты',mycabinet:'Личный кабинет',ai:'AI Ассистент'};
+  const titles={dashboard:'Дашборд',mrp:'Производство (MRP)',warehouse:'Склад',purchases:'Закупки',suppliers:'Поставщики',catalog:'Каталог продукции',sales:'Продажи',customers:'Покупатели',crm:'CRM',finance:'Финансы — P&L',money:'Деньги',channels:'Центры прибыли',chanbal:'Баланс по каналам',brigades:'Бригады (пул и КТУ)',workshops_admin:'Цеха и участники',money_salon:'Касса салона',reconcile:'Сверка с офисом',hr:'Сотрудники',wages:'Сдельная оплата',techcards:'Тех. карты',mycabinet:'Личный кабинет',ai:'AI Ассистент'};
   document.getElementById('topbar-title').textContent=titles[id]||id;
   if(typeof updateHelpBtn==='function') updateHelpBtn(id);
   if(id==='mrp'){
@@ -18327,6 +18435,7 @@ function showPage(id, el){
   if(id==='expense_cats') initExpenseCatsPage();
   if(id==='chanbal') initChanBalPage();
   if(id==='brigades') initBrigadesPage();
+  if(id==='workshops_admin') wsRenderAdmin();
   if(id==='reconcile'){
     const loads=[loadOrdersFromDB()];
     if(!_cacheLoaded.money) loads.push(loadMoneyFromDB());
@@ -20974,8 +21083,18 @@ function renderWorkLog(){
     wsSel.innerHTML='<option value="">Все цеха</option>'+PIECE_WORKSHOPS.map(w=>`<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
   }
   const execSel = document.getElementById('wl-exec');
-  if(execSel && execSel.options.length<=1){
-    execSel.innerHTML='<option value="">Все исполнители</option>'+employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('');
+  if(!window._pwbBrigades && typeof loadPwbBrigades==='function') loadPwbBrigades().then(()=>{ try{ renderWorkLog(); }catch(e){} });
+  if(execSel){
+    const bn = new Set((window._pwbBrigades||[]).map(b=>b.name));
+    all.forEach(e=>{ if(e.exec && e.exec.startsWith('👥 ')) bn.add(e.exec.slice(3)); });
+    const sig = employeesData.length+'|'+[...bn].join(',');
+    if(execSel.dataset.sig!==sig){
+      const cur = execSel.value;
+      execSel.innerHTML='<option value="">Все исполнители</option>'
+        +(bn.size?'<optgroup label="Бригады">'+[...bn].sort().map(n=>`<option value="👥 ${n}">👥 ${n}</option>`).join('')+'</optgroup>':'')
+        +'<optgroup label="Сотрудники">'+employeesData.map(e=>`<option value="${e.name}">${e.name}</option>`).join('')+'</optgroup>';
+      execSel.dataset.sig = sig; execSel.value = cur;
+    }
   }
   const catSel = document.getElementById('wl-category');
   if(catSel && catSel.options.length<=1){
@@ -21075,8 +21194,11 @@ function renderWorkshopLoad(){
       else if(deadlineIso<=weekStr){ urgency='soon'; urgencyLabel='Горит (7 дней)'; urgencyClass='badge-amber'; }
       else { urgency='ok'; urgencyLabel='В порядке'; urgencyClass='badge-green'; }
     }
-    pending.push({orderNum, item, workshops, deadlineIso, urgency, urgencyLabel, urgencyClass});
+    const brigs = [];
+    openStages.forEach(s=>{ if(s.brigade && !brigs.find(b=>String(b.id)===String(s.brigade))) brigs.push({id:s.brigade,name:s.brigadeName||'бригада'}); });
+    pending.push({orderNum, item, workshops, brigs, deadlineIso, urgency, urgencyLabel, urgencyClass});
   });
+  if(!window._pwbBrigades && typeof loadPwbBrigades==='function') loadPwbBrigades().then(()=>{ try{ renderWorkshopLoad(); }catch(e){} });
 
   // По цехам
   const byWorkshop = {};
@@ -21104,6 +21226,30 @@ function renderWorkshopLoad(){
       </div>
     </div>`).join('');
 
+  // По бригадам
+  const byBrig = {};
+  (window._pwbBrigades||[]).forEach(b=>{ byBrig[b.id]={id:b.id,name:b.name,total:0,overdue:0,soon:0}; });
+  pending.forEach(p=>p.brigs.forEach(b=>{
+    const r = byBrig[b.id] || (byBrig[b.id]={id:b.id,name:b.name,total:0,overdue:0,soon:0});
+    r.total++; if(p.urgency==='overdue') r.overdue++; if(p.urgency==='soon') r.soon++;
+  }));
+  const brigList = Object.values(byBrig);
+  if(brigList.length){
+    grid.innerHTML += '<div style="grid-column:1/-1;font-size:13px;font-weight:700;color:var(--text2);margin-top:6px">👥 Бригады</div>' + brigList.map(w=>`
+    <div class="card" style="padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:13px;font-weight:600">👥 ${w.name}</span>
+        <span style="font-size:22px;font-weight:700;color:var(--accent)">${w.total}</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${w.overdue?`<span class="badge badge-red" style="font-size:10px">${w.overdue} просрочено</span>`:''}
+        ${w.soon?`<span class="badge badge-amber" style="font-size:10px">${w.soon} горит</span>`:''}
+        ${!w.overdue && !w.soon && w.total>0?`<span class="badge badge-green" style="font-size:10px">Всё в порядке</span>`:''}
+        ${w.total===0?`<span style="font-size:11px;color:var(--text3)">Пусто</span>`:''}
+      </div>
+    </div>`).join('');
+  }
+
   const sorted = [...pending].sort((a,b)=>{
     const order={overdue:0, soon:1, ok:2, none:3};
     return order[a.urgency]-order[b.urgency];
@@ -21114,7 +21260,7 @@ function renderWorkshopLoad(){
       <td><span class="badge ${p.urgencyClass}" style="font-size:11px">${p.urgencyLabel}</span></td>
       <td style="font-family:monospace;color:var(--accent)">${p.orderNum}</td>
       <td>${posBadge(posNo(p.orderNum,p.item))}${p.item.name}</td>
-      <td>${p.workshops.map(wid=>PIECE_WORKSHOPS.find(w=>w.id===wid)?.name||wid).join(', ')||'—'}</td>
+      <td>${[...p.workshops.map(wid=>PIECE_WORKSHOPS.find(w=>w.id===wid)?.name||wid), ...p.brigs.map(b=>'👥 '+b.name)].join(', ')||'—'}</td>
       <td>${p.deadlineIso?p.item.date:'—'}</td>
     </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Нет незавершённых этапов</td></tr>';
 }
@@ -23171,6 +23317,7 @@ const ALL_PAGES = [
   {id:'hr',         label:'Сотрудники'},
   {id:'wages',      label:'Сдельная оплата'},
   {id:'brigades',   label:'Бригады (пул и КТУ)'},
+  {id:'workshops_admin', label:'Цеха и участники'},
   {id:'techcards',  label:'Тех. карты'},
   {id:'mycabinet',  label:'Личный кабинет'},
   {id:'ai',         label:'AI Ассистент'},
