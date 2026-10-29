@@ -2677,6 +2677,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showWhTab('stocks',this)">📂 По категориям</div>
         <div class="tab" onclick="showWhTab('workshops',this)">🔧 Цехи</div>
         <div class="tab" onclick="showWhTab('docs',this)">📄 Документы</div>
+        <div class="tab" onclick="showWhTab('release',this)">🪵 Выпуск полуфабрикатов</div>
         <div class="tab" onclick="showWhTab('remains',this)">📦 Все остатки</div>
         <div class="tab" onclick="showWhTab('inventory',this)">📋 Инвентаризация</div>
         <div class="tab" onclick="showWhTab('cost',this)">💰 Себестоимость</div>
@@ -2821,6 +2822,17 @@ window.onerror = function(msg, src, line, col){
       </div>
 
       <!-- АЛИАСЫ -->
+      <div id="wh-tab-release" style="display:none">
+        <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+          <div style="font-size:12px;color:var(--text3);flex:1">Цех выпускает каркасы и детали на склад. При проведении: полуфабрикаты приходуются на «Склад полуфабрикатов», исполнителю начисляется сдельная, а для бригады сумма идёт в её месячный пул. Материалы списываются отдельно.</div>
+          <button class="btn btn-primary btn-sm" onclick="openSemiRelease()">+ Новый выпуск</button>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Дата</th><th>№</th><th>Цех</th><th>Позиции</th><th style="text-align:right">Штук</th><th style="text-align:right">Сдельная ₸</th><th>Статус</th><th></th></tr></thead>
+          <tbody id="semi-rel-tbody"></tbody>
+        </table>
+      </div>
+
       <div id="wh-tab-aliases" style="display:none">
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
           <div style="font-size:13px;color:var(--text2)">
@@ -2925,6 +2937,36 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- MODAL: Складской документ -->
+    <div class="modal-overlay" id="semiRelModal">
+      <div class="modal" style="max-width:860px;max-height:90vh;overflow-y:auto">
+        <div class="modal-header">
+          <span class="modal-title" id="sr-title">🪵 Выпуск полуфабрикатов</span>
+          <button class="modal-close" onclick="closeModal('semiRelModal')">✕</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-row"><label class="label">Дата</label><input id="sr-date" type="date"></div>
+          <div class="form-row"><label class="label">Номер</label><input id="sr-num" type="text"></div>
+          <div class="form-row"><label class="label">Цех</label><select id="sr-ws" style="font-size:13px"></select></div>
+          <div class="form-row" style="grid-column:1/-1"><label class="label">Примечание</label><input id="sr-note" type="text" placeholder="Партия, смена…"></div>
+        </div>
+        <table class="data-table" style="margin-bottom:8px">
+          <thead><tr><th>Полуфабрикат</th><th>Кол-во</th><th>Расценка ₸/шт</th><th>Кто делал</th><th style="text-align:right">Сумма ₸</th><th></th></tr></thead>
+          <tbody id="sr-rows"></tbody>
+        </table>
+        <datalist id="sr-items-list"></datalist>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <button class="btn btn-ghost btn-sm" onclick="srAddRow()">+ Строка</button>
+          <div style="flex:1"></div>
+          <div style="font-size:13px">Итого сдельная: <b id="sr-total">₸0</b></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="closeModal('semiRelModal')">Отмена</button>
+          <button class="btn btn-ghost" id="sr-btn-draft" onclick="srSave('draft')">💾 Черновик</button>
+          <button class="btn btn-primary" id="sr-btn-post" onclick="srSave('posted')">✅ Провести</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="whDocModal">
       <div class="modal" style="max-width:700px;max-height:90vh;overflow-y:auto">
         <div class="modal-header">
@@ -17333,6 +17375,16 @@ async function brgComputeSheet(){
       lines.push({ order:r.order_num, item:itemName, stage:s.stage||'', date:s.postedDate, amount, share, partial:mine<all, names:who });
     });
   });
+  // Выпуск полуфабрикатов, назначенный на эту бригаду
+  try{
+    const rel = await sbFetchAllPages('semi_releases',`select=num,date,rows&status=eq.posted&date=gte.${from}&date=lte.${to}`);
+    (rel||[]).forEach(d=>(d.rows||[]).forEach(r=>{
+      if(r.who!=='b:'+b.id) return;
+      const amount=(+r.qty||0)*(+r.rate||0); if(!amount) return;
+      total += amount;
+      lines.push({ order:'Выпуск '+(d.num||''), item:r.name, stage:'Выпуск полуфабрикатов ×'+r.qty, date:d.date, amount, share:amount, partial:false, names:'👥 бригада' });
+    }));
+  }catch(e){}
   lines.sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:0);
   return { total:Math.round(total), lines, noItem };
 }
@@ -17813,6 +17865,8 @@ warehouse: { title:'Склад',
    workshops:{ name:'🔧 Цехи', what:'Материалы, выданные в цехи.', how:['Видно, что находится в цехах и сколько.'] },
    docs:{ name:'📄 Документы', what:'Журнал складских документов: приход, перемещение, списание.',
      how:['Видны дата, номер, тип, поставщик, откуда/куда, число позиций, сумма и статус.','Новый документ создаётся кнопками «Приход», «Перемещение», «Списание / ОПР».'] },
+   release:{ name:'🪵 Выпуск полуфабрикатов', what:'Учёт работы цеха, который делает каркасы и детали на склад (не на заказ).',
+     how:['«+ Новый выпуск»: дата, цех, затем строки — полуфабрикат (из списка или новое название), количество, расценка за штуку, кто делал.','«Кто делал»: сотрудник — ему создастся начисление «Сдельная» в Зарплатной ведомости; бригада — сумма пойдёт в месячный пул бригады (раздел «Бригады»).','«✅ Провести»: полуфабрикаты приходуются на «Склад полуфабрикатов». Материалы, ушедшие на выпуск, списывайте отдельно документом «Списание».','«💾 Черновик» — сохранить без прихода и начислений. Проведённый выпуск открывается по клику; «↩ Отменить проведение» вернёт остаток и удалит начисления.'] },
    remains:{ name:'📦 Все остатки', what:'Полный список материалов с остатком, минимумом, ценой и суммой.', how:['Поиск — по наименованию. Колонка «Статус» подсказывает, где остаток ниже минимума.'] },
    inventory:{ name:'📋 Инвентаризация', what:'Сверка учётных остатков с фактом.',
      how:['«🔄 Начать» запускает инвентаризацию: введите фактическое количество по каждой позиции.','Колонки «Расхождение» и «Сумма ±» показывают разницу. «✅ Применить расхождения» исправляет остатки по факту — сначала проверьте цифры.'] },
@@ -17932,6 +17986,160 @@ function openHelp(){
 function closeHelp(){ const ov = document.getElementById('help-overlay'); if(ov) ov.style.display = 'none'; }
 
 function updateHelpBtn(id){ const b = document.getElementById('help-btn'); if(b) b.style.display = HELP[id] ? '' : 'none'; }
+
+
+// ══════ Выпуск полуфабрикатов (столярка): приход на склад + сдельная ══════
+let _sr = { list:[], edit:null, rows:[], brigades:[], loaded:false };
+async function srInit(){
+  try{ if(typeof loadStaffFromDB==='function' && (!employeesData||!employeesData.length)) await loadStaffFromDB(); }catch(e){}
+  try{ _sr.brigades = (await sbFetch('brigades','select=id,name&active=eq.true&order=name'))||[]; }catch(e){ _sr.brigades=[]; }
+  try{ _sr.list = (await sbFetch('semi_releases','select=*&order=date.desc,id.desc&limit=300'))||[]; _sr.missing=false; }
+  catch(e){ _sr.list=[]; _sr.missing=true; }
+  srRender();
+}
+function srRender(){
+  const tb=document.getElementById('semi-rel-tbody'); if(!tb) return;
+  if(_sr.missing){ tb.innerHTML='<tr><td colspan="8" style="color:var(--red);padding:14px">Таблица semi_releases не создана. Выполните semi_releases.sql в Supabase.</td></tr>'; return; }
+  if(!_sr.list.length){ tb.innerHTML='<tr><td colspan="8" style="color:var(--text3);padding:14px">Выпусков пока нет. Нажмите «+ Новый выпуск».</td></tr>'; return; }
+  const fm=n=>Math.round(n).toLocaleString('ru-RU');
+  tb.innerHTML=_sr.list.map(d=>{
+    const rows=d.rows||[]; const q=rows.reduce((t,r)=>t+(+r.qty||0),0), sum=rows.reduce((t,r)=>t+(+r.qty||0)*(+r.rate||0),0);
+    const ws=PIECE_WORKSHOPS.find(w=>w.id===d.workshop);
+    return `<tr onclick="openSemiRelease(${d.id})" style="cursor:pointer">
+      <td>${d.date}</td><td style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${d.num||'—'}</td>
+      <td>${ws?ws.icon+' '+ws.name:(d.workshop||'—')}</td>
+      <td style="font-size:12px">${rows.map(r=>r.name+' ×'+r.qty).join(', ')}</td>
+      <td style="text-align:right">${fm(q)}</td><td style="text-align:right">₸${fm(sum)}</td>
+      <td><span class="badge ${d.status==='posted'?'badge-green':'badge-amber'}">${d.status==='posted'?'Проведён':'Черновик'}</span></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openSemiRelease(${d.id})">👁</button></td></tr>`;
+  }).join('');
+}
+function srWorkshopOptions(sel){
+  const list=PIECE_WORKSHOPS;
+  return list.map(w=>`<option value="${w.id}" ${w.id===sel?'selected':''}>${w.icon||''} ${w.name}</option>`).join('');
+}
+function openSemiRelease(id){
+  const d = id ? _sr.list.find(x=>x.id===id) : null;
+  _sr.edit = d||null;
+  const posted = d && d.status==='posted';
+  const g=x=>document.getElementById(x);
+  g('sr-title').textContent = d ? ('🪵 Выпуск '+(d.num||'')+(posted?' (проведён)':'')) : '🪵 Новый выпуск полуфабрикатов';
+  g('sr-date').value = d? d.date : new Date().toISOString().slice(0,10);
+  g('sr-num').value = d? (d.num||'') : 'ВП-'+String((_sr.list.length||0)+1).padStart(3,'0');
+  g('sr-note').value = d? (d.note||'') : '';
+  const wsSel=g('sr-ws'); wsSel.innerHTML=srWorkshopOptions(d?d.workshop:'cut');
+  _sr.rows = d ? JSON.parse(JSON.stringify(d.rows||[])) : [{name:'',qty:1,unit:'шт',rate:0,who:''}];
+  const names=[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))];
+  g('sr-items-list').innerHTML=names.map(n=>`<option value="${n}">`).join('');
+  ['sr-date','sr-num','sr-note','sr-ws'].forEach(i=>g(i).disabled=!!posted);
+  srRenderRows();
+  ['sr-btn-draft','sr-btn-post'].forEach(i=>g(i).style.display = posted?'none':'');
+  showModal('semiRelModal');
+  srPostedBar(posted);
+}
+function srPostedBar(posted){
+  let bar=document.getElementById('sr-unpost-bar');
+  if(!bar){ bar=document.createElement('div'); bar.id='sr-unpost-bar'; bar.style.cssText='margin-top:10px;text-align:right';
+    document.getElementById('semiRelModal').querySelector('.modal').appendChild(bar); }
+  bar.innerHTML = posted ? '<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="srUnpost()">↩ Отменить проведение</button>' : '';
+}
+function srWhoOptions(sel){
+  const emps=(typeof employeesData!=='undefined'?employeesData:[]).map(e=>e.name).filter(Boolean).sort();
+  return '<option value="">— выберите —</option>'
+    +(_sr.brigades.length?'<optgroup label="Бригады (в пул)">'+_sr.brigades.map(b=>`<option value="b:${b.id}" ${sel==='b:'+b.id?'selected':''}>👥 ${b.name}</option>`).join('')+'</optgroup>':'')
+    +'<optgroup label="Сотрудники">'+emps.map(n=>`<option value="e:${n}" ${sel==='e:'+n?'selected':''}>${n}</option>`).join('')+'</optgroup>';
+}
+function srRenderRows(){
+  const posted=_sr.edit && _sr.edit.status==='posted'; const dis=posted?'disabled':'';
+  document.getElementById('sr-rows').innerHTML=_sr.rows.map((r,i)=>`<tr>
+    <td><input type="text" list="sr-items-list" value="${(r.name||'').replace(/"/g,'&quot;')}" ${dis} style="font-size:12px;width:200px" placeholder="Каркас стула…" onchange="_sr.rows[${i}].name=this.value.trim()"></td>
+    <td><input type="number" min="0" step="1" value="${r.qty}" ${dis} style="width:70px;font-size:12px" onchange="_sr.rows[${i}].qty=parseFloat(this.value)||0;srTotal()"></td>
+    <td><input type="number" min="0" value="${r.rate}" ${dis} style="width:90px;font-size:12px" onchange="_sr.rows[${i}].rate=parseFloat(this.value)||0;srTotal()"></td>
+    <td><select ${dis} style="font-size:12px;max-width:190px" onchange="_sr.rows[${i}].who=this.value">${srWhoOptions(r.who)}</select></td>
+    <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px" id="sr-sum-${i}">₸${Math.round((+r.qty||0)*(+r.rate||0)).toLocaleString('ru-RU')}</td>
+    <td>${posted?'':`<button class="btn btn-ghost btn-sm" onclick="_sr.rows.splice(${i},1);srRenderRows()">✕</button>`}</td></tr>`).join('');
+  srTotal();
+}
+function srAddRow(){ if(_sr.edit&&_sr.edit.status==='posted') return; _sr.rows.push({name:'',qty:1,unit:'шт',rate:0,who:''}); srRenderRows(); }
+function srTotal(){
+  let t=0; _sr.rows.forEach((r,i)=>{ const v=(+r.qty||0)*(+r.rate||0); t+=v; const e=document.getElementById('sr-sum-'+i); if(e) e.textContent='₸'+Math.round(v).toLocaleString('ru-RU'); });
+  const e=document.getElementById('sr-total'); if(e) e.textContent='₸'+Math.round(t).toLocaleString('ru-RU');
+}
+async function srSave(status){
+  const g=x=>document.getElementById(x).value;
+  const rows=_sr.rows.filter(r=>r.name&&r.qty>0);
+  if(!rows.length){ alert('Добавьте хотя бы одну строку: название и количество.'); return; }
+  if(status==='posted'){
+    const bad=rows.find(r=>(+r.rate||0)>0 && !r.who);
+    if(bad && !confirm(`У позиции «${bad.name}» есть расценка, но не выбран исполнитель. Сдельная по ней начислена не будет. Продолжить?`)) return;
+  }
+  const rec={ date:g('sr-date'), num:g('sr-num'), workshop:g('sr-ws'), warehouse_id:'wh_semi', rows, note:g('sr-note'), status:'draft',
+              created_by: (window.currentUser&&window.currentUser.name)||'' };
+  try{
+    let saved;
+    if(_sr.edit){ const r=await sbPatch('semi_releases',`id=eq.${_sr.edit.id}`,rec); saved=Array.isArray(r)?r[0]:r; saved=saved||{..._sr.edit,...rec}; }
+    else { saved=await sbInsert('semi_releases',rec); }
+    if(status==='posted') await srPost(saved.id, rows, rec);
+    closeModal('semiRelModal'); await srInit();
+    if(status==='posted') alert('Выпуск проведён ✅');
+  }catch(e){ alert('Не удалось сохранить: '+e.message); }
+}
+async function srPost(id, rows, rec){
+  const done=[]; // для отката при ошибке
+  try{
+    // 1) приход на склад
+    for(const r of rows){
+      const cat='Полуфабрикаты';
+      let it=(warehouseData||[]).find(w=>w.name===r.name && w.warehouse_id==='wh_semi')
+          || (warehouseData||[]).find(w=>w.name===r.name && ['Полуфабрикаты','Заготовки','НЗП'].includes(w.category));
+      if(it){
+        const nq=Math.round(((+it.qty||0)+r.qty)*100)/100;
+        await sbPatch('warehouse',`id=eq.${it.sbId||it.id}`,{qty:nq});
+        it.qty=nq; r.whItemId=it.sbId||it.id;
+      } else {
+        const res=await sbInsert('warehouse',{name:r.name,category:cat,unit:r.unit||'шт',qty:r.qty,price:r.rate||0,warehouse_id:'wh_semi'});
+        warehouseData.push({id:res.id,sbId:res.id,name:res.name,category:cat,unit:res.unit||'шт',qty:res.qty,price:res.price||0,warehouse_id:'wh_semi',minQty:0,supplier:'',sku:''});
+        r.whItemId=res.id;
+      }
+      done.push(r);
+    }
+    // 2) сдельная сотрудникам (бригадам — через пул)
+    for(const r of rows){
+      r.accrualId=null;
+      const amount=Math.round((+r.qty||0)*(+r.rate||0));
+      if(!r.who||!amount) continue;
+      if(r.who.startsWith('e:')){
+        const name=r.who.slice(2);
+        const res=await sbInsert('salary_accruals',{emp_name:name,date:rec.date,amount,deducted:0,net:amount,type:'salary',
+          comment:`Сдельная — выпуск ${rec.num}: ${r.name} ×${r.qty}`,
+          details:{accruals:[{type:'Сдельная',amount}],deductions:[]}});
+        r.accrualId=res.id; if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals.push(res);
+      }
+    }
+    await sbPatch('semi_releases',`id=eq.${id}`,{rows,status:'posted',posted_at:new Date().toISOString()});
+  }catch(e){
+    // откат уже внесённого
+    for(const r of rows){
+      if(r.accrualId){ try{ await sbDelete('salary_accruals',`id=eq.${r.accrualId}`); }catch(_){} }
+    }
+    for(const r of done){ const it=warehouseData.find(w=>(w.sbId||w.id)===r.whItemId); if(it){ it.qty=Math.round((it.qty-r.qty)*100)/100; try{ await sbPatch('warehouse',`id=eq.${r.whItemId}`,{qty:it.qty}); }catch(_){} } }
+    throw e;
+  }
+}
+async function srUnpost(){
+  const d=_sr.edit; if(!d||d.status!=='posted') return;
+  if(!confirm('Отменить проведение? Полуфабрикаты будут списаны со склада обратно, начисления сотрудникам удалены. Из пула бригады суммы выпуска тоже уйдут (если расчёт бригады ещё не проведён — пересчитайте пул).')) return;
+  try{
+    for(const r of (d.rows||[])){
+      if(r.accrualId){ await sbDelete('salary_accruals',`id=eq.${r.accrualId}`); if(typeof _payrollData!=='undefined'&&_payrollData) _payrollData.accruals=_payrollData.accruals.filter(a=>a.id!==r.accrualId); }
+      const it=(warehouseData||[]).find(w=>(w.sbId||w.id)===r.whItemId);
+      if(it){ it.qty=Math.max(0,Math.round((it.qty-r.qty)*100)/100); await sbPatch('warehouse',`id=eq.${r.whItemId}`,{qty:it.qty}); }
+    }
+    const rows=(d.rows||[]).map(r=>{ const c={...r}; delete c.accrualId; delete c.whItemId; return c; });
+    await sbPatch('semi_releases',`id=eq.${d.id}`,{rows,status:'draft',posted_at:null});
+    closeModal('semiRelModal'); await srInit();
+  }catch(e){ alert('Не удалось отменить: '+e.message); }
+}
 
 function showPage(id, el){
   const page = document.getElementById('page-'+id);
@@ -29444,7 +29652,7 @@ const PHYSICAL_WAREHOUSES = [
 function showWhTab(tab, el){
   document.querySelectorAll('#page-warehouse .tab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
-  ['warehouses','stocks','workshops','docs','remains','inventory','cost','aliases'].forEach(id=>{
+  ['warehouses','stocks','workshops','docs','release','remains','inventory','cost','aliases'].forEach(id=>{
     const e=document.getElementById('wh-tab-'+id);
     if(e) e.style.display=id===tab?'':'none';
   });
@@ -29452,6 +29660,7 @@ function showWhTab(tab, el){
   if(tab==='stocks')     renderWhStocks();
   if(tab==='workshops')  renderWhWorkshops();
   if(tab==='docs')       loadWhDocsFromDB().then(renderWhDocs);
+  if(tab==='release')    srInit();
   if(tab==='remains')    renderWarehouse();
   if(tab==='inventory')  renderWhInventory();
   if(tab==='cost')       renderWhCost();
