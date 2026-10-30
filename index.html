@@ -2502,9 +2502,10 @@ window.onerror = function(msg, src, line, col){
             <div class="tab" id="brd-v-kanban" onclick="brdSetView('kanban')">🗂 Доска по цехам</div>
           </div>
           <input id="brd-search" type="text" placeholder="Заказ или изделие…" style="width:170px;font-size:12px" oninput="renderBoard()">
+          <select id="brd-act" onchange="renderBoard()" style="font-size:12px;width:auto"><option value="">Все виды деятельности</option></select>
           <select id="brd-ws" onchange="renderBoard()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
           <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brd-noexec" onchange="renderBoard()"> без исполнителя</label>
-          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brd-done" onchange="renderBoard()"> показывать завершённые</label>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brd-done" onchange="renderBoard()"> показывать завершённые и отгруженные</label>
           <button class="btn btn-ghost btn-sm" onclick="initBoard()">🔄</button>
         </div>
         <div class="section-sub" style="margin-bottom:10px">Те же позиции и этапы, что в Рабочем листе, но на одном экране. Исполнителя выбирают прямо в ячейке; в шапке столбца «Всем…» назначает одного человека на все свободные этапы столбца.</div>
@@ -2529,7 +2530,7 @@ window.onerror = function(msg, src, line, col){
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
           <input id="pwb-f-search" type="search" placeholder="🔍 Товар..." style="width:160px;font-size:12px" oninput="renderProdWorksheet()">
           <input id="pwb-f-order" type="text" placeholder="№ заказа..." style="width:110px;font-size:12px" oninput="renderProdWorksheet()">
-          <select id="pwb-f-category" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все категории</option></select>
+          <select id="pwb-f-category" onchange="renderProdWorksheet()" style="font-size:12px;width:auto" title="Вид деятельности"><option value="">Все виды деятельности</option></select>
           <select id="pwb-f-workshop" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
           <select id="pwb-f-stage" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все этапы</option></select>
           <select id="pwb-f-exec" onchange="renderProdWorksheet()" style="font-size:12px;width:auto"><option value="">Все исполнители</option></select>
@@ -2623,6 +2624,8 @@ window.onerror = function(msg, src, line, col){
            наглядность на основе того, что уже реально введено. -->
       <div class="mrp-tab" id="mrp-workload" style="display:none">
         <div class="section-sub" style="margin-bottom:14px">Незавершённые этапы (не проведённые) по цехам — только то, что реально назначено на Рабочем листе производства</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><select id="wload-act" onchange="renderWorkshopLoad()" style="font-size:12px;width:auto"><option value="">Все виды деятельности</option></select>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="wload-closed" onchange="renderWorkshopLoad()"> показывать отгруженные / закрытые заказы</label></div>
         <div id="workload-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:20px"></div>
 
         <div class="section-sub" style="margin-bottom:10px">Все незавершённые позиции по срочности отправки</div>
@@ -2643,13 +2646,13 @@ window.onerror = function(msg, src, line, col){
           <select id="wl-workshop" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
           <select id="wl-exec" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все исполнители</option></select>
           <input id="wl-order" type="text" placeholder="№ заказа..." style="width:100px;font-size:12px" oninput="renderWorkLog()">
-          <select id="wl-category" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все категории</option></select>
+          <select id="wl-category" onchange="renderWorkLog()" style="font-size:12px;width:auto" title="Вид деятельности"><option value="">Все виды деятельности</option></select>
           <input id="wl-item" type="text" placeholder="Изделие..." style="width:130px;font-size:12px" oninput="renderWorkLog()">
           <select id="wl-stage" onchange="renderWorkLog()" style="font-size:12px;width:auto"><option value="">Все работы</option></select>
           <button class="btn btn-ghost btn-sm" onclick="exportWorkLogExcel()">📥 Excel</button>
         </div>
         <table class="data-table">
-          <thead><tr><th>Дата</th><th>Цех</th><th>Исполнитель</th><th>Заказ</th><th>Изделие</th><th>Категория</th><th>Работа</th></tr></thead>
+          <thead><tr><th>Дата</th><th>Цех</th><th>Исполнитель</th><th>Заказ</th><th>Изделие</th><th>Вид деятельности</th><th>Работа</th></tr></thead>
           <tbody id="wl-tbody"></tbody>
         </table>
       </div>
@@ -18364,6 +18367,7 @@ async function pwbAutoWriteOffForStage(stageName){
 // ══════ Доска этапов: таблица «позиции × этапы» и канбан по цехам ══════
 let _brdView = 'matrix';
 async function initBoard(){
+  if(!realizationsData.length && typeof loadRealizationsFromDB==='function'){ try{ await loadRealizationsFromDB(); }catch(e){} }
   await initProdWorksheet();           // загрузит данные, если ещё не загружены
   if(!_wsLoaded) await wsLoadWorkshops();
   renderBoard();
@@ -18383,6 +18387,8 @@ function brdRows(){
   }).filter(r=>{
     if(!r.order||!r.item||!(r.p.stages||[]).length) return false;
     if(!showDone && r.p.stages.every(s=>s.posted)) return false;
+    if(!showDone && orderClosedReason(r.order)) return false;
+    const actF=document.getElementById('brd-act')?.value||''; if(actF && r.item.category!==actF) return false;
     if(q && !(r.orderNum+' '+r.item.name).toLowerCase().includes(q)) return false;
     return true;
   });
@@ -18433,6 +18439,11 @@ function renderBoard(){
     const cur=wsSel.value;
     wsSel.innerHTML='<option value="">Все цеха</option>'+PIECE_WORKSHOPS.map(w=>`<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
     wsSel.dataset.n=String(PIECE_WORKSHOPS.length); wsSel.value=cur;
+  }
+  const actSel=document.getElementById('brd-act');
+  if(actSel){
+    const cats=[...new Set(prodWbRows.map(r=>ordersData.find(o=>o.num===r.orderNum)?.items?.[r.itemIdx]?.category).filter(Boolean))].sort();
+    if(actSel.dataset.sig!==cats.join('|')){ const cur=actSel.value; actSel.innerHTML='<option value="">Все виды деятельности</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join(''); actSel.value=cur; actSel.dataset.sig=cats.join('|'); }
   }
   const wsF=wsSel?.value||''; const noExec=document.getElementById('brd-noexec')?.checked;
   const rows=brdRows();
@@ -21279,7 +21290,10 @@ function showMrpTab(tab, el){
   if(tab==='worksheet') initProdWorksheet();
   if(tab==='board') initBoard();
   if(tab==='techcards') initTechCardsTab();
-  if(tab==='workload') renderWorkshopLoad();
+  if(tab==='workload'){
+    renderWorkshopLoad();
+    if(!realizationsData.length && typeof loadRealizationsFromDB==='function') loadRealizationsFromDB().then(()=>renderWorkshopLoad()).catch(()=>{});
+  }
   if(tab==='worklog') renderWorkLog();
 }
 
@@ -21352,7 +21366,7 @@ function renderWorkLog(){
   const catSel = document.getElementById('wl-category');
   if(catSel && catSel.options.length<=1){
     const cats=[...new Set(all.map(e=>e.category).filter(Boolean))].sort();
-    catSel.innerHTML='<option value="">Все категории</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+    catSel.innerHTML='<option value="">Все виды деятельности</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
   }
   const stageSel = document.getElementById('wl-stage');
   if(stageSel && stageSel.options.length<=1){
@@ -21430,6 +21444,13 @@ function renderWorkshopLoad(){
   const weekAhead = new Date(); weekAhead.setDate(weekAhead.getDate()+7);
   const weekStr = weekAhead.toISOString().slice(0,10);
 
+  const actSel = document.getElementById('wload-act');
+  if(actSel){
+    const cats=[...new Set(Object.keys(prodProgress).map(k=>{const [on,ii]=k.split('|');return ordersData.find(o=>o.num===on)?.items?.[+ii]?.category;}).filter(Boolean))].sort();
+    if(actSel.dataset.sig!==cats.join('|')){ const cur=actSel.value; actSel.innerHTML='<option value="">Все виды деятельности</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join(''); actSel.value=cur; actSel.dataset.sig=cats.join('|'); }
+  }
+  const actF = actSel ? actSel.value : '';
+  const showClosed = !!document.getElementById('wload-closed')?.checked;
   // Собираем все позиции с хотя бы одним непроведённым этапом
   const pending = [];
   Object.entries(prodProgress).forEach(([itemKey, p])=>{
@@ -21439,6 +21460,8 @@ function renderWorkshopLoad(){
     const order = ordersData.find(o=>o.num===orderNum);
     const item = order?.items?.[+itemIdxStr];
     if(!item) return;
+    if(actF && item.category!==actF) return;
+    if(!showClosed && orderClosedReason(order)) return;
     const workshops = [...new Set(openStages.map(s=>s.workshop).filter(Boolean))];
     const deadlineIso = parseDMY(item.date||'')||'';
     let urgency='none', urgencyLabel='Без срока', urgencyClass='badge-blue';
@@ -37265,7 +37288,7 @@ function pwbPopulateFilters(){
   const catSel = document.getElementById('pwb-f-category');
   if(catSel && catSel.options.length<=1){
     const cats = [...new Set(prodWbRows.map(r=>{const o=ordersData.find(o=>o.num===r.orderNum); return o?.items[r.itemIdx]?.category;}).filter(Boolean))].sort();
-    catSel.innerHTML='<option value="">Все категории</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+    catSel.innerHTML='<option value="">Все виды деятельности</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
   }
   const stSel = document.getElementById('pwb-f-stage');
   if(stSel && stSel.options.length<=1){
