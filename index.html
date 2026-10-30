@@ -2504,8 +2504,8 @@ window.onerror = function(msg, src, line, col){
           <input id="brd-search" type="text" placeholder="Заказ или изделие…" style="width:170px;font-size:12px" oninput="renderBoard()">
           <select id="brd-act" onchange="renderBoard()" style="font-size:12px;width:auto"><option value="">Все виды деятельности</option></select>
           <select id="brd-ws" onchange="renderBoard()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
-          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brd-noexec" onchange="renderBoard()"> без исполнителя</label>
-          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brd-done" onchange="renderBoard()"> показывать завершённые и отгруженные</label>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" id="brd-noexec" style="width:auto;margin:0" onchange="renderBoard()"> без исполнителя</label>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" id="brd-done" style="width:auto;margin:0" onchange="renderBoard()"> показывать завершённые и отгруженные</label>
           <button class="btn btn-ghost btn-sm" onclick="initBoard()">🔄</button>
         </div>
         <div class="section-sub" style="margin-bottom:10px">Те же позиции и этапы, что в Рабочем листе, но на одном экране. Исполнителя выбирают прямо в ячейке; в шапке столбца «Всем…» назначает одного человека на все свободные этапы столбца.</div>
@@ -2625,7 +2625,7 @@ window.onerror = function(msg, src, line, col){
       <div class="mrp-tab" id="mrp-workload" style="display:none">
         <div class="section-sub" style="margin-bottom:14px">Незавершённые этапы (не проведённые) по цехам — только то, что реально назначено на Рабочем листе производства</div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><select id="wload-act" onchange="renderWorkshopLoad()" style="font-size:12px;width:auto"><option value="">Все виды деятельности</option></select>
-          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="wload-closed" onchange="renderWorkshopLoad()"> показывать отгруженные / закрытые заказы</label></div>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="wload-closed" style="width:auto;margin:0" onchange="renderWorkshopLoad()"> показывать отгруженные / закрытые заказы</label></div>
         <div id="workload-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:20px"></div>
 
         <div class="section-sub" style="margin-bottom:10px">Все незавершённые позиции по срочности отправки</div>
@@ -2702,6 +2702,7 @@ window.onerror = function(msg, src, line, col){
         <div class="tab" onclick="showWhTab('workshops',this)">🔧 Цехи</div>
         <div class="tab" onclick="showWhTab('docs',this)">📄 Документы</div>
         <div class="tab" onclick="showWhTab('release',this)">🪵 Выпуск полуфабрикатов</div>
+        <div class="tab" onclick="showWhTab('issues',this)">🧾 Расход без заказа</div>
         <div class="tab" onclick="showWhTab('remains',this)">📦 Все остатки</div>
         <div class="tab" onclick="showWhTab('inventory',this)">📋 Инвентаризация</div>
         <div class="tab" onclick="showWhTab('cost',this)">💰 Себестоимость</div>
@@ -2840,12 +2841,32 @@ window.onerror = function(msg, src, line, col){
           <select id="wh-cost-order" onchange="renderWhCost()" style="font-size:13px;width:auto">
             <option value="">— выберите заказ —</option>
           </select>
-          <span style="font-size:12px;color:var(--text3)">Себестоимость рассчитывается по документам списания</span>
+          <select id="wh-cost-oprmode" onchange="try{localStorage.setItem('costOprMode',this.value)}catch(e){};renderWhCost()" style="font-size:12px;width:auto" title="Как считать общепроизводственные расходы (ОПР)">
+            <option value="fact">ОПР по факту (расходники месяца ÷ сдельная месяца)</option>
+            <option value="fixed">ОПР — 15 % от прямых материалов</option>
+          </select>
+          <span style="font-size:12px;color:var(--text3)">Материалы: рабочий лист + распределённые общие расходы + документы списания</span>
         </div>
         <div id="wh-cost-body"></div>
       </div>
 
       <!-- АЛИАСЫ -->
+      <div id="wh-tab-issues" style="display:none">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <select id="mi-month" onchange="miRender()" style="font-size:12px;width:auto"></select>
+          <select id="mi-year" onchange="miRender()" style="font-size:12px;width:auto"></select>
+          <div style="flex:1"></div>
+          <button class="btn btn-ghost btn-sm" onclick="miOpenIssue()">+ Расход без заказа</button>
+          <button class="btn btn-primary btn-sm" onclick="miOpenAlloc()">⚖ Распределить общие расходы</button>
+        </div>
+        <div class="section-sub" style="margin-bottom:12px;line-height:1.6">Материалы, взятые без номера заказа. <b>Общий расход</b> (краска, лак, клей) разносится на изделия, которые за период прошли нужный этап, и попадает в их прямые материалы. <b>Расходник</b> (шурупы, абразивы) остаётся в ОПР и входит в себестоимость коэффициентом по факту за месяц.</div>
+        <div id="mi-summary" style="margin-bottom:14px"></div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px">Расходы за месяц</div>
+        <table class="data-table"><thead><tr><th>Дата</th><th>Материал</th><th style="text-align:right">Кол-во</th><th style="text-align:right">Сумма ₸</th><th>Вид</th><th>Статус</th><th>Примечание</th><th></th></tr></thead><tbody id="mi-tbody"></tbody></table>
+        <div style="font-weight:600;font-size:13px;margin:18px 0 6px">Распределения</div>
+        <table class="data-table"><thead><tr><th>Период</th><th>Материал</th><th>Основа</th><th style="text-align:right">Сумма ₸</th><th>Изделий</th><th></th></tr></thead><tbody id="ma-tbody"></tbody></table>
+      </div>
+
       <div id="wh-tab-release" style="display:none">
         <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
           <div style="font-size:12px;color:var(--text3);flex:1">Цех выпускает каркасы и детали на склад. При проведении: полуфабрикаты приходуются на «Склад полуфабрикатов», исполнителю начисляется сдельная, а для бригады сумма идёт в её месячный пул. Материалы списываются отдельно.</div>
@@ -2961,6 +2982,42 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- MODAL: Складской документ -->
+    <div class="modal-overlay" id="miIssueModal">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header"><span class="modal-title">🧾 Расход материала без заказа</span><button class="modal-close" onclick="closeModal('miIssueModal')">✕</button></div>
+        <div class="form-row"><label class="label">Дата</label><input id="mi-f-date" type="date"></div>
+        <div class="form-row"><label class="label">Материал (со склада)</label><input id="mi-f-mat" list="mi-mat-list" placeholder="Начните вводить название…" oninput="miMatChanged()"><datalist id="mi-mat-list"></datalist>
+          <div id="mi-f-info" style="font-size:11px;color:var(--text3);margin-top:3px"></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-row"><label class="label">Количество</label><input id="mi-f-qty" type="number" min="0" step="0.01" oninput="miMatChanged()"></div>
+          <div class="form-row"><label class="label">Цена за ед., ₸</label><input id="mi-f-price" type="number" min="0" oninput="miMatChanged()"></div>
+        </div>
+        <div class="form-row"><label class="label">Вид расхода</label>
+          <select id="mi-f-kind" style="font-size:13px">
+            <option value="shared">Общий — распределить по изделиям (краска, лак, клей)</option>
+            <option value="opr">Расходник — в ОПР (шурупы, абразивы)</option>
+          </select></div>
+        <div class="form-row"><label class="label">Примечание</label><input id="mi-f-note" type="text" placeholder="Кто взял, для чего"></div>
+        <div style="font-size:12px;margin:4px 0 12px">Сумма: <b id="mi-f-sum">₸0</b></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal('miIssueModal')">Отмена</button><button class="btn btn-primary" onclick="miSaveIssue()">Списать со склада</button></div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="miAllocModal">
+      <div class="modal" style="max-width:760px;max-height:90vh;overflow-y:auto">
+        <div class="modal-header"><span class="modal-title">⚖ Распределение общих расходов по изделиям</span><button class="modal-close" onclick="closeModal('miAllocModal')">✕</button></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+          <div class="form-row"><label class="label">Материал</label><select id="ma-f-mat" style="font-size:13px" onchange="miAllocDefaults();miAllocPreview()"></select></div>
+          <div class="form-row"><label class="label">С</label><input id="ma-f-from" type="date" onchange="miAllocPreview()"></div>
+          <div class="form-row"><label class="label">По</label><input id="ma-f-to" type="date" onchange="miAllocPreview()"></div>
+          <div class="form-row"><label class="label">Основа</label><select id="ma-f-basis" style="font-size:13px" onchange="miAllocPreview()"><option value="amount">По сумме заказа</option><option value="qty">По количеству</option></select></div>
+        </div>
+        <div class="form-row"><label class="label">Разнести на изделия, у которых за период завершён этап</label><input id="ma-f-stage" list="ma-stage-list" placeholder="например, Покраска" oninput="miAllocPreview()"><datalist id="ma-stage-list"></datalist></div>
+        <div id="ma-preview" style="margin:10px 0"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal('miAllocModal')">Отмена</button><button class="btn btn-primary" id="ma-save-btn" onclick="miSaveAlloc()">Сохранить распределение</button></div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="semiRelModal">
       <div class="modal" style="max-width:860px;max-height:90vh;overflow-y:auto">
         <div class="modal-header">
@@ -17921,6 +17978,8 @@ warehouse: { title:'Склад',
    workshops:{ name:'🔧 Цехи', what:'Материалы, выданные в цехи.', how:['Видно, что находится в цехах и сколько.'] },
    docs:{ name:'📄 Документы', what:'Журнал складских документов: приход, перемещение, списание.',
      how:['Видны дата, номер, тип, поставщик, откуда/куда, число позиций, сумма и статус.','Новый документ создаётся кнопками «Приход», «Перемещение», «Списание / ОПР».'] },
+   issues:{ name:'🧾 Расход без заказа', what:'Материалы, взятые со склада без номера заказа: краска, лак, клей, шурупы.',
+     how:['«+ Расход без заказа»: выберите материал, количество и вид. Склад уменьшается сразу.','Вид «Общий» — краска, лак, клей: расход разносится на изделия. Вид «Расходник» — шурупы, абразивы: уходит в ОПР.','«⚖ Распределить общие расходы»: выберите материал, период и этап (например, «Покраска»). Программа покажет изделия, у которых этап завершён за период, и долю каждого (по сумме заказа или по количеству). После подтверждения стоимость входит в прямые материалы этих заказов. «↩» в таблице распределений отменяет его.','Вверху — отчёт за месяц: общие расходы, сколько из них ещё не распределено, расходники в ОПР и ставка ОПР к сдельной месяца.','Себестоимость заказа (вкладка «Себестоимость»): материалы из рабочего листа + распределённые общие расходы; ОПР — по факту (расходники месяца ÷ сдельная месяца) или 15 % от материалов, переключатель вверху вкладки.'] },
    release:{ name:'🪵 Выпуск полуфабрикатов', what:'Учёт работы цеха, который делает каркасы и детали на склад (не на заказ).',
      how:['«+ Новый выпуск»: дата, цех, затем строки — полуфабрикат (из списка или новое название), количество, расценка за штуку, кто делал.','«Кто делал»: сотрудник — ему создастся начисление «Сдельная» в Зарплатной ведомости; бригада — сумма пойдёт в месячный пул бригады (раздел «Бригады»).','«✅ Провести»: полуфабрикаты приходуются на «Склад полуфабрикатов». Материалы, ушедшие на выпуск, списывайте отдельно документом «Списание».','«💾 Черновик» — сохранить без прихода и начислений. Проведённый выпуск открывается по клику; «↩ Отменить проведение» вернёт остаток и удалит начисления.'] },
    remains:{ name:'📦 Все остатки', what:'Полный список материалов с остатком, минимумом, ценой и суммой.', how:['Поиск — по наименованию. Колонка «Статус» подсказывает, где остаток ниже минимума.'] },
@@ -18405,6 +18464,7 @@ function brdExecSelect(key, idx, s){
   return `<select style="font-size:11px;width:100%;padding:2px" onchange="brdSetExec('${key}',${idx},this.value)">${pwbExecOptions(s.workshop,a[0]?a[0].name:'',true)}</select>`;
 }
 async function brdSetExec(key, idx, name){
+  _brdPopKeep=false; { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; }
   const p=prodProgress[key]; const s=p.stages[idx];
   s.assignees = name ? [{name, ktu:1}] : [];
   try{ await saveProdProgress(key); }catch(e){ alert('Не удалось сохранить: '+e.message); }
@@ -18424,9 +18484,9 @@ async function brdBulkExec(colName, name){
   }
   renderBoard();
 }
-async function brdStart(key, idx){ _pwbCurrentItemKey=key; startPwbStage(idx); setTimeout(renderBoard,300); }
-async function brdPost(key, idx){ _pwbCurrentItemKey=key; await postPwbStage(idx); renderBoard(); }
-async function brdUnpost(key, idx){ _pwbCurrentItemKey=key; await unpostPwbStage(idx); renderBoard(); }
+async function brdStart(key, idx){ { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; } _pwbCurrentItemKey=key; startPwbStage(idx); setTimeout(renderBoard,300); }
+async function brdPost(key, idx){ { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; } _pwbCurrentItemKey=key; await postPwbStage(idx); renderBoard(); }
+async function brdUnpost(key, idx){ { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; } _pwbCurrentItemKey=key; await unpostPwbStage(idx); renderBoard(); }
 function brdActions(key, idx, s){
   if(s.posted) return `<span style="color:var(--green);font-size:11px">✅ ${s.postedDate?s.postedDate.slice(5).split('-').reverse().join('.'):''}</span> <a href="#" style="font-size:10px;color:var(--text3)" onclick="event.preventDefault();brdUnpost('${key}',${idx})">↩</a>`;
   return (!s.started?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px" onclick="brdStart('${key}',${idx})">▶</button> `:'<span title="В работе" style="font-size:11px">🔨</span> ')
@@ -18475,24 +18535,96 @@ function renderBoard(){
   const colOrder=[]; const pos={};
   rows.forEach(r=>r.p.stages.forEach((s,i)=>{ const n=s.stage||'(без названия)'; if(!(n in pos)){ pos[n]={sum:0,c:0}; colOrder.push(n);} pos[n].sum+=i; pos[n].c++; }));
   colOrder.sort((a,b)=>pos[a].sum/pos[a].c-pos[b].sum/pos[b].c);
-  const bg=s=>s.posted?'rgba(61,214,140,.14)':s.started?'rgba(245,166,35,.16)':'transparent';
-  body.innerHTML=`<table class="data-table" style="min-width:max-content"><thead><tr>
-      <th style="position:sticky;left:0;background:var(--bg2);z-index:1">Заказ · изделие</th>
-      ${colOrder.map(n=>`<th style="min-width:150px">${esc(n)}<br><select style="font-size:10px;width:100%;margin-top:3px" onchange="brdBulkExec(${JSON.stringify(n).replace(/"/g,'&quot;')},this.value);this.value=''">${pwbExecOptions('', '', false).replace('<optgroup','<option value="">Всем свободным…</option><optgroup')}</select></th>`).join('')}
+  const bg=s=>s.posted?'rgba(61,214,140,.18)':s.started?'rgba(245,166,35,.2)':'transparent';
+  const short=n=>String(n).trim().split(/\s+/)[0];
+  const cellHtml=(r,idx)=>{
+    const s=r.p.stages[idx]; const who=brdWho(s);
+    const ic=s.posted?'✅':s.started?'🔨':'';
+    return `<div class="brd-cell" data-key="${r.itemKey}" data-idx="${idx}" style="${who?'':'color:var(--text3)'}">${ic} ${who?esc(s.brigade?who:short(who.split(',')[0])+((s.assignees||[]).length>1?' +'+((s.assignees||[]).length-1):'')):'—'}</div>`;
+  };
+  const W = brdColWidths();
+  body.innerHTML=`<table class="data-table brd-table" id="brd-table" style="table-layout:fixed;width:100%;min-width:${170+colOrder.length*70}px">
+    <colgroup><col style="width:170px">${colOrder.map(n=>`<col data-col="${esc(n).replace(/"/g,'&quot;')}" ${W[n]?`style="width:${W[n]}px"`:''}>`).join('')}</colgroup>
+    <thead><tr>
+      <th style="position:sticky;left:0;background:var(--bg2);z-index:2">Заказ · изделие</th>
+      ${colOrder.map(n=>`<th style="position:relative;padding:4px 6px;vertical-align:top">
+        <div title="${esc(n).replace(/"/g,'&quot;')}" style="font-size:11px;line-height:1.2;max-height:2.4em;overflow:hidden">${esc(n)}</div>
+        <select title="Назначить исполнителя на все свободные этапы столбца" style="font-size:10px;width:100%;margin-top:3px;padding:0" onchange="brdBulkExec(${JSON.stringify(n).replace(/"/g,'&quot;')},this.value);this.value=''">${pwbExecOptions('', '', false).replace('<optgroup','<option value="">👤 всем…</option><optgroup')}</select>
+        <span class="brd-resizer" data-col="${esc(n).replace(/"/g,'&quot;')}" title="Потяните, чтобы изменить ширину" style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize"></span></th>`).join('')}
     </tr></thead><tbody>
     ${rows.map(r=>`<tr>
-      <td style="position:sticky;left:0;background:var(--bg2);z-index:1;cursor:pointer;min-width:180px" onclick="openPwbStageEditor('${r.itemKey}')">
-        <span style="font-family:monospace;color:var(--accent);font-size:11px">${esc(r.orderNum)}</span> ${posBadge(r.itemIdx+1)}<div style="font-size:12px">${esc(r.item.name)}</div></td>
+      <td style="position:sticky;left:0;background:var(--bg2);z-index:1;cursor:pointer;padding:3px 6px" onclick="openPwbStageEditor('${r.itemKey}')" title="${esc(r.orderNum+' · '+r.item.name).replace(/"/g,'&quot;')}">
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px"><span style="font-family:monospace;color:var(--accent);font-size:11px">${esc(r.orderNum)}</span> ${posBadge(r.itemIdx+1)}${esc(r.item.name)}</div></td>
       ${colOrder.map(n=>{
         const idx=r.p.stages.findIndex(s=>(s.stage||'(без названия)')===n);
-        if(idx<0) return '<td style="color:var(--text3);text-align:center">·</td>';
+        if(idx<0) return '<td style="color:var(--text3);text-align:center;padding:3px">·</td>';
         const s=r.p.stages[idx];
-        if(wsF && s.workshop!==wsF) return '<td style="color:var(--text3);text-align:center">·</td>';
-        const hi = noExec && brdWho(s) ? 'opacity:.35;' : '';
-        return `<td style="background:${bg(s)};${hi}padding:4px 6px">${brdExecSelect(r.itemKey,idx,s)}<div style="margin-top:3px">${brdActions(r.itemKey,idx,s)}</div></td>`;
+        if(wsF && s.workshop!==wsF) return '<td style="color:var(--text3);text-align:center;padding:3px">·</td>';
+        const hi = noExec && brdWho(s) ? 'opacity:.3;' : '';
+        return `<td style="background:${bg(s)};${hi}padding:3px 6px;cursor:pointer">${cellHtml(r,idx)}</td>`;
       }).join('')}
     </tr>`).join('')}
     </tbody></table>`;
+  brdBindMatrix();
+}
+
+// ── Доска этапов: ширина столбцов и всплывающая карточка ячейки ──
+function brdColWidths(){ try{ return JSON.parse(localStorage.getItem('brdColW')||'{}'); }catch(e){ return {}; } }
+function brdSaveColWidth(n,w){ try{ const W=brdColWidths(); W[n]=w; localStorage.setItem('brdColW',JSON.stringify(W)); }catch(e){} }
+let _brdPopTimer=null, _brdPopKeep=false;
+function brdPop(){
+  let el=document.getElementById('brd-pop');
+  if(!el){
+    el=document.createElement('div'); el.id='brd-pop';
+    el.style.cssText='position:fixed;z-index:9000;display:none;min-width:230px;max-width:300px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:12px';
+    el.addEventListener('mouseenter',()=>clearTimeout(_brdPopTimer));
+    el.addEventListener('mouseleave',()=>brdPopHideSoon());
+    el.addEventListener('focusin',()=>{ _brdPopKeep=true; });
+    el.addEventListener('focusout',()=>{ _brdPopKeep=false; brdPopHideSoon(); });
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function brdPopHideSoon(){ clearTimeout(_brdPopTimer); _brdPopTimer=setTimeout(()=>{ if(_brdPopKeep) return; const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; },250); }
+function brdPopShow(cell){
+  clearTimeout(_brdPopTimer);
+  const key=cell.dataset.key, idx=+cell.dataset.idx;
+  const p=prodProgress[key]; if(!p||!p.stages[idx]) return;
+  const s=p.stages[idx];
+  const row=prodWbRows.find(r=>r.itemKey===key); const order=row&&ordersData.find(o=>o.num===row.orderNum); const item=order&&order.items[row.itemIdx];
+  const w=PIECE_WORKSHOPS.find(x=>x.id===s.workshop);
+  const el=brdPop();
+  const esc=t=>String(t).replace(/</g,'&lt;');
+  el.innerHTML=`<div style="font-size:11px;color:var(--text3);margin-bottom:2px">${esc(row?row.orderNum:'')} · ${esc(item?item.name:'')}</div>
+    <div style="font-weight:600;margin-bottom:2px">${esc(s.stage||'(без названия)')}</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${w?w.icon+' '+w.name:'цех не указан'}${s.rate?' · ₸'+s.rate+(s.qty?' × '+s.qty:''):''}${s.started&&!s.posted?' · в работе с '+(s.startedDate||''):''}</div>
+    ${brdExecSelect(key,idx,s)}
+    <div style="margin-top:8px">${brdActions(key,idx,s)}</div>
+    <div style="margin-top:6px"><a href="#" style="font-size:11px" onclick="event.preventDefault();openPwbStageEditor('${key}')">Открыть все этапы позиции →</a></div>`;
+  el.style.display='block';
+  const r=cell.getBoundingClientRect(); const pw=el.offsetWidth, ph=el.offsetHeight;
+  let x=Math.min(r.left, window.innerWidth-pw-8); let y=r.bottom+4;
+  if(y+ph>window.innerHeight-8) y=Math.max(8,r.top-ph-4);
+  el.style.left=Math.max(8,x)+'px'; el.style.top=y+'px';
+}
+function brdBindMatrix(){
+  const t=document.getElementById('brd-table'); if(!t) return;
+  t.querySelectorAll('.brd-cell').forEach(c=>{
+    const td=c.parentElement;
+    td.addEventListener('mouseenter',()=>{ clearTimeout(_brdPopTimer); _brdPopTimer=setTimeout(()=>brdPopShow(c),180); });
+    td.addEventListener('mouseleave',()=>brdPopHideSoon());
+    td.addEventListener('click',()=>brdPopShow(c));
+  });
+  t.querySelectorAll('.brd-resizer').forEach(h=>{
+    h.addEventListener('mousedown',ev=>{
+      ev.preventDefault(); ev.stopPropagation();
+      const name=h.dataset.col; const col=[...t.querySelectorAll('col[data-col]')].find(c=>c.dataset.col===name);
+      const th=h.parentElement; const startX=ev.clientX, startW=th.getBoundingClientRect().width;
+      const mv=e=>{ const w=Math.max(50,Math.round(startW+e.clientX-startX)); col.style.width=w+'px'; col.dataset.w=w; };
+      const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); if(col.dataset.w) brdSaveColWidth(name,+col.dataset.w); };
+      document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+    });
+  });
 }
 
 function showPage(id, el){
@@ -29706,27 +29838,254 @@ let whDocuments = [
 
 // ── Себестоимость: рассчитать по заказу ──────────────────────────────────────
 function calcOrderCost(orderNum){
+  // 1) Документы списания «на заказ» (прежний источник)
   const directDocs = whDocuments.filter(
     d=>d.type==='writeoff'&&d.writeoffType==='order'&&d.orderNum===orderNum&&d.status==='done'
   );
-  const directMaterials = directDocs.flatMap(d=>d.items).reduce((s,it)=>s+it.qty*it.price,0);
+  const docItems = directDocs.flatMap(d=>d.items.map(it=>({...it, docNum:d.num, date:d.date})));
+  const docsSum = docItems.reduce((t,it)=>t+it.qty*it.price,0);
 
-  // Прямая зарплата из сдельной ведомости
+  // 2) Материалы, списанные в рабочем листе производства на изделия заказа
+  const wsItems = []; const stageRows = [];
+  Object.entries(typeof prodProgress!=='undefined'?prodProgress:{}).forEach(([key,p])=>{
+    const [on, ii] = key.split('|'); if(on!==orderNum) return;
+    const order = ordersData.find(o=>o.num===on); const item = order&&order.items?order.items[+ii]:null;
+    (p.materials||[]).forEach(m=>{
+      if(!m.posted) return;
+      const wh = warehouseData.find(w=>String(w.id)===String(m.warehouseItemId)) || warehouseData.find(w=>w.name===m.name);
+      const price = wh ? (wh.price||0) : 0;
+      wsItems.push({name:m.name, qty:m.qty||0, unit:m.unit||(wh&&wh.unit)||'', price, docNum:'Рабочий лист №'+(+ii+1), date:'—'});
+    });
+    (p.stages||[]).forEach(s=>{
+      if(!s.posted || !item) return;
+      stageRows.push({amount:computeStageAmountFor(s,item), month:(s.postedDate||'').slice(0,7)});
+    });
+  });
+  const wsSum = wsItems.reduce((t,it)=>t+it.qty*it.price,0);
+
+  // 3) Общие расходы (краска и т. п.), распределённые на изделия заказа
+  const allocItems = [];
+  ((typeof _mi!=='undefined'&&_mi.allocs)||[]).forEach(a=>(a.lines||[]).forEach(l=>{
+    if(l.order_num!==orderNum) return;
+    allocItems.push({name:a.name+' (распределено)', qty:1, unit:'', price:l.amount||0, docNum:'Распределение '+(a.date_from||'')+'…'+(a.date_to||''), date:a.date_to||''});
+  }));
+  const allocSum = allocItems.reduce((t,it)=>t+it.price,0);
+
+  const directMaterials = docsSum + wsSum + allocSum;
+
+  // Прямая зарплата: проведённые этапы рабочего листа; если их нет — прежняя ведомость
   const wageItems = (typeof wageEmployees!=='undefined'?wageEmployees:[])
     .flatMap(e=>(e.items||[]).filter(it=>it.orderNum===orderNum));
-  const directWage = wageItems.reduce((s,it)=>s+(it.amount||0),0);
+  const legacyWage = wageItems.reduce((s,it)=>s+(it.amount||0),0);
+  const stageWage = stageRows.reduce((t,r)=>t+r.amount,0);
+  const directWage = stageRows.length ? stageWage : legacyWage;
 
-  // ОПР — берём % от прямых материалов (упрощённо 15%)
-  const oprRate = 0.15;
-  const opr = directMaterials * oprRate;
-
+  // ОПР
+  let mode='fact'; try{ mode=localStorage.getItem('costOprMode')||'fact'; }catch(e){}
+  let opr=0, oprLabel='15 % от материалов', oprDetail='';
+  if(mode==='fixed'){ opr = directMaterials*0.15; }
+  else {
+    oprLabel='по факту: расходники месяца ÷ сдельная месяца';
+    const rates={}; const rate=m=>{ if(!(m in rates)) rates[m]=miOprRate(m); return rates[m]; };
+    opr = stageRows.reduce((t,r)=>t+r.amount*rate(r.month).rate,0);
+    oprDetail = [...new Set(stageRows.map(r=>r.month))].filter(Boolean).sort().map(m=>m+': '+(rate(m).rate*100).toFixed(1)+' %').join(', ');
+  }
   const total = directMaterials + directWage + opr;
-
   return {
-    directMaterials, directWage, opr, total,
+    directMaterials, directWage, opr, total, oprLabel, oprDetail,
+    docsSum, wsSum, allocSum,
     docs: directDocs,
-    items: directDocs.flatMap(d=>d.items.map(it=>({...it, docNum:d.num, date:d.date}))),
+    items: [...docItems, ...wsItems, ...allocItems],
   };
+}
+
+// ══════ Расход без заказа, распределение, ОПР по факту ══════
+let _mi = {issues:[], allocs:[], loaded:false, missing:false};
+async function miEnsureProgress(){
+  if(typeof _prodWbLoaded!=='undefined' && _prodWbLoaded) return;
+  try{
+    const pr = await sbFetchAllPages('production_progress','select=*');
+    (pr||[]).forEach(p=>{ if(!prodProgress[p.item_key]) prodProgress[p.item_key]={id:p.id,version:1,stages:p.stages||[],materials:p.materials||[],completed:p.completed||false}; });
+  }catch(e){}
+}
+async function miLoadCostData(){
+  try{
+    if(!ordersData.length && typeof loadOrdersFromDB==='function') await loadOrdersFromDB();
+    if(!warehouseData.length && typeof loadWarehouseFromDB==='function') await loadWarehouseFromDB();
+    await miEnsureProgress();
+    _mi.issues = (await sbFetchAllPages('material_issues','select=*&order=date.desc,id.desc'))||[];
+    _mi.allocs = (await sbFetchAllPages('material_allocations','select=*&order=date_to.desc,id.desc'))||[];
+    _mi.missing=false; _mi.loaded=true;
+  }catch(e){ _mi.missing=true; }
+  const sel=document.getElementById('wh-cost-oprmode'); if(sel){ try{ sel.value=localStorage.getItem('costOprMode')||'fact'; }catch(e){} }
+}
+function miFmt(n){ return Math.round(n).toLocaleString('ru-RU'); }
+// Ставка ОПР за месяц: расходники (kind='opr') ÷ сдельная по завершённым этапам месяца
+function miOprRate(month){
+  const opr = (_mi.issues||[]).filter(x=>x.kind==='opr' && String(x.date).startsWith(month)).reduce((t,x)=>t+(+x.qty||0)*(+x.price||0),0);
+  let wage=0;
+  Object.entries(prodProgress||{}).forEach(([key,p])=>{
+    const [on,ii]=key.split('|'); const order=ordersData.find(o=>o.num===on); const item=order&&order.items?order.items[+ii]:null; if(!item) return;
+    (p.stages||[]).forEach(s=>{ if(s.posted && String(s.postedDate||'').startsWith(month)) wage+=computeStageAmountFor(s,item); });
+  });
+  return {opr, wage, rate: wage>0 ? opr/wage : 0};
+}
+async function miInit(){
+  await miLoadCostData();
+  const ms=document.getElementById('mi-month'), ys=document.getElementById('mi-year');
+  if(ms && !ms.options.length){
+    ms.innerHTML=PL_MONTH_LABELS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
+    const cy=new Date().getFullYear(); ys.innerHTML=[cy,cy-1].map(y=>`<option value="${y}">${y}</option>`).join('');
+    ms.value=String(new Date().getMonth()+1);
+  }
+  miRender();
+}
+function miPeriod(){ const m=document.getElementById('mi-month').value, y=document.getElementById('mi-year').value; return y+'-'+String(m).padStart(2,'0'); }
+function miRender(){
+  const tb=document.getElementById('mi-tbody'); if(!tb) return;
+  const sum=document.getElementById('mi-summary'), at=document.getElementById('ma-tbody');
+  if(_mi.missing){ tb.innerHTML='<tr><td colspan="8" style="color:var(--red);padding:14px">Таблицы не созданы. Выполните material_issues.sql в Supabase.</td></tr>'; sum.innerHTML=''; at.innerHTML=''; return; }
+  const per=miPeriod();
+  const rows=_mi.issues.filter(x=>String(x.date).startsWith(per));
+  const cost=x=>(+x.qty||0)*(+x.price||0);
+  const shared=rows.filter(x=>x.kind==='shared'), opr=rows.filter(x=>x.kind==='opr');
+  const sSum=shared.reduce((t,x)=>t+cost(x),0), oSum=opr.reduce((t,x)=>t+cost(x),0);
+  const unal=shared.filter(x=>!x.alloc_id).reduce((t,x)=>t+cost(x),0);
+  const r=miOprRate(per);
+  sum.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+    <div class="card" style="padding:12px 14px"><div style="font-size:11px;color:var(--text3)">Общие расходы (краска и т. п.)</div><div style="font-size:18px;font-weight:700">₸${miFmt(sSum)}</div></div>
+    <div class="card" style="padding:12px 14px;${unal>0?'border:1px solid var(--amber)':''}"><div style="font-size:11px;color:var(--text3)">из них ещё не распределено</div><div style="font-size:18px;font-weight:700;color:${unal>0?'var(--amber)':'var(--green)'}">₸${miFmt(unal)}</div></div>
+    <div class="card" style="padding:12px 14px"><div style="font-size:11px;color:var(--text3)">Расходники в ОПР (шурупы и т. п.)</div><div style="font-size:18px;font-weight:700">₸${miFmt(oSum)}</div></div>
+    <div class="card" style="padding:12px 14px"><div style="font-size:11px;color:var(--text3)">Ставка ОПР к сдельной месяца</div><div style="font-size:18px;font-weight:700">${(r.rate*100).toFixed(1)} %</div><div style="font-size:10px;color:var(--text3)">сдельная месяца ₸${miFmt(r.wage)}</div></div></div>`;
+  tb.innerHTML = rows.length ? rows.map(x=>`<tr>
+    <td style="font-size:12px">${String(x.date).split('-').reverse().join('.')}</td><td>${String(x.name).replace(/</g,'&lt;')}</td>
+    <td style="text-align:right">${x.qty} ${x.unit||''}</td><td style="text-align:right">₸${miFmt(cost(x))}</td>
+    <td><span class="badge ${x.kind==='opr'?'badge-blue':'badge-purple'}" style="font-size:10px">${x.kind==='opr'?'ОПР':'Общий'}</span></td>
+    <td>${x.kind==='opr'?'—':(x.alloc_id?'<span class="badge badge-green" style="font-size:10px">распределён</span>':'<span class="badge badge-amber" style="font-size:10px">ждёт распределения</span>')}</td>
+    <td style="font-size:12px;color:var(--text3)">${(x.note||'').replace(/</g,'&lt;')}</td>
+    <td><button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="miDeleteIssue(${x.id})">🗑</button></td></tr>`).join('')
+    : '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px">Расходов за месяц нет</td></tr>';
+  at.innerHTML = _mi.allocs.length ? _mi.allocs.map(a=>`<tr>
+    <td style="font-size:12px">${String(a.date_from).split('-').reverse().join('.')} – ${String(a.date_to).split('-').reverse().join('.')}</td>
+    <td>${String(a.name).replace(/</g,'&lt;')}</td><td style="font-size:12px">${a.stage||'—'} · ${a.basis==='qty'?'по кол-ву':'по сумме заказа'}</td>
+    <td style="text-align:right">₸${miFmt(a.total_cost)}</td><td style="text-align:center">${(a.lines||[]).length}</td>
+    <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="miViewAlloc(${a.id})">👁</button> <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="miDeleteAlloc(${a.id})">↩</button></td></tr>`).join('')
+    : '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Распределений пока нет</td></tr>';
+}
+function miMatByName(n){ return warehouseData.find(w=>w.name===n); }
+function miOpenIssue(){
+  document.getElementById('mi-f-date').value=new Date().toISOString().slice(0,10);
+  ['mi-f-mat','mi-f-qty','mi-f-price','mi-f-note'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('mi-f-kind').value='shared';
+  document.getElementById('mi-mat-list').innerHTML=warehouseData.map(w=>`<option value="${String(w.name).replace(/"/g,'&quot;')}">`).join('');
+  miMatChanged(); showModal('miIssueModal');
+}
+function miMatChanged(){
+  const name=document.getElementById('mi-f-mat').value; const m=miMatByName(name);
+  const info=document.getElementById('mi-f-info'), pr=document.getElementById('mi-f-price');
+  if(m){ info.textContent=`На складе: ${m.qty} ${m.unit||''}`; if(!pr.value || pr.dataset.auto==='1'){ pr.value=m.price||0; pr.dataset.auto='1'; } }
+  else info.textContent=name?'Материал не найден на складе — выберите из списка':'';
+  const q=parseFloat(document.getElementById('mi-f-qty').value)||0, p=parseFloat(pr.value)||0;
+  document.getElementById('mi-f-sum').textContent='₸'+miFmt(q*p);
+}
+document.addEventListener('input',e=>{ if(e.target&&e.target.id==='mi-f-price') e.target.dataset.auto='0'; });
+async function miSaveIssue(){
+  const name=document.getElementById('mi-f-mat').value; const m=miMatByName(name);
+  const qty=parseFloat(document.getElementById('mi-f-qty').value)||0, price=parseFloat(document.getElementById('mi-f-price').value)||0;
+  if(!m){ alert('Выберите материал из списка склада.'); return; }
+  if(qty<=0){ alert('Укажите количество.'); return; }
+  if(qty>m.qty && !confirm(`На складе только ${m.qty} ${m.unit||''}. Списать ${qty}? Остаток уйдёт в минус.`)) return;
+  const rec={date:document.getElementById('mi-f-date').value, material_id:m.sbId||m.id, name:m.name, unit:m.unit||'', qty, price,
+    kind:document.getElementById('mi-f-kind').value, note:document.getElementById('mi-f-note').value, created_by:(window.currentUser&&window.currentUser.name)||''};
+  try{
+    const res=await sbInsert('material_issues',rec);
+    try{ const nq=Math.round((m.qty-qty)*100)/100; await sbPatch('warehouse',`id=eq.${m.sbId||m.id}`,{qty:nq}); m.qty=nq; }
+    catch(e){ await sbDelete('material_issues',`id=eq.${res.id}`); throw e; }
+    _mi.issues.unshift(res); closeModal('miIssueModal'); miRender();
+  }catch(e){ alert('Не удалось сохранить: '+e.message); }
+}
+async function miDeleteIssue(id){
+  const x=_mi.issues.find(i=>i.id===id); if(!x) return;
+  if(x.alloc_id){ alert('Расход уже распределён по изделиям. Сначала отмените распределение (↩ в таблице распределений).'); return; }
+  if(!confirm(`Удалить расход «${x.name}» ${x.qty} ${x.unit||''}? Материал вернётся на склад.`)) return;
+  try{
+    const m=warehouseData.find(w=>String(w.sbId||w.id)===String(x.material_id)) || miMatByName(x.name);
+    if(m){ const nq=Math.round((m.qty+(+x.qty||0))*100)/100; await sbPatch('warehouse',`id=eq.${m.sbId||m.id}`,{qty:nq}); m.qty=nq; }
+    await sbDelete('material_issues',`id=eq.${id}`);
+    _mi.issues=_mi.issues.filter(i=>i.id!==id); miRender();
+  }catch(e){ alert('Не удалось удалить: '+e.message); }
+}
+// ── Распределение ──
+function miOpenAlloc(){
+  const un=_mi.issues.filter(x=>x.kind==='shared'&&!x.alloc_id);
+  if(!un.length){ alert('Нет общих расходов, ожидающих распределения. Сначала добавьте «Расход без заказа» с видом «Общий».'); return; }
+  const names=[...new Set(un.map(x=>x.name))].sort();
+  document.getElementById('ma-f-mat').innerHTML=names.map(n=>`<option value="${String(n).replace(/"/g,'&quot;')}">${n}</option>`).join('');
+  const stages=new Set(); Object.values(prodProgress||{}).forEach(p=>(p.stages||[]).forEach(s=>{ if(s.stage) stages.add(s.stage); }));
+  document.getElementById('ma-stage-list').innerHTML=[...stages].sort().map(n=>`<option value="${String(n).replace(/"/g,'&quot;')}">`).join('');
+  document.getElementById('ma-f-stage').value=[...stages].find(n=>/покраск|окраск|лак/i.test(n))||'';
+  miAllocDefaults(); miAllocPreview(); showModal('miAllocModal');
+}
+function miAllocDefaults(){
+  const n=document.getElementById('ma-f-mat').value;
+  const un=_mi.issues.filter(x=>x.kind==='shared'&&!x.alloc_id&&x.name===n);
+  const dates=un.map(x=>String(x.date)).sort();
+  document.getElementById('ma-f-from').value=dates[0]||'';
+  const last=_mi.allocs.filter(a=>a.name===n).map(a=>a.date_to).sort().pop();
+  document.getElementById('ma-f-to').value=dates.length?(dates[dates.length-1]>new Date().toISOString().slice(0,10)?dates[dates.length-1]:new Date().toISOString().slice(0,10)):'';
+}
+let _maCalc=null;
+function miAllocPreview(){
+  const box=document.getElementById('ma-preview'), btn=document.getElementById('ma-save-btn');
+  const name=document.getElementById('ma-f-mat').value, from=document.getElementById('ma-f-from').value, to=document.getElementById('ma-f-to').value;
+  const stage=(document.getElementById('ma-f-stage').value||'').trim().toLowerCase(), basis=document.getElementById('ma-f-basis').value;
+  _maCalc=null; btn.disabled=true;
+  const issues=_mi.issues.filter(x=>x.kind==='shared'&&!x.alloc_id&&x.name===name&&String(x.date)>=from&&String(x.date)<=to);
+  const total=issues.reduce((t,x)=>t+(+x.qty||0)*(+x.price||0),0);
+  if(!stage){ box.innerHTML='<div style="color:var(--text3);font-size:12px">Укажите этап (например, «Покраска»): расход разнесётся на изделия, у которых он завершён за период.</div>'; return; }
+  const cand=[];
+  Object.entries(prodProgress||{}).forEach(([key,p])=>{
+    const [on,ii]=key.split('|'); const order=ordersData.find(o=>o.num===on); const item=order&&order.items?order.items[+ii]:null; if(!item) return;
+    const hit=(p.stages||[]).some(s=>s.posted && String(s.stage||'').toLowerCase().includes(stage) && s.postedDate>=from && s.postedDate<=to);
+    if(!hit) return;
+    const w=basis==='qty'?(item.qty||1):itemOrderAmount(item);
+    cand.push({order_num:on,item_idx:+ii,item_name:item.name,weight:w});
+  });
+  const wSum=cand.reduce((t,c)=>t+c.weight,0);
+  if(!issues.length){ box.innerHTML='<div style="color:var(--amber);font-size:12px">За этот период нет нераспределённых расходов по выбранному материалу.</div>'; return; }
+  if(!cand.length || wSum<=0){ box.innerHTML=`<div style="color:var(--amber);font-size:12px">Расходов на ₸${miFmt(total)}, но нет изделий с завершённым этапом «${stage}» за период. Измените даты или этап.</div>`; return; }
+  let lines=cand.map(c=>({...c,amount:Math.round(total*c.weight/wSum)}));
+  const diff=Math.round(total)-lines.reduce((t,l)=>t+l.amount,0);
+  if(diff){ const mx=lines.reduce((a,b)=>b.weight>a.weight?b:a); mx.amount+=diff; }
+  _maCalc={name,from,to,stage:document.getElementById('ma-f-stage').value.trim(),basis,total,lines,issueIds:issues.map(x=>x.id)};
+  box.innerHTML=`<div style="font-size:12px;margin-bottom:6px">Расходов: ${issues.length} на <b>₸${miFmt(total)}</b> → изделий: <b>${lines.length}</b> (${basis==='qty'?'по количеству':'по сумме заказа'})</div>
+   <table class="data-table"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right">${basis==='qty'?'Кол-во':'Сумма заказа'}</th><th style="text-align:right">Доля ₸</th></tr></thead><tbody>
+   ${lines.map(l=>`<tr><td style="font-family:monospace;color:var(--accent)">${l.order_num}</td><td>№${l.item_idx+1} · ${String(l.item_name).replace(/</g,'&lt;')}</td><td style="text-align:right">${miFmt(l.weight)}</td><td style="text-align:right;font-weight:600">₸${miFmt(l.amount)}</td></tr>`).join('')}
+   </tbody></table>`;
+  btn.disabled=false;
+}
+async function miSaveAlloc(){
+  const c=_maCalc; if(!c) return;
+  try{
+    const res=await sbInsert('material_allocations',{name:c.name,date_from:c.from,date_to:c.to,stage:c.stage,basis:c.basis,total_cost:c.total,lines:c.lines,issue_ids:c.issueIds,created_by:(window.currentUser&&window.currentUser.name)||''});
+    try{ for(const id of c.issueIds){ await sbPatch('material_issues',`id=eq.${id}`,{alloc_id:res.id}); } }
+    catch(e){ for(const id of c.issueIds){ try{ await sbPatch('material_issues',`id=eq.${id}`,{alloc_id:null}); }catch(_){} } await sbDelete('material_allocations',`id=eq.${res.id}`); throw e; }
+    c.issueIds.forEach(id=>{ const x=_mi.issues.find(i=>i.id===id); if(x) x.alloc_id=res.id; });
+    _mi.allocs.unshift(res); closeModal('miAllocModal'); miRender();
+  }catch(e){ alert('Не удалось сохранить распределение: '+e.message); }
+}
+function miViewAlloc(id){
+  const a=_mi.allocs.find(x=>x.id===id); if(!a) return;
+  alert(`${a.name}: ₸${miFmt(a.total_cost)}\nЭтап: ${a.stage||'—'}, период ${a.date_from} – ${a.date_to}\n\n`+(a.lines||[]).map(l=>`${l.order_num} №${l.item_idx+1} ${l.item_name}: ₸${miFmt(l.amount)}`).join('\n'));
+}
+async function miDeleteAlloc(id){
+  const a=_mi.allocs.find(x=>x.id===id); if(!a) return;
+  if(!confirm('Отменить распределение? Расходы снова станут «ждут распределения», себестоимость заказов пересчитается.')) return;
+  try{
+    for(const x of _mi.issues.filter(i=>i.alloc_id===id)){ await sbPatch('material_issues',`id=eq.${x.id}`,{alloc_id:null}); x.alloc_id=null; }
+    await sbDelete('material_allocations',`id=eq.${id}`);
+    _mi.allocs=_mi.allocs.filter(x=>x.id!==id); miRender();
+  }catch(e){ alert('Не удалось отменить: '+e.message); }
 }
 
 let whMoveSeq = 1;
@@ -30084,9 +30443,10 @@ function showWhTab(tab, el){
   if(tab==='workshops')  renderWhWorkshops();
   if(tab==='docs')       loadWhDocsFromDB().then(renderWhDocs);
   if(tab==='release')    srInit();
+  if(tab==='issues')     miInit();
   if(tab==='remains')    renderWarehouse();
   if(tab==='inventory')  renderWhInventory();
-  if(tab==='cost')       renderWhCost();
+  if(tab==='cost')       miLoadCostData().then(renderWhCost);
   if(tab==='aliases')    loadAliasesFromDB().then(renderAliases);
 }
 
@@ -30587,7 +30947,7 @@ function renderWhCost(){
         <div style="font-size:18px;font-weight:700">${fmt(cost.directWage)}</div>
       </div>
       <div class="card" style="padding:14px">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">ОПР (15%)</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">ОПР (${cost.oprLabel})</div>
         <div style="font-size:18px;font-weight:700">${fmt(cost.opr)}</div>
       </div>
       <div class="card" style="padding:14px;background:rgba(79,142,247,.08)">
@@ -30607,6 +30967,7 @@ function renderWhCost(){
       </div>
     </div>
 
+    <div style="font-size:11px;color:var(--text3);margin:-8px 0 14px;line-height:1.6">Материалы: рабочий лист ₸${Math.round(cost.wsSum).toLocaleString('ru-RU')} · распределённые общие расходы ₸${Math.round(cost.allocSum).toLocaleString('ru-RU')} · документы списания ₸${Math.round(cost.docsSum).toLocaleString('ru-RU')}${cost.oprDetail?'<br>Ставка ОПР по месяцам завершения этапов: '+cost.oprDetail:''}</div>
     <div style="font-weight:600;font-size:13px;margin-bottom:10px">Расшифровка: прямые материалы</div>
     ${cost.items.length?`
     <table class="data-table">
