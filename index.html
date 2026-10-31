@@ -604,6 +604,8 @@ select option{background:var(--bg3)}
   .modal{padding:16px;max-height:92vh}
   select,input[type=text],input[type=date],input[type=number]{font-size:16px}
 }
+
+#pwb-table th.pwb-resizable{white-space:normal;line-height:1.25;vertical-align:middle;overflow:hidden;padding-right:10px}
 </style>
 <script>
 // Обе библиотеки (SheetJS, ExcelJS) загружаются асинхронно в фоне.
@@ -2476,6 +2478,7 @@ window.onerror = function(msg, src, line, col){
           <div class="tab" onclick="showShopTab('Корпусная мебель',this)">Корпусная мебель <span class="kanban-count" id="sf-count-Корпусная_мебель">0</span></div>
         </div>
         <div id="shopfloor-board-wrap" style="overflow:auto;max-height:70vh">
+          <div id="sf-virtual-note" style="display:none;margin-bottom:10px;padding:8px 12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text2)">ℹ️ Позиции с техкартой из вкладки «Технологические карты» показаны <b>только для просмотра</b>: положение на доске берётся из «Рабочего листа производства» (первый незавершённый этап). Менять этапы нужно в рабочем листе или на «🗂 Доске этапов».</div>
           <div id="shopfloor-board"></div>
         </div>
 
@@ -2546,12 +2549,12 @@ window.onerror = function(msg, src, line, col){
             <table class="data-table" id="pwb-table" style="font-size:12px;white-space:nowrap;table-layout:fixed">
               <colgroup id="pwb-colgroup">
                 <col style="width:28px">
-                <col style="width:100px"><col style="width:90px">
-                <col style="width:70px"><col style="width:70px">
-                <col style="width:60px">
+                <col style="width:115px"><col style="width:115px">
+                <col style="width:150px"><col style="width:150px">
+                <col style="width:95px">
                 <col style="width:170px"><col style="width:170px">
-                <col style="width:170px"><col style="width:60px">
-                <col style="width:90px"><col style="width:40px">
+                <col style="width:170px"><col style="width:85px">
+                <col style="width:100px"><col style="width:40px">
               </colgroup>
               <thead><tr>
                 <th><input type="checkbox" onchange="togglePwbSelectAll(this)"></th>
@@ -21414,7 +21417,15 @@ function showMrpTab(tab, el){
   el.classList.add('active');
   document.querySelectorAll('.mrp-tab').forEach(t=>t.style.display='none');
   document.getElementById('mrp-'+tab).style.display='block';
-  if(tab==='shopfloor') renderShopFloor();
+  if(tab==='shopfloor'){
+    renderShopFloor();
+    (async()=>{ try{
+      if(!techCardsData.length) techCardsData = await sbFetchAllPages('tech_cards','select=*') || [];
+      if(!ordersData.length && typeof loadOrdersFromDB==='function') await loadOrdersFromDB();
+      if(typeof miEnsureProgress==='function') await miEnsureProgress();
+      renderShopFloor();
+    }catch(e){ console.warn('Производство: не удалось подгрузить техкарты', e.message); } })();
+  }
   if(tab==='orders'){
     if(!realizationsData.length && typeof loadRealizationsFromDB==='function') loadRealizationsFromDB().then(renderMrpOrdersJournal);
     else renderMrpOrdersJournal();
@@ -37176,6 +37187,7 @@ function sfCollectRows(){
       // fully shipped order — still show until explicitly filtered out elsewhere if needed
     }
     order.items.forEach((item,itemIdx)=>{
+      sfApplyVirtualTc(order, item, itemIdx);
       if(!item.techCard || item.techCard.length===0) return; // no tech card -> not tracked on the board
       if(item.shopFloorStage===undefined) item.shopFloorStage=0;
       if(!item.stageLog) item.stageLog={};
@@ -37183,6 +37195,41 @@ function sfCollectRows(){
     });
   });
   return rows;
+}
+
+// ── Техкарты из вкладки «Технологические карты» + прогресс из Рабочего листа (только просмотр) ──
+function sfResolveTc(item){
+  const cards=(typeof techCardsData!=='undefined'?techCardsData:[]).filter(c=>(c.stages||[]).length);
+  if(!cards.length) return null;
+  const cat=String(item.category||'').toLowerCase().trim();
+  return cards.find(c=>c.link_type==='item' && c.link_key===item.name)
+      || cards.find(c=>c.link_type==='category' && cat && String(c.link_key||'').toLowerCase()===cat)
+      || (cat ? cards.find(c=>c.link_type==='template' && String(c.name||'').toLowerCase().startsWith(cat)) : null)
+      || null;
+}
+function sfApplyVirtualTc(order, item, itemIdx){
+  if(item.techCard && item.techCard.length && !item._virtualTc) return;   // собственная техкарта позиции — не трогаем
+  const card=sfResolveTc(item);
+  if(!card){ if(item._virtualTc){ item.techCard=null; item._virtualTc=false; } return; }
+  const stages=card.stages;
+  const p=(typeof prodProgress!=='undefined')?prodProgress[order.num+'|'+itemIdx]:null;
+  item._virtualTc=true;
+  item.techCard=stages.map((t,i)=>({id:'v'+card.id+'_'+i, name:t.name, responsible:t.responsible||'', planStart:'', planEnd:'', materials:[]}));
+  // положение = первый незавершённый этап рабочего листа (по порядку); все завершены → «Готов»
+  let cur=0;
+  if(p && (p.stages||[]).length){
+    const ws=p.stages;
+    cur=stages.findIndex((t,i)=>!(ws[i] && ws[i].posted));
+    if(cur<0) cur=stages.length;
+  }
+  item.shopFloorStage=cur;
+  item.stageLog={};
+  for(let i=0;i<=Math.min(cur,stages.length-1);i++){
+    const w=p&&p.stages?p.stages[i]:null;
+    const names=w?(w.brigade?['👥 '+(w.brigadeName||'бригада')]:(w.assignees||[]).map(a=>a.name)):[];
+    item.stageLog[i]={assignees:names,timeStart:'',timeEnd:'',equipment:'',materialsUsed:[],completedAt:w&&w.postedDate?w.postedDate:''};
+  }
+  delete item.stageQty; delete item.doneQty;
 }
 
 // Currently selected цех (category) tab — defaults to the first one
@@ -37379,7 +37426,7 @@ function itemOrderAmount(item){ return (item.qty||1) * (item.price||0); }
 // отдельный файл file:// — это отдельное "происхождение", поэтому если
 // каждый раз сохранять новую скачанную копию под другим именем/номером,
 // ширина будет сбрасываться — сохраняйте поверх одного и того же файла).
-const PWB_COL_STORAGE_KEY = 'promtech_pwb_col_widths_v1';
+const PWB_COL_STORAGE_KEY = 'promtech_pwb_col_widths_v2';
 function initPwbColumnResize(){
   const table = document.getElementById('pwb-table');
   const colgroup = document.getElementById('pwb-colgroup');
@@ -37751,7 +37798,7 @@ function renderProdWorksheet(){
         <div>${r.order.date||'—'}</div>
         <div style="color:var(--text3)">${r.order.deliveryDate||'—'}</div>
       </td>
-      <td style="max-width:70px;white-space:normal;font-weight:500">${posBadge(r.itemIdx+1)}${r.item.name}</td>
+      <td style="white-space:normal;font-weight:500">${posBadge(r.itemIdx+1)}${r.item.name}${r.item.category?`<div style="font-size:10px;font-weight:400;color:var(--text3);margin-top:2px">${String(r.item.category).replace(/</g,'&lt;')}</div>`:''}</td>
       <td style="max-width:70px;white-space:normal;font-size:11px;color:var(--text3)">${charText||'—'}</td>
       <td style="max-width:60px;white-space:normal">${workshopHtml}</td>
       <td style="max-width:170px;white-space:normal;background:var(--bg3)">${stagesHtml}</td>
@@ -40072,12 +40119,13 @@ function showShopTab(category, el){
 function renderShopFloor(){
   updateShopTabCounts();
   let rows=sfCollectRows().filter(r=>r.item.category===sfActiveCategory);
+  { const n=document.getElementById('sf-virtual-note'); if(n) n.style.display=rows.some(r=>r.item._virtualTc)?'':'none'; }
 
   const board=document.getElementById('shopfloor-board');
   if(!board) return;
 
   if(rows.length===0){
-    board.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">В виде деятельности «${sfActiveCategory}» пока нет товаров с технологической картой. Добавьте техкарту к позиции заказа этой категории в разделе CRM/Продажи, чтобы она появилась здесь.</div>`;
+    board.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">В виде деятельности «${sfActiveCategory}» пока нет товаров с технологической картой. Эта вкладка показывает только позиции, у которых техкарта прикреплена прямо к позиции заказа (в CRM/Продажах).<br><br><b>Этапы по шаблонам из «Технологических карт» (в том числе «Стул (под заказ)») ведутся в «Рабочем листе производства» и на «🗂 Доске этапов».</b><br><button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="showMrpTab('board',[...document.querySelectorAll('#page-mrp > .tabs .tab')].find(t=>(t.getAttribute('onclick')||'').includes(\'board\')))">Открыть Доску этапов</button></div>`;
     return;
   }
 
