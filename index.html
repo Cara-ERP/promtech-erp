@@ -40266,9 +40266,11 @@ function renderShopFloor(){
 
   const board=document.getElementById('shopfloor-board');
   if(!board) return;
+  { const t=document.getElementById('sf-report-shop-name'); if(t) t.textContent=sfActiveCategory; }
 
   if(rows.length===0){
     board.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">В виде деятельности «${sfActiveCategory}» пока нет товаров с технологической картой. Эта вкладка показывает только позиции, у которых техкарта прикреплена прямо к позиции заказа (в CRM/Продажах).<br><br><b>Этапы по шаблонам из «Технологических карт» (в том числе «Стул (под заказ)») ведутся в «Рабочем листе производства» и на «🗂 Доске этапов».</b><br><button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="showMrpTab('board',[...document.querySelectorAll('#page-mrp > .tabs .tab')].find(t=>(t.getAttribute('onclick')||'').includes(\'board\')))">Открыть Доску этапов</button></div>`;
+    renderShopReport();
     return;
   }
 
