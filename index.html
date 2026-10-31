@@ -18443,8 +18443,9 @@ function pwbApplyTc(){
     p.stages.push({stage:t.name||'', workshop:t.workshop||wsGuessByOp(t.name)||'', assignees:who?[{name:who,ktu:1}]:[],
       payMethod:'rate', rate:+t.rate||0, percent:0, qty, started:false, startedDate:null, posted:false, accrualIds:[]});
     if(t.semi && (+t.semiQty||0)>0){
-      const wh = warehouseData.find(w=>w.name===t.semi);
-      p.materials.push({name:t.semi, qty:Math.round(qty*(+t.semiQty)*100)/100, unit:wh?wh.unit:'шт', warehouseItemId:wh?wh.id:null,
+      const semiName = semiResolveForItem(t.semi, item);
+      const wh = warehouseData.find(w=>w.name===semiName);
+      p.materials.push({name:semiName, qty:Math.round(qty*(+t.semiQty)*100)/100, unit:wh?wh.unit:'шт', warehouseItemId:wh?wh.id:null,
         posted:false, prevQty:null, forStage:t.name||'', autoOnStart:true});
     }
   });
@@ -18453,6 +18454,22 @@ function pwbApplyTc(){
   renderPwbStagesList(); renderPwbMaterialsList(); renderProdWorksheet();
 }
 // При «Начать работу» автоматически списываем полуфабрикат, привязанный к этапу
+// Полуфабрикат под модель: «Каркас стула» → «Каркас стула Милан», если такой есть на складе и модель совпадает с изделием.
+// Можно также писать в техкарте «Каркас стула {модель}» — подставится название изделия.
+function semiResolveForItem(base, item){
+  base = String(base||'').trim(); if(!base) return base;
+  const nm = String((item&&item.name)||'').trim().toLowerCase();
+  if(base.includes('{модель}')) return base.replace('{модель}', (item&&item.name)||'').trim();
+  if(!nm) return base;
+  const b = base.toLowerCase();
+  const hit = warehouseData.filter(w=>{
+    const n=String(w.name||'').toLowerCase();
+    if(n===b || !n.startsWith(b)) return false;
+    const rest=n.slice(b.length).replace(/^[\s\-—–:()«»"]+|[\s\-—–:()«»"]+$/g,'');
+    return rest && (nm.includes(rest) || rest.includes(nm));
+  }).sort((x,y)=>String(y.name).length-String(x.name).length);
+  return hit.length ? hit[0].name : base;
+}
 async function pwbAutoWriteOffForStage(stageName){
   const p = prodProgress[_pwbCurrentItemKey];
   for(let i=0;i<p.materials.length;i++){
