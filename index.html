@@ -2501,17 +2501,17 @@ window.onerror = function(msg, src, line, col){
       <div class="mrp-tab" id="mrp-board" style="display:none">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <div class="tabs" style="margin:0">
-            <div class="tab active" id="brd-v-matrix" onclick="brdSetView('matrix')">📊 Таблица</div>
-            <div class="tab" id="brd-v-kanban" onclick="brdSetView('kanban')">🗂 Доска по цехам</div>
+            <div class="tab active" id="brd-v-kanban" onclick="brdSetView('kanban')">🗂 Канбан</div>
+            <div class="tab" id="brd-v-matrix" onclick="brdSetView('matrix')">📊 Таблица</div>
           </div>
           <input id="brd-search" type="text" placeholder="Заказ или изделие…" style="width:170px;font-size:12px" oninput="renderBoard()">
-          <select id="brd-act" onchange="renderBoard()" style="font-size:12px;width:auto"><option value="">Все виды деятельности</option></select>
           <select id="brd-ws" onchange="renderBoard()" style="font-size:12px;width:auto"><option value="">Все цеха</option></select>
-          <label style="font-size:12px;display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" id="brd-noexec" style="width:auto;margin:0" onchange="renderBoard()"> без исполнителя</label>
+          <label style="font-size:12px;display:flex;gap:4px;align-items:center;white-space:nowrap" title="Оставляет на доске только позиции, у которых есть незавершённый этап без исполнителя. Помогает быстро найти, где ещё нужно назначить людей."><input type="checkbox" id="brd-noexec" style="width:auto;margin:0" onchange="renderBoard()"> ⚠ без исполнителя</label>
           <label style="font-size:12px;display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" id="brd-done" style="width:auto;margin:0" onchange="renderBoard()"> показывать завершённые и отгруженные</label>
           <button class="btn btn-ghost btn-sm" onclick="initBoard()">🔄</button>
         </div>
-        <div class="section-sub" style="margin-bottom:10px">Те же позиции и этапы, что в Рабочем листе, но на одном экране. Исполнителя выбирают прямо в ячейке; в шапке столбца «Всем…» назначает одного человека на все свободные этапы столбца.</div>
+        <div class="tabs" id="brd-acts" style="margin-bottom:10px"></div>
+        <div class="section-sub" style="margin-bottom:10px">Карточка стоит в колонке текущего этапа. Перенесите её на соседний этап — откроется окно «кто выполнил»; клик по карточке открывает окно этого этапа; при наведении видны все этапы позиции. <b>Галочка «⚠ без исполнителя»</b> оставляет только позиции, где есть незавершённый этап без назначенного исполнителя (такие части на карточке помечены ⚠), — так видно, где ещё нужно назначить людей.</div>
         <div id="brd-body" style="overflow:auto"></div>
       </div>
 
@@ -2985,6 +2985,14 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- MODAL: Складской документ -->
+    <div class="modal-overlay" id="brdStageModal">
+      <div class="modal" style="max-width:640px;max-height:90vh;overflow-y:auto">
+        <div class="modal-header"><span class="modal-title">Этап: <span id="brd-dlg-title"></span></span><button class="modal-close" onclick="closeModal('brdStageModal')">✕</button></div>
+        <div id="brd-dlg-meta" style="font-size:12px;color:var(--text3);margin-bottom:10px"></div>
+        <div id="brd-dlg-body"></div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="miIssueModal">
       <div class="modal" style="max-width:480px">
         <div class="modal-header"><span class="modal-title">🧾 Расход материала без заказа</span><button class="modal-close" onclick="closeModal('miIssueModal')">✕</button></div>
@@ -17874,9 +17882,8 @@ mrp: { title:'Производство',
      how:['Переключайте вид деятельности вкладками. «📥 Выгрузить в Excel» сохраняет отчёт.'] },
    worksheet:{ name:'📋 Рабочий лист производства', what:'Главный рабочий экран цеха: по каждой позиции заказа — цех, этапы, исполнители, материалы, техкарта и статус.',
      how:['В открытой позиции кнопка «📐 Заполнить по техкарте» создаёт сразу все этапы шаблона (цех, расценка, количество) и сразу предлагает выбрать исполнителя на каждый этап из участников цеха (если в цехе один участник — он подставляется сам). В карточке этапа исполнитель добавляется одним выбором из списка. Если в техкарте указан полуфабрикат, при «▶️ Начать работу» он спишется со склада автоматически.','«+ За 3 дня / за неделю / за месяц / за год» подтягивает заказы за период, пропуская завершённые, отменённые и уже отгруженные; «+ Заказ» добавляет заказ вручную (для закрытого заказа программа спросит подтверждение). У таких позиций в таблице стоит метка «🚚».','Откройте позицию: добавьте этапы, укажите способ оплаты (по расценке или % от суммы), назначьте исполнителей и КТУ каждого.','В этапе можно выбрать «Бригаду» вместо исполнителей: тогда личных начислений нет, а сумма этапа идёт в месячный пул бригады (раздел «Бригады»).','«▶️ Начать работу» отмечает старт этапа, «✅ Завершить работу» проводит его и начисляет сдельную. «↩ Снять с завершения» отменяет начисления.','«📤 Импорт Excel» и «📥 Экспорт Excel» переносят лист. «🗑 Очистить лист» стирает весь рабочий лист — используйте осторожно.'] },
-   board:{ name:'🗂 Доска этапов', what:'Все позиции и их этапы на одном экране — удобно, когда этапов много.',
-     how:['«📊 Таблица»: строки — позиции, столбцы — этапы. В ячейке выбирается исполнитель (сначала участники цеха), кнопки ▶ начать и ✅ завершить. Зелёный фон — готово, жёлтый — в работе.','В шапке столбца список «Всем свободным…» назначает одного человека сразу на все этапы столбца, где исполнитель ещё не выбран.','«🗂 Доска по цехам»: колонки — цеха, карточка позиции стоит в цехе своего текущего (первого незавершённого) этапа и переезжает дальше после ✅.','Фильтры: поиск, цех, «без исполнителя», «показывать завершённые». Клик по названию позиции открывает полную карточку этапов (несколько исполнителей, КТУ, бригада, материалы).'] },
-   techcards:{ name:'📐 Технологические карты', what:'Шаблоны этапов производства для изделий и категорий.',
+   board:{ name:'🗂 Доска этапов', what:'Все позиции и их этапы на одном экране: канбан и таблица. Данные те же, что в Рабочем листе производства.',
+     how:['Вкладки вверху — виды деятельности (Стул, Стол…). Переключатель «🗂 Канбан / 📊 Таблица».','Канбан: карточка стоит в колонке текущего этапа. Перенесите её на соседний этап — откроется окно «кто выполнил». Клик по карточке открывает окно только этого этапа, при наведении видны все этапы позиции.','Этап можно выполнять по частям: в окне этапа уменьшите количество первой части, нажмите «＋ Часть» и выберите другого исполнителя. Каждая часть завершается отдельно и даёт своё начисление.','Исполнитель выбирается только из участников цеха (они задаются в «Цеха и участники»).','Таблица: строки — позиции, столбцы — этапы; ✅ готово, 🔨 в работе, «2/4» — выполнено частями. Ширину столбца можно менять.','Галочка «⚠ без исполнителя»: оставляет на доске только позиции, у которых есть незавершённый этап без назначенного исполнителя (на карточке такие части помечены ⚠). Включите её, чтобы быстро найти, где ещё нужно назначить людей, и выключите, чтобы увидеть всё.','Другие фильтры: цех и «показывать завершённые и отгруженные».'] },   techcards:{ name:'📐 Технологические карты', what:'Шаблоны этапов производства для изделий и категорий.',
      how:['«+ Новый шаблон» создаёт шаблон этапов. Шаблон можно привязать к изделию или категории и подтягивать в рабочий лист.'] },
    workload:{ name:'📊 Загрузка цехов', what:'Незавершённые этапы по цехам и срочности.',
      how:['Показывает только то, что реально назначено в рабочем листе. Сверху самые срочные позиции по сроку отправки.'] },
@@ -18272,7 +18279,7 @@ async function wsLoadWorkshops(){
     _wsMeta = {};
     rows.forEach(r=>{
       PIECE_WORKSHOPS.push({id:r.id, name:r.name, icon:r.icon||'🏭'});
-      _wsMeta[r.id] = {members:r.members||[], sort:r.sort||100};
+      _wsMeta[r.id] = {members:r.members||[], operations:r.operations||[], sort:r.sort||100};
       Object.keys(ACTIVITY_WORKSHOPS).forEach(k=>{ if(!ACTIVITY_WORKSHOPS[k].includes(r.id)) ACTIVITY_WORKSHOPS[k].push(r.id); });
     });
     _wsLoaded = true;
@@ -18300,11 +18307,20 @@ function wsRenderAdmin(){
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
           ${m.length?m.map((n,i)=>`<span class="badge badge-blue" style="font-size:11px">${n} <a href="#" onclick="event.preventDefault();wsRemoveMember('${w.id}',${i})" style="margin-left:4px;text-decoration:none">✕</a></span>`).join(''):'<span style="font-size:11px;color:var(--text3)">Пока никого</span>'}
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;margin-bottom:12px">
           <input id="ws-add-${w.id}" list="ws-emp-list" placeholder="Добавить сотрудника…" style="font-size:12px;flex:1">
           <button class="btn btn-ghost btn-sm" onclick="wsAddMember('${w.id}')">＋</button>
         </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Операции цеха (${((_wsMeta[w.id]||{}).operations||[]).length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          ${((_wsMeta[w.id]||{}).operations||[]).map((n,i)=>`<span class="badge badge-purple" style="font-size:11px">${String(n).replace(/</g,'&lt;')} <a href="#" onclick="event.preventDefault();wsRemoveOp('${w.id}',${i})" style="margin-left:4px;text-decoration:none">✕</a></span>`).join('')||'<span style="font-size:11px;color:var(--text3)">Не заданы</span>'}
+        </div>
+        <div style="display:flex;gap:6px">
+          <input id="ws-op-${w.id}" list="ws-op-list" placeholder="Добавить операцию…" style="font-size:12px;flex:1">
+          <button class="btn btn-ghost btn-sm" onclick="wsAddOp('${w.id}')">＋</button>
+        </div>
       </div>`; }).join('')+'</div>'
+      +'<datalist id="ws-op-list">'+wsAllOpNames().map(n=>`<option value="${String(n).replace(/"/g,'&quot;')}">`).join('')+'</datalist>'
       +'<datalist id="ws-emp-list">'+(employeesData||[]).map(e=>`<option value="${e.name}">`).join('')+'</datalist>';
   });
 }
@@ -18313,6 +18329,27 @@ async function wsSaveMembers(id){
   catch(e){ alert('Не удалось сохранить: '+e.message); }
   wsRenderAdmin();
 }
+function wsAllOpNames(){
+  const set=new Set((typeof tariffData!=='undefined'?tariffData:[]).map(t=>t.op).filter(Boolean));
+  Object.values(_wsMeta).forEach(m=>(m.operations||[]).forEach(n=>set.add(n)));
+  return [...set].sort();
+}
+function wsGuessByOp(name){
+  const n=String(name||'').trim().toLowerCase(); if(!n) return '';
+  for(const id of Object.keys(_wsMeta)){ if((_wsMeta[id].operations||[]).some(o=>String(o).toLowerCase()===n)) return id; }
+  return '';
+}
+async function wsSaveOps(id){
+  try{ await sbPatch('workshops',`id=eq.${id}`,{operations:_wsMeta[id].operations}); }
+  catch(e){ alert('Не удалось сохранить операции. Выполните workshops_operations.sql в Supabase. ('+e.message+')'); }
+  wsRenderAdmin();
+}
+async function wsAddOp(id){
+  const inp=document.getElementById('ws-op-'+id); const n=(inp.value||'').trim(); if(!n) return;
+  const ops=_wsMeta[id].operations=_wsMeta[id].operations||[]; if(ops.includes(n)){ inp.value=''; return; }
+  ops.push(n); await wsSaveOps(id);
+}
+async function wsRemoveOp(id,i){ _wsMeta[id].operations.splice(i,1); await wsSaveOps(id); }
 async function wsAddMember(id){
   const inp=document.getElementById('ws-add-'+id); const n=(inp.value||'').trim(); if(!n) return;
   const m=_wsMeta[id].members; if(m.includes(n)){ inp.value=''; return; }
@@ -18353,11 +18390,14 @@ async function wsDelete(id){
 function pwbExecOptions(workshopId, selected, withPlaceholder){
   const mem = ((_wsMeta[workshopId]||{}).members||[]);
   const all = (employeesData||[]).map(e=>e.name);
-  const others = all.filter(n=>!mem.includes(n));
   const o = n=>`<option value="${n}" ${selected===n?'selected':''}>${n}</option>`;
-  return (withPlaceholder?'<option value="">— выбрать —</option>':'')
-    +(mem.length?'<optgroup label="Участники цеха">'+mem.map(o).join('')+'</optgroup>':'')
-    +(others.length?`<optgroup label="${mem.length?'Остальные':'Сотрудники'}">`+others.map(o).join('')+'</optgroup>':'');
+  // В цехе есть участники — выбираем только из них (уже выбранный вне списка тоже оставляем, чтобы не потерять)
+  if(mem.length){
+    const list = (selected && !mem.includes(selected)) ? [...mem, selected] : mem;
+    return (withPlaceholder?'<option value="">— выбрать —</option>':'')+list.map(o).join('');
+  }
+  // Участники цеха не заданы — показываем всех сотрудников
+  return (withPlaceholder?'<option value="">— выбрать —</option>':'')+all.map(o).join('');
 }
 // ══════ Заполнение этапов по техкарте + автосписание полуфабриката при начале этапа ══════
 async function openPwbApplyTc(){
@@ -18400,7 +18440,7 @@ function pwbApplyTc(){
   const picked = {}; document.querySelectorAll('#pwb-tc-preview .pwb-tc-exec').forEach(e=>{ picked[e.dataset.i]=e.value; });
   c.stages.forEach((t,ti)=>{
     const who = picked[ti]!=null ? picked[ti] : (t.responsible||'');
-    p.stages.push({stage:t.name||'', workshop:t.workshop||'', assignees:who?[{name:who,ktu:1}]:[],
+    p.stages.push({stage:t.name||'', workshop:t.workshop||wsGuessByOp(t.name)||'', assignees:who?[{name:who,ktu:1}]:[],
       payMethod:'rate', rate:+t.rate||0, percent:0, qty, started:false, startedDate:null, posted:false, accrualIds:[]});
     if(t.semi && (+t.semiQty||0)>0){
       const wh = warehouseData.find(w=>w.name===t.semi);
@@ -18426,74 +18466,74 @@ async function pwbAutoWriteOffForStage(stageName){
   }
 }
 
-// ══════ Доска этапов: таблица «позиции × этапы» и канбан по цехам ══════
-let _brdView = 'matrix';
+// ══════ Доска этапов: канбан и таблица; этап можно выполнять по частям разными исполнителями ══════
+let _brdView = 'kanban', _brdAct = '', _brdDrag = null, _brdDlg = null;
 async function initBoard(){
   if(!realizationsData.length && typeof loadRealizationsFromDB==='function'){ try{ await loadRealizationsFromDB(); }catch(e){} }
-  await initProdWorksheet();           // загрузит данные, если ещё не загружены
+  await initProdWorksheet();
   if(!_wsLoaded) await wsLoadWorkshops();
   renderBoard();
 }
 function brdSetView(v){
   _brdView = v;
-  document.getElementById('brd-v-matrix').classList.toggle('active', v==='matrix');
   document.getElementById('brd-v-kanban').classList.toggle('active', v==='kanban');
+  document.getElementById('brd-v-matrix').classList.toggle('active', v==='matrix');
   renderBoard();
 }
-function brdRows(){
+function brdSetAct(a){ _brdAct = a; renderBoard(); }
+function brdEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function brdToast(msg){
+  const n=document.createElement('div');
+  n.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--bg2);border:1px solid var(--amber);color:var(--text);padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999;max-width:360px';
+  n.textContent=msg; document.body.appendChild(n); setTimeout(()=>n.remove(),3500);
+}
+// Этапы позиции, сгруппированные по названию: несколько записей одного этапа = части (разные исполнители, разное количество)
+function brdGroups(r){
+  const names=[], map={};
+  r.p.stages.forEach((s,i)=>{ const n=s.stage||'(без названия)'; if(!map[n]){ map[n]={name:n,idx:[],workshop:s.workshop||''}; names.push(n); } map[n].idx.push(i); });
+  return names.map(n=>{
+    const g=map[n], ss=g.idx.map(i=>r.p.stages[i]);
+    g.total = ss.reduce((t,s)=>t+(+s.qty||0),0) || (r.item.qty||1);
+    g.done = ss.filter(s=>s.posted).reduce((t,s)=>t+(+s.qty||0),0);
+    g.allDone = ss.every(s=>s.posted);
+    g.started = ss.some(s=>s.started||s.posted);
+    g.noExec = ss.some(s=>!s.posted && !s.brigade && !(s.assignees||[]).length);
+    g.parts = ss;
+    return g;
+  });
+}
+function brdRowByKey(key){
+  const r=prodWbRows.find(x=>x.itemKey===key); if(!r) return null;
+  const order=ordersData.find(o=>o.num===r.orderNum); const item=order&&order.items?order.items[r.itemIdx]:null;
+  if(!order||!item) return null;
+  return {...r, order, item, p: prodProgress[key]||{stages:[],materials:[]}};
+}
+function brdRows(ignoreAct){
   const q=(document.getElementById('brd-search')?.value||'').toLowerCase().trim();
   const showDone=document.getElementById('brd-done')?.checked;
-  return prodWbRows.map(r=>{
-    const order=ordersData.find(o=>o.num===r.orderNum); const item=order?.items?.[r.itemIdx];
-    return {...r, order, item, p: prodProgress[r.itemKey]||{stages:[],materials:[]}};
-  }).filter(r=>{
-    if(!r.order||!r.item||!(r.p.stages||[]).length) return false;
-    if(!showDone && r.p.stages.every(s=>s.posted)) return false;
+  const wsF=document.getElementById('brd-ws')?.value||'';
+  const noexecOnly=!!document.getElementById('brd-noexec')?.checked;
+  return prodWbRows.map(r=>brdRowByKey(r.itemKey)).filter(r=>{
+    if(!r || !(r.p.stages||[]).length) return false;
+    const gs=brdGroups(r); r.groups=gs;
+    if(!showDone && gs.every(g=>g.allDone)) return false;
     if(!showDone && orderClosedReason(r.order)) return false;
-    const actF=document.getElementById('brd-act')?.value||''; if(actF && r.item.category!==actF) return false;
+    if(!ignoreAct && _brdAct && r.item.category!==_brdAct) return false;
     if(q && !(r.orderNum+' '+r.item.name).toLowerCase().includes(q)) return false;
+    if(wsF && !gs.some(g=>g.workshop===wsF)) return false;
+    if(noexecOnly && !gs.some(g=>!g.allDone && g.noExec)) return false;
     return true;
   });
 }
-function brdWho(s){
-  if(s.brigade) return '👥 '+(s.brigadeName||'бригада');
-  const a=s.assignees||[]; return a.length?a.map(x=>x.name).join(', '):'';
+function brdWhoShort(parts){
+  const names=[]; parts.forEach(s=>{ if(s.brigade) names.push('👥 '+(s.brigadeName||'бригада')); else (s.assignees||[]).forEach(a=>names.push(String(a.name).trim().split(/\s+/)[0])); });
+  return names;
 }
-function brdExecSelect(key, idx, s){
-  const a=s.assignees||[];
-  if(s.posted || s.brigade || a.length>1){
-    return `<div style="font-size:11px;cursor:pointer" title="Открыть этап" onclick="openPwbStageEditor('${key}')">${brdWho(s)||'—'}</div>`;
-  }
-  return `<select style="font-size:11px;width:100%;padding:2px" onchange="brdSetExec('${key}',${idx},this.value)">${pwbExecOptions(s.workshop,a[0]?a[0].name:'',true)}</select>`;
-}
-async function brdSetExec(key, idx, name){
-  _brdPopKeep=false; { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; }
-  const p=prodProgress[key]; const s=p.stages[idx];
-  s.assignees = name ? [{name, ktu:1}] : [];
-  try{ await saveProdProgress(key); }catch(e){ alert('Не удалось сохранить: '+e.message); }
-  renderBoard();
-}
-async function brdBulkExec(colName, name){
-  if(!name) return;
-  let n=0;
-  for(const r of brdRows()){
-    const wsF=document.getElementById('brd-ws')?.value||'';
-    r.p.stages.forEach(s=>{
-      if((s.stage||'(без названия)')!==colName || s.posted || s.brigade || (s.assignees||[]).length) return;
-      if(wsF && s.workshop!==wsF) return;
-      s.assignees=[{name,ktu:1}]; r._chg=true; n++;
-    });
-    if(r._chg){ try{ await saveProdProgress(r.itemKey); }catch(e){ alert('Не удалось сохранить: '+e.message); break; } }
-  }
-  renderBoard();
-}
-async function brdStart(key, idx){ { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; } _pwbCurrentItemKey=key; startPwbStage(idx); setTimeout(renderBoard,300); }
-async function brdPost(key, idx){ { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; } _pwbCurrentItemKey=key; await postPwbStage(idx); renderBoard(); }
-async function brdUnpost(key, idx){ { const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; } _pwbCurrentItemKey=key; await unpostPwbStage(idx); renderBoard(); }
-function brdActions(key, idx, s){
-  if(s.posted) return `<span style="color:var(--green);font-size:11px">✅ ${s.postedDate?s.postedDate.slice(5).split('-').reverse().join('.'):''}</span> <a href="#" style="font-size:10px;color:var(--text3)" onclick="event.preventDefault();brdUnpost('${key}',${idx})">↩</a>`;
-  return (!s.started?`<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px" onclick="brdStart('${key}',${idx})">▶</button> `:'<span title="В работе" style="font-size:11px">🔨</span> ')
-        +`<button class="btn btn-primary btn-sm" style="font-size:10px;padding:1px 6px" onclick="brdPost('${key}',${idx})">✅</button>`;
+function brdPartChip(s){
+  const ic=s.posted?'✅':s.started?'🔨':'○';
+  const who=s.brigade?('👥 '+(s.brigadeName||'бригада')):((s.assignees||[]).map(a=>String(a.name).trim().split(/\s+/)[0]).join(', '));
+  const warn=(!s.posted && !s.brigade && !who);
+  return `<div style="font-size:11px;${warn?'color:var(--amber)':'color:var(--text2)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ic} ${warn?'⚠ без исполнителя':brdEsc(who)} · ${+s.qty||0} шт</div>`;
 }
 function renderBoard(){
   const body=document.getElementById('brd-body'); if(!body) return;
@@ -18503,121 +18543,190 @@ function renderBoard(){
     wsSel.innerHTML='<option value="">Все цеха</option>'+PIECE_WORKSHOPS.map(w=>`<option value="${w.id}">${w.icon} ${w.name}</option>`).join('');
     wsSel.dataset.n=String(PIECE_WORKSHOPS.length); wsSel.value=cur;
   }
-  const actSel=document.getElementById('brd-act');
-  if(actSel){
-    const cats=[...new Set(prodWbRows.map(r=>ordersData.find(o=>o.num===r.orderNum)?.items?.[r.itemIdx]?.category).filter(Boolean))].sort();
-    if(actSel.dataset.sig!==cats.join('|')){ const cur=actSel.value; actSel.innerHTML='<option value="">Все виды деятельности</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join(''); actSel.value=cur; actSel.dataset.sig=cats.join('|'); }
-  }
-  const wsF=wsSel?.value||''; const noExec=document.getElementById('brd-noexec')?.checked;
+  // вкладки видов деятельности
+  const all=brdRows(true); const cats={}; all.forEach(r=>{ const c=r.item.category||'Без вида'; cats[c]=(cats[c]||0)+1; });
+  const names=Object.keys(cats).sort();
+  if(_brdAct && !cats[_brdAct]) _brdAct='';
+  const tabs=document.getElementById('brd-acts');
+  if(tabs) tabs.innerHTML=`<div class="tab ${_brdAct===''?'active':''}" onclick="brdSetAct('')">Все виды <span class="kanban-count">${all.length}</span></div>`
+    +names.map(c=>`<div class="tab ${_brdAct===c?'active':''}" data-act="${brdEsc(c)}">${brdEsc(c)} <span class="kanban-count">${cats[c]}</span></div>`).join('');
+  if(tabs) tabs.querySelectorAll('[data-act]').forEach(t=>t.addEventListener('click',()=>brdSetAct(t.dataset.act==='Без вида'?'':t.dataset.act)));
   const rows=brdRows();
-  if(!rows.length){ body.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">Нет позиций с этапами. Добавьте заказы и этапы в «Рабочем листе производства».</div>'; return; }
-  const esc=t=>String(t).replace(/</g,'&lt;');
-  if(_brdView==='kanban'){
-    const cols = PIECE_WORKSHOPS.filter(w=>!wsF||w.id===wsF).map(w=>({id:w.id,title:w.icon+' '+w.name,cards:[]}));
-    cols.push({id:'',title:'❔ Цех не указан',cards:[]});
-    rows.forEach(r=>{
-      const idx=r.p.stages.findIndex(s=>!s.posted); if(idx<0) return;
-      const s=r.p.stages[idx];
-      if(noExec && brdWho(s)) return;
-      const col=cols.find(c=>c.id===(s.workshop||'')); if(col) col.cards.push({r,idx,s});
-    });
-    body.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start;min-width:max-content">'+cols.filter(c=>c.cards.length||c.id!=='').map(c=>`
-      <div style="width:250px;background:var(--bg3);border-radius:10px;padding:8px">
-        <div style="font-weight:600;font-size:13px;margin-bottom:8px;display:flex;justify-content:space-between"><span>${c.title}</span><span style="color:var(--accent)">${c.cards.length}</span></div>
-        ${c.cards.map(({r,idx,s})=>`<div class="card" style="padding:8px 10px;margin-bottom:8px;${s.started?'border-left:3px solid var(--amber)':''}">
-          <div style="font-size:11px;color:var(--accent);font-family:monospace;cursor:pointer" onclick="openPwbStageEditor('${r.itemKey}')">${esc(r.orderNum)} · ${posBadge(r.itemIdx+1)}</div>
-          <div style="font-size:12px;font-weight:600;margin:2px 0">${esc(r.item.name)}</div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Этап ${idx+1}/${r.p.stages.length}: ${esc(s.stage||'(без названия)')}</div>
-          ${brdExecSelect(r.itemKey,idx,s)}
-          <div style="margin-top:6px">${brdActions(r.itemKey,idx,s)}</div>
-        </div>`).join('')||'<div style="font-size:11px;color:var(--text3);padding:6px">Пусто</div>'}
-      </div>`).join('')+'</div>';
+  if(!rows.length){ body.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">Нет позиций с этапами. Добавьте заказы в «Рабочий лист производства» и заполните этапы кнопкой «📐 Заполнить по техкарте».</div>'; return; }
+  // столбцы: названия этапов в порядке появления
+  const colOrder=[], pos={}, colWs={};
+  rows.forEach(r=>r.groups.forEach((g,i)=>{ if(!(g.name in pos)){ pos[g.name]={sum:0,c:0}; colOrder.push(g.name); } pos[g.name].sum+=i; pos[g.name].c++; if(g.workshop && !colWs[g.name]) colWs[g.name]=g.workshop; }));
+  colOrder.sort((a,b)=>pos[a].sum/pos[a].c-pos[b].sum/pos[b].c);
+  if(_brdView==='matrix') renderBoardMatrix(body, rows, colOrder);
+  else renderBoardKanban(body, rows, colOrder, colWs);
+  brdBind();
+}
+function brdCurGroup(r){ const i=r.groups.findIndex(g=>!g.allDone); return i<0?r.groups.length:i; }
+function renderBoardKanban(body, rows, colOrder, colWs){
+  const today=new Date().toISOString().slice(0,10);
+  const cols=colOrder.map(n=>({name:n,cards:[]})); const done=[];
+  rows.forEach(r=>{
+    const ci=brdCurGroup(r);
+    if(ci>=r.groups.length){ done.push(r); return; }
+    const col=cols.find(c=>c.name===r.groups[ci].name); if(col) col.cards.push(r);
+  });
+  const card=r=>{
+    const ci=brdCurGroup(r), g=r.groups[ci];
+    const dl=parseDMY(r.item.date||''); const late=dl && dl<today;
+    const pct=g?Math.round(g.done/g.total*100):100;
+    return `<div class="card brd-card" draggable="true" data-kind="card" data-key="${brdEsc(r.itemKey)}" data-name="${brdEsc(g?g.name:'')}"
+      style="padding:8px 10px;margin-bottom:8px;cursor:grab;${late?'border-left:3px solid var(--red)':g&&g.started?'border-left:3px solid var(--amber)':''}">
+      <div style="display:flex;justify-content:space-between;gap:6px;font-size:11px"><span style="color:var(--accent);font-family:monospace">${brdEsc(r.orderNum)} ${posBadge(r.itemIdx+1)}</span>${late?'<span style="color:var(--red)">⏰ срок</span>':''}</div>
+      <div style="font-size:12px;font-weight:600;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${brdEsc(r.item.name)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:3px">${g?brdEsc(g.name):'—'}: ${g?g.done+'/'+g.total:''} шт</div>
+      <div style="height:4px;background:var(--bg3);border-radius:2px;margin-bottom:5px"><div style="height:4px;width:${pct}%;background:var(--green);border-radius:2px"></div></div>
+      ${g?g.parts.map(brdPartChip).join(''):''}
+    </div>`;
+  };
+  body.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start;min-width:max-content;padding-bottom:10px">'
+    +cols.map(c=>{ const w=PIECE_WORKSHOPS.find(x=>x.id===colWs[c.name]);
+      return `<div class="brd-col" data-col="${brdEsc(c.name)}" style="width:240px;background:var(--bg3);border-radius:10px;padding:8px;min-height:160px">
+        <div style="font-weight:600;font-size:12px;margin-bottom:2px;display:flex;justify-content:space-between;gap:6px"><span>${brdEsc(c.name)}</span><span style="color:var(--accent)">${c.cards.length}</span></div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">${w?w.icon+' '+brdEsc(w.name):'цех не указан'}</div>
+        ${c.cards.map(card).join('')||'<div style="font-size:11px;color:var(--text3);padding:6px 2px">Пусто</div>'}</div>`; }).join('')
+    +`<div class="brd-col" data-col="__done__" style="width:200px;background:rgba(61,214,140,.08);border-radius:10px;padding:8px;min-height:160px">
+        <div style="font-weight:600;font-size:12px;margin-bottom:8px;display:flex;justify-content:space-between"><span>✅ Готово</span><span style="color:var(--green)">${done.length}</span></div>
+        ${done.map(r=>`<div class="card brd-card" data-kind="card" data-key="${brdEsc(r.itemKey)}" data-name="${brdEsc(r.groups[r.groups.length-1].name)}" style="padding:6px 10px;margin-bottom:6px;font-size:12px"><span style="color:var(--accent);font-family:monospace;font-size:11px">${brdEsc(r.orderNum)}</span> ${brdEsc(r.item.name)}</div>`).join('')}
+      </div></div>`;
+}
+function renderBoardMatrix(body, rows, colOrder){
+  const W=brdColWidths();
+  const bg=g=>g.allDone?'rgba(61,214,140,.18)':g.started?'rgba(245,166,35,.2)':'transparent';
+  const cell=(r,n)=>{
+    const g=r.groups.find(x=>x.name===n); if(!g) return '<td style="color:var(--text3);text-align:center;padding:3px">·</td>';
+    const who=brdWhoShort(g.parts); const multi=g.parts.length>1;
+    const ic=g.allDone?'✅':g.started?'🔨':'';
+    const txt=who.length?(who[0]+(who.length>1?' +'+(who.length-1):'')):'—';
+    return `<td data-kind="cell" data-key="${brdEsc(r.itemKey)}" data-name="${brdEsc(n)}" style="background:${bg(g)};padding:3px 6px;cursor:pointer"><div class="brd-cell" style="${who.length?'':'color:var(--amber)'}">${ic} ${brdEsc(txt)}${multi?` <span style="color:var(--text3)">${g.done}/${g.total}</span>`:''}</div></td>`;
+  };
+  body.innerHTML=`<table class="data-table brd-table" id="brd-table" style="table-layout:fixed;width:100%;min-width:${170+colOrder.length*70}px">
+    <colgroup><col style="width:170px">${colOrder.map(n=>`<col data-col="${brdEsc(n)}" ${W[n]?`style="width:${W[n]}px"`:''}>`).join('')}</colgroup>
+    <thead><tr><th style="position:sticky;left:0;background:var(--bg2);z-index:2">Заказ · изделие</th>
+      ${colOrder.map(n=>`<th style="position:relative;padding:4px 6px;vertical-align:top"><div title="${brdEsc(n)}" style="font-size:11px;line-height:1.2;max-height:2.4em;overflow:hidden">${brdEsc(n)}</div><span class="brd-resizer" data-col="${brdEsc(n)}" title="Потяните, чтобы изменить ширину" style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize"></span></th>`).join('')}
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr><td data-kind="rowname" data-key="${brdEsc(r.itemKey)}" style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:3px 6px;cursor:pointer" title="${brdEsc(r.orderNum+' · '+r.item.name)}"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px"><span style="font-family:monospace;color:var(--accent);font-size:11px">${brdEsc(r.orderNum)}</span> ${posBadge(r.itemIdx+1)}${brdEsc(r.item.name)}</div></td>
+      ${colOrder.map(n=>cell(r,n)).join('')}</tr>`).join('')}
+    </tbody></table>`;
+}
+// ── Привязка событий ──
+function brdBind(){
+  const body=document.getElementById('brd-body'); if(!body) return;
+  body.querySelectorAll('[data-kind="card"],[data-kind="cell"]').forEach(el=>{
+    el.addEventListener('click',()=>{ brdPopHideNow(); brdOpenStage(el.dataset.key, el.dataset.name, 'edit'); });
+    el.addEventListener('mouseenter',()=>{ clearTimeout(_brdPopTimer); _brdPopTimer=setTimeout(()=>brdPopShow(el),220); });
+    el.addEventListener('mouseleave',()=>brdPopHideSoon());
+  });
+  body.querySelectorAll('[data-kind="rowname"]').forEach(el=>el.addEventListener('click',()=>openPwbStageEditor(el.dataset.key)));
+  body.querySelectorAll('.brd-card[draggable="true"]').forEach(el=>{
+    el.addEventListener('dragstart',e=>{ _brdDrag=el.dataset.key; brdPopHideNow(); e.dataTransfer.setData('text/plain',el.dataset.key); e.dataTransfer.effectAllowed='move'; });
+    el.addEventListener('dragend',()=>{ _brdDrag=null; });
+  });
+  body.querySelectorAll('.brd-col').forEach(c=>{
+    c.addEventListener('dragover',e=>{ e.preventDefault(); c.style.outline='2px dashed var(--accent)'; });
+    c.addEventListener('dragleave',()=>{ c.style.outline=''; });
+    c.addEventListener('drop',e=>{ e.preventDefault(); c.style.outline=''; const k=_brdDrag||e.dataTransfer.getData('text/plain'); _brdDrag=null; brdMoveCard(k,c.dataset.col); });
+  });
+  brdBindResize();
+}
+// Перенос карточки вправо = открыть «завершение этапа» (выбор исполнителей по частям)
+function brdMoveCard(key,col){
+  const r=brdRowByKey(key); if(!r) return; r.groups=brdGroups(r);
+  const cur=brdCurGroup(r), gs=r.groups;
+  if(col==='__done__'){
+    if(cur===gs.length-1) brdOpenStage(key, gs[cur].name, 'complete');
+    else brdToast('Переносите карточку на соседний этап: сначала завершите «'+(gs[cur]?gs[cur].name:'')+'».');
     return;
   }
-  // матрица: столбцы — названия этапов в порядке появления
-  const colOrder=[]; const pos={};
-  rows.forEach(r=>r.p.stages.forEach((s,i)=>{ const n=s.stage||'(без названия)'; if(!(n in pos)){ pos[n]={sum:0,c:0}; colOrder.push(n);} pos[n].sum+=i; pos[n].c++; }));
-  colOrder.sort((a,b)=>pos[a].sum/pos[a].c-pos[b].sum/pos[b].c);
-  const bg=s=>s.posted?'rgba(61,214,140,.18)':s.started?'rgba(245,166,35,.2)':'transparent';
-  const short=n=>String(n).trim().split(/\s+/)[0];
-  const cellHtml=(r,idx)=>{
-    const s=r.p.stages[idx]; const who=brdWho(s);
-    const ic=s.posted?'✅':s.started?'🔨':'';
-    return `<div class="brd-cell" data-key="${r.itemKey}" data-idx="${idx}" style="${who?'':'color:var(--text3)'}">${ic} ${who?esc(s.brigade?who:short(who.split(',')[0])+((s.assignees||[]).length>1?' +'+((s.assignees||[]).length-1):'')):'—'}</div>`;
-  };
-  const W = brdColWidths();
-  body.innerHTML=`<table class="data-table brd-table" id="brd-table" style="table-layout:fixed;width:100%;min-width:${170+colOrder.length*70}px">
-    <colgroup><col style="width:170px">${colOrder.map(n=>`<col data-col="${esc(n).replace(/"/g,'&quot;')}" ${W[n]?`style="width:${W[n]}px"`:''}>`).join('')}</colgroup>
-    <thead><tr>
-      <th style="position:sticky;left:0;background:var(--bg2);z-index:2">Заказ · изделие</th>
-      ${colOrder.map(n=>`<th style="position:relative;padding:4px 6px;vertical-align:top">
-        <div title="${esc(n).replace(/"/g,'&quot;')}" style="font-size:11px;line-height:1.2;max-height:2.4em;overflow:hidden">${esc(n)}</div>
-        <select title="Назначить исполнителя на все свободные этапы столбца" style="font-size:10px;width:100%;margin-top:3px;padding:0" onchange="brdBulkExec(${JSON.stringify(n).replace(/"/g,'&quot;')},this.value);this.value=''">${pwbExecOptions('', '', false).replace('<optgroup','<option value="">👤 всем…</option><optgroup')}</select>
-        <span class="brd-resizer" data-col="${esc(n).replace(/"/g,'&quot;')}" title="Потяните, чтобы изменить ширину" style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize"></span></th>`).join('')}
-    </tr></thead><tbody>
-    ${rows.map(r=>`<tr>
-      <td style="position:sticky;left:0;background:var(--bg2);z-index:1;cursor:pointer;padding:3px 6px" onclick="openPwbStageEditor('${r.itemKey}')" title="${esc(r.orderNum+' · '+r.item.name).replace(/"/g,'&quot;')}">
-        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px"><span style="font-family:monospace;color:var(--accent);font-size:11px">${esc(r.orderNum)}</span> ${posBadge(r.itemIdx+1)}${esc(r.item.name)}</div></td>
-      ${colOrder.map(n=>{
-        const idx=r.p.stages.findIndex(s=>(s.stage||'(без названия)')===n);
-        if(idx<0) return '<td style="color:var(--text3);text-align:center;padding:3px">·</td>';
-        const s=r.p.stages[idx];
-        if(wsF && s.workshop!==wsF) return '<td style="color:var(--text3);text-align:center;padding:3px">·</td>';
-        const hi = noExec && brdWho(s) ? 'opacity:.3;' : '';
-        return `<td style="background:${bg(s)};${hi}padding:3px 6px;cursor:pointer">${cellHtml(r,idx)}</td>`;
-      }).join('')}
-    </tr>`).join('')}
-    </tbody></table>`;
-  brdBindMatrix();
+  const t=gs.findIndex(g=>g.name===col);
+  if(t<0){ brdToast('У этой позиции нет этапа «'+col+'».'); return; }
+  if(t===cur) return;
+  if(t===cur+1) brdOpenStage(key, gs[cur].name, 'complete');
+  else if(t<cur) brdOpenStage(key, gs[t].name, 'edit');
+  else brdToast('Переносите на соседний этап. Если нужен пропуск порядка, откройте карточку и отметьте нужный этап.');
 }
-
-// ── Доска этапов: ширина столбцов и всплывающая карточка ячейки ──
+// ── Окно этапа (части, исполнители, начать, завершить) ──
+function brdOpenStage(key, name, mode){
+  const r=brdRowByKey(key); if(!r) return;
+  if(!name){ r.groups=brdGroups(r); const ci=brdCurGroup(r); name=(r.groups[Math.min(ci,r.groups.length-1)]||{}).name; }
+  _brdDlg={key,name,mode:mode||'edit'}; _pwbCurrentItemKey=key;
+  brdDlgRender(); showModal('brdStageModal');
+}
+function brdDlgIdx(){ const p=prodProgress[_brdDlg.key]; const out=[]; (p.stages||[]).forEach((s,i)=>{ if((s.stage||'(без названия)')===_brdDlg.name) out.push(i); }); return out; }
+function brdDlgRender(){
+  const {key,name,mode}=_brdDlg; const r=brdRowByKey(key); if(!r){ closeModal('brdStageModal'); return; }
+  _pwbCurrentItemKey=key;
+  const idxs=brdDlgIdx(); if(!idxs.length){ closeModal('brdStageModal'); renderBoard(); return; }
+  const total=r.item.qty||1, sum=idxs.reduce((t,i)=>t+(+r.p.stages[i].qty||0),0);
+  const first=r.p.stages[idxs[0]]; const w=PIECE_WORKSHOPS.find(x=>x.id===first.workshop);
+  const fm=n=>Math.round(n).toLocaleString('ru-RU');
+  document.getElementById('brd-dlg-title').textContent=name;
+  document.getElementById('brd-dlg-meta').innerHTML=`${brdEsc(r.orderNum)} · №${r.itemIdx+1} ${brdEsc(r.item.name)} · всего ${total} шт · ${w?w.icon+' '+brdEsc(w.name):'цех не указан'}`;
+  const rowsHtml=idxs.map(i=>{
+    const s=r.p.stages[i]; const a=s.assignees||[];
+    const exec = s.posted ? `<span>${s.brigade?'👥 '+brdEsc(s.brigadeName||'бригада'):brdEsc(a.map(x=>x.name).join(', '))||'—'}</span>`
+      : (s.brigade ? `<span>👥 ${brdEsc(s.brigadeName||'бригада')}</span>` : (a.length>1 ? `<span title="Несколько исполнителей — меняйте в рабочем листе">${brdEsc(a.map(x=>x.name).join(', '))}</span>`
+      : `<select style="font-size:12px;width:100%" onchange="brdDlgExec(${i},this.value)">${pwbExecOptions(s.workshop,a[0]?a[0].name:'',true)}</select>`));
+    const amount=computePwbStageAmount(s);
+    return `<tr>
+      <td>${s.posted?(+s.qty||0):`<input type="number" min="0" step="1" value="${+s.qty||0}" style="width:64px;font-size:12px" onchange="brdDlgQty(${i},this.value)">`}</td>
+      <td style="min-width:170px">${exec}</td>
+      <td style="text-align:right;font-family:monospace;font-size:12px">₸${fm(amount)}</td>
+      <td style="white-space:nowrap">${s.posted?`<span style="color:var(--green);font-size:12px">✅ ${(s.postedDate||'').split('-').reverse().join('.')}</span> <button class="btn btn-ghost btn-sm" style="font-size:11px" title="Снять с завершения" onclick="brdDlgUnpost(${i})">↩</button>`
+        :`${!s.started?`<button class="btn btn-ghost btn-sm" style="font-size:11px" title="Начать" onclick="brdDlgStart(${i})">▶</button> `:'<span title="В работе">🔨</span> '}<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="brdDlgPost(${i})">✅ Завершить</button>${idxs.length>1?` <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Убрать часть" onclick="brdDlgRemove(${i})">🗑</button>`:''}`}</td></tr>`;
+  }).join('');
+  const rem=total-sum;
+  document.getElementById('brd-dlg-body').innerHTML=`
+    ${mode==='complete'?'<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Выберите, кто выполнил этап, и нажмите «Завершить». Если работу делали несколько человек — разделите количество кнопкой «＋ Часть».</div>':''}
+    <table class="data-table"><thead><tr><th>Кол-во, шт</th><th>Исполнитель (из цеха)</th><th style="text-align:right">Сумма</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="brdDlgAddPart()">＋ Часть</button>
+      <span style="font-size:12px;color:${rem===0?'var(--text3)':'var(--amber)'}">Распределено ${sum} из ${total} шт${rem>0?' — осталось '+rem:(rem<0?' — больше на '+(-rem):'')}</span>
+      <div style="flex:1"></div>
+      ${idxs.some(i=>!r.p.stages[i].posted)?`<button class="btn btn-primary btn-sm" onclick="brdDlgPostAll()">✅ Завершить все части</button>`:''}
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">Чтобы разделить: уменьшите количество первой части, затем «＋ Часть» — остаток добавится автоматически. Список исполнителей — только участники цеха (если в цехе никого нет, показаны все сотрудники; участников задают в «Цеха и участники»).</div>`;
+}
+async function brdDlgSave(){ const k=_brdDlg.key; try{ await saveProdProgress(k); }catch(e){ alert('Не удалось сохранить: '+e.message); } brdDlgRender(); renderBoard(); }
+async function brdDlgExec(i,name){ const s=prodProgress[_brdDlg.key].stages[i]; s.assignees=name?[{name,ktu:1}]:[]; await brdDlgSave(); }
+async function brdDlgQty(i,val){
+  const r=brdRowByKey(_brdDlg.key); const s=r.p.stages[i]; const q=Math.max(0,parseFloat(val)||0); const tq=r.item.qty||1;
+  if(s.payMethod==='percent'){ if(s.percentFull==null) s.percentFull=(+s.percent||0)*(tq/(s.qty||tq)); s.percent=+(s.percentFull*q/tq).toFixed(4); }
+  s.qty=q; await brdDlgSave();
+}
+async function brdDlgStart(i){ _pwbCurrentItemKey=_brdDlg.key; startPwbStage(i); setTimeout(()=>{ brdDlgRender(); renderBoard(); },400); }
+async function brdDlgPost(i){ _pwbCurrentItemKey=_brdDlg.key; await postPwbStage(i); brdDlgRender(); renderBoard(); }
+async function brdDlgUnpost(i){ _pwbCurrentItemKey=_brdDlg.key; await unpostPwbStage(i); brdDlgRender(); renderBoard(); }
+async function brdDlgPostAll(){
+  const r=brdRowByKey(_brdDlg.key); const idxs=brdDlgIdx().filter(i=>!r.p.stages[i].posted);
+  const bad=idxs.filter(i=>{ const s=r.p.stages[i]; return !s.brigade && !(s.assignees||[]).length; });
+  if(bad.length){ alert('Выберите исполнителя у всех частей этапа ('+bad.length+' без исполнителя).'); return; }
+  _pwbCurrentItemKey=_brdDlg.key;
+  for(const i of idxs){ await postPwbStage(i); }
+  brdDlgRender(); renderBoard();
+  const r2=brdRowByKey(_brdDlg.key); if(r2 && brdGroups(r2).find(g=>g.name===_brdDlg.name).allDone){ closeModal('brdStageModal'); }
+}
+async function brdDlgAddPart(){
+  const r=brdRowByKey(_brdDlg.key); const idxs=brdDlgIdx(); const base=r.p.stages[idxs[0]]; const tq=r.item.qty||1;
+  const sum=idxs.reduce((t,i)=>t+(+r.p.stages[i].qty||0),0); const rem=Math.max(0,tq-sum)||1;
+  const ns={...base, assignees:[], brigade:null, brigadeName:'', qty:rem, started:false, startedDate:null, posted:false, postedDate:null, accrualIds:[]};
+  if(base.payMethod==='percent'){ const full=base.percentFull!=null?base.percentFull:(+base.percent||0)*(tq/(base.qty||tq)); ns.percentFull=full; ns.percent=+(full*rem/tq).toFixed(4); }
+  r.p.stages.splice(idxs[idxs.length-1]+1,0,ns); await brdDlgSave();
+}
+async function brdDlgRemove(i){
+  const r=brdRowByKey(_brdDlg.key); if(r.p.stages[i].posted) return;
+  if(!confirm('Убрать эту часть этапа?')) return;
+  r.p.stages.splice(i,1); await brdDlgSave();
+}
+// ── Ширина столбцов таблицы ──
 function brdColWidths(){ try{ return JSON.parse(localStorage.getItem('brdColW')||'{}'); }catch(e){ return {}; } }
 function brdSaveColWidth(n,w){ try{ const W=brdColWidths(); W[n]=w; localStorage.setItem('brdColW',JSON.stringify(W)); }catch(e){} }
-let _brdPopTimer=null, _brdPopKeep=false;
-function brdPop(){
-  let el=document.getElementById('brd-pop');
-  if(!el){
-    el=document.createElement('div'); el.id='brd-pop';
-    el.style.cssText='position:fixed;z-index:9000;display:none;min-width:230px;max-width:300px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:12px';
-    el.addEventListener('mouseenter',()=>clearTimeout(_brdPopTimer));
-    el.addEventListener('mouseleave',()=>brdPopHideSoon());
-    el.addEventListener('focusin',()=>{ _brdPopKeep=true; });
-    el.addEventListener('focusout',()=>{ _brdPopKeep=false; brdPopHideSoon(); });
-    document.body.appendChild(el);
-  }
-  return el;
-}
-function brdPopHideSoon(){ clearTimeout(_brdPopTimer); _brdPopTimer=setTimeout(()=>{ if(_brdPopKeep) return; const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; },250); }
-function brdPopShow(cell){
-  clearTimeout(_brdPopTimer);
-  const key=cell.dataset.key, idx=+cell.dataset.idx;
-  const p=prodProgress[key]; if(!p||!p.stages[idx]) return;
-  const s=p.stages[idx];
-  const row=prodWbRows.find(r=>r.itemKey===key); const order=row&&ordersData.find(o=>o.num===row.orderNum); const item=order&&order.items[row.itemIdx];
-  const w=PIECE_WORKSHOPS.find(x=>x.id===s.workshop);
-  const el=brdPop();
-  const esc=t=>String(t).replace(/</g,'&lt;');
-  el.innerHTML=`<div style="font-size:11px;color:var(--text3);margin-bottom:2px">${esc(row?row.orderNum:'')} · ${esc(item?item.name:'')}</div>
-    <div style="font-weight:600;margin-bottom:2px">${esc(s.stage||'(без названия)')}</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${w?w.icon+' '+w.name:'цех не указан'}${s.rate?' · ₸'+s.rate+(s.qty?' × '+s.qty:''):''}${s.started&&!s.posted?' · в работе с '+(s.startedDate||''):''}</div>
-    ${brdExecSelect(key,idx,s)}
-    <div style="margin-top:8px">${brdActions(key,idx,s)}</div>
-    <div style="margin-top:6px"><a href="#" style="font-size:11px" onclick="event.preventDefault();openPwbStageEditor('${key}')">Открыть все этапы позиции →</a></div>`;
-  el.style.display='block';
-  const r=cell.getBoundingClientRect(); const pw=el.offsetWidth, ph=el.offsetHeight;
-  let x=Math.min(r.left, window.innerWidth-pw-8); let y=r.bottom+4;
-  if(y+ph>window.innerHeight-8) y=Math.max(8,r.top-ph-4);
-  el.style.left=Math.max(8,x)+'px'; el.style.top=y+'px';
-}
-function brdBindMatrix(){
+function brdBindResize(){
   const t=document.getElementById('brd-table'); if(!t) return;
-  t.querySelectorAll('.brd-cell').forEach(c=>{
-    const td=c.parentElement;
-    td.addEventListener('mouseenter',()=>{ clearTimeout(_brdPopTimer); _brdPopTimer=setTimeout(()=>brdPopShow(c),180); });
-    td.addEventListener('mouseleave',()=>brdPopHideSoon());
-    td.addEventListener('click',()=>brdPopShow(c));
-  });
   t.querySelectorAll('.brd-resizer').forEach(h=>{
     h.addEventListener('mousedown',ev=>{
       ev.preventDefault(); ev.stopPropagation();
@@ -18628,6 +18737,39 @@ function brdBindMatrix(){
       document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
     });
   });
+}
+// ── Всплывающая подсказка при наведении: обзор этапов позиции ──
+let _brdPopTimer=null;
+function brdPop(){
+  let el=document.getElementById('brd-pop');
+  if(!el){
+    el=document.createElement('div'); el.id='brd-pop';
+    el.style.cssText='position:fixed;z-index:9000;display:none;min-width:240px;max-width:320px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:12px';
+    el.addEventListener('mouseenter',()=>clearTimeout(_brdPopTimer));
+    el.addEventListener('mouseleave',()=>brdPopHideSoon());
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function brdPopHideNow(){ clearTimeout(_brdPopTimer); const e=document.getElementById('brd-pop'); if(e) e.style.display='none'; }
+function brdPopHideSoon(){ clearTimeout(_brdPopTimer); _brdPopTimer=setTimeout(brdPopHideNow,200); }
+function brdPopShow(anchor){
+  const r=brdRowByKey(anchor.dataset.key); if(!r) return; r.groups=brdGroups(r);
+  const ci=brdCurGroup(r);
+  const el=brdPop();
+  el.innerHTML=`<div style="font-size:11px;color:var(--text3)">${brdEsc(r.orderNum)} · №${r.itemIdx+1} · ${brdEsc(resolveCustomerName(r.order))}</div>
+    <div style="font-weight:600;margin:2px 0">${brdEsc(r.item.name)} <span style="font-weight:400;color:var(--text3)">× ${r.item.qty||1}</span></div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${r.item.category?brdEsc(r.item.category)+' · ':''}срок ${brdEsc(r.item.date||'—')}</div>
+    ${r.groups.map((g,i)=>`<div style="display:flex;gap:6px;justify-content:space-between;padding:2px 0;${i===ci?'font-weight:600;color:var(--accent)':''}${g.name===anchor.dataset.name&&i!==ci?';background:var(--bg3)':''}">
+      <span>${g.allDone?'✅':g.started?'🔨':'○'} ${brdEsc(g.name)}</span>
+      <span style="color:var(--text3);font-weight:400;text-align:right">${g.noExec&&!g.allDone?'<span style="color:var(--amber)">⚠ </span>':''}${brdEsc(brdWhoShort(g.parts).slice(0,2).join(', '))}${g.parts.length>1?' · '+g.done+'/'+g.total:''}</span></div>`).join('')}
+    <div style="margin-top:8px;font-size:11px;color:var(--text3)">Клик — окно этапа «${brdEsc(anchor.dataset.name||'')}»</div>`;
+  el.style.display='block';
+  const rc=anchor.getBoundingClientRect(); const pw=el.offsetWidth, ph=el.offsetHeight;
+  let x=Math.min(rc.right+6, window.innerWidth-pw-8); if(x<8) x=8;
+  if(rc.right+6+pw>window.innerWidth-8) x=Math.max(8, rc.left-pw-6);
+  let y=Math.min(rc.top, window.innerHeight-ph-8); if(y<8) y=8;
+  el.style.left=x+'px'; el.style.top=y+'px';
 }
 
 function showPage(id, el){
@@ -19561,7 +19703,7 @@ function renderTCStagesList(){
     return;
   }
 
-  el.innerHTML = '<datalist id="tc-semi-list">'+[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))].map(n=>`<option value="${n}">`).join('')+'</datalist>' + tcEditStages.map((s,i)=>`
+  el.innerHTML = '<datalist id="tc-op-list">'+wsAllOpNames().map(n=>`<option value="${String(n).replace(/"/g,'&quot;')}">`).join('')+'</datalist><datalist id="tc-semi-list">'+[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))].map(n=>`<option value="${n}">`).join('')+'</datalist>' + tcEditStages.map((s,i)=>`
     <div style="border:1px solid var(--border);border-radius:8px;
       padding:12px 14px;margin-bottom:8px;background:var(--bg2)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -19569,10 +19711,10 @@ function renderTCStagesList(){
           <span style="font-size:12px;color:var(--text3);font-weight:700;
             width:22px;height:22px;border-radius:50%;background:var(--accent);
             color:#fff;display:flex;align-items:center;justify-content:center">${i+1}</span>
-          <input value="${s.name}" placeholder="Название этапа"
+          <input value="${s.name}" list="tc-op-list" placeholder="Название этапа"
             style="font-size:13px;font-weight:600;background:transparent;
               border:none;border-bottom:1px solid var(--border);width:220px"
-            onchange="tcEditStages[${i}].name=this.value">
+            onchange="tcEditStages[${i}].name=this.value;if(!tcEditStages[${i}].workshop){const g=wsGuessByOp(this.value);if(g){tcEditStages[${i}].workshop=g;renderTCStagesList();}}">
         </div>
         <div style="display:flex;gap:6px">
           ${i>0?`<button class="btn btn-ghost btn-sm" style="font-size:11px"
@@ -37219,13 +37361,13 @@ function sfApplyVirtualTc(order, item, itemIdx){
   let cur=0;
   if(p && (p.stages||[]).length){
     const ws=p.stages;
-    cur=stages.findIndex((t,i)=>!(ws[i] && ws[i].posted));
+    cur=stages.findIndex(t=>{ const parts=ws.filter(x=>(x.stage||'')===t.name); return !(parts.length && parts.every(x=>x.posted)); });
     if(cur<0) cur=stages.length;
   }
   item.shopFloorStage=cur;
   item.stageLog={};
   for(let i=0;i<=Math.min(cur,stages.length-1);i++){
-    const w=p&&p.stages?p.stages[i]:null;
+    const w=p&&p.stages?p.stages.find(x=>(x.stage||'')===stages[i].name):null;
     const names=w?(w.brigade?['👥 '+(w.brigadeName||'бригада')]:(w.assignees||[]).map(a=>a.name)):[];
     item.stageLog[i]={assignees:names,timeStart:'',timeEnd:'',equipment:'',materialsUsed:[],completedAt:w&&w.postedDate?w.postedDate:''};
   }
@@ -37412,7 +37554,7 @@ let _pwbCurrentItemKey = null;
 let pwbSelected = new Set();
 
 function PROD_STAGE_NAMES(){
-  return [...new Set((tariffData||[]).map(t=>t.op))];
+  return [...new Set([...(tariffData||[]).map(t=>t.op), ...(typeof wsAllOpNames==='function'?wsAllOpNames():[])])];
 }
 function itemKeyOf(orderNum, itemIdx){ return `${orderNum}|${itemIdx}`; }
 // Порядковый № товара в заказе (1, 2, 3…) — по позиции в order.items. Нужен производству: в заказах на 30–40 позиций искать по номеру проще, чем по названию.
@@ -37936,6 +38078,7 @@ function updatePwbStageField(idx, field, val){
   const s = p.stages[idx];
   if(['rate','qty','percent'].includes(field)) s[field] = parseFloat(val)||0;
   else s[field] = val;
+  if(field==='stage' && !s.workshop && typeof wsGuessByOp==='function'){ const g=wsGuessByOp(val); if(g) s.workshop=g; }
   saveProdProgress(_pwbCurrentItemKey);
   renderPwbStagesList();
 }
