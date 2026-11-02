@@ -13764,7 +13764,13 @@ function renderAccrualsList(){
     return true;
   });
 
+  // Возможные дубли: тот же сотрудник, дата, тип, сумма и комментарий
+  const _dupKey = a => [String(a.emp_name||'').trim().toLowerCase(), a.date, a.type, Math.round(a.amount||0), Math.round(a.deducted||0), a.comment||''].join('|');
+  const _dupCnt = {}; (_payrollData.accruals||[]).forEach(a=>{ const k=_dupKey(a); _dupCnt[k]=(_dupCnt[k]||0)+1; });
+  const _dupSeen = {};
   tbody.innerHTML = accruals.map(a=>{
+    const _k=_dupKey(a); _dupSeen[_k]=(_dupSeen[_k]||0)+1;
+    const isDup = _dupCnt[_k]>1;
     const det = a.details && typeof a.details==='object' ? a.details : {};
     const acc = det.accruals||[];
     const ded = det.deductions||[];
@@ -13775,8 +13781,8 @@ function renderAccrualsList(){
     const prochie_a = getA('Больничный','Займ','Материальная','Районный');
     const ded_total = a.deducted||0;
     const net = a.net||0;
-    return `<tr>
-      <td style="font-weight:500;white-space:nowrap;font-size:13px">${a.emp_name}</td>
+    return `<tr${isDup?' style="background:rgba(245,158,11,.10)"':''}>
+      <td style="font-weight:500;white-space:nowrap;font-size:13px">${a.emp_name}${isDup?' <span title="Есть точно такая же строка (сотрудник, дата, сумма). Удалите лишнюю кнопкой 🗑." style="color:var(--amber);font-size:11px">⚠ дубль</span>':''}</td>
       <td style="font-size:12px;color:var(--text3);white-space:nowrap">${a.date||''}</td>
       <td style="text-align:right;font-size:12px">${oklad?fmt(oklad):'—'}</td>
       <td style="text-align:right;font-size:12px">${sdel?fmt(sdel):'—'}</td>
@@ -13786,9 +13792,24 @@ function renderAccrualsList(){
       <td style="text-align:right;font-weight:700;color:var(--green);font-size:12px">${fmt(a.amount)}</td>
       <td style="text-align:right;color:var(--red);font-size:12px">${ded_total?fmt(ded_total):'—'}</td>
       <td style="text-align:right;font-weight:700;color:var(--amber);font-size:12px">${fmt(net)}</td>
-      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAccrualModal('${a.id}')">✏️</button></td>
+      <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAccrualModal('${a.id}')">✏️</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить строку" onclick="deleteAccrualRow('${a.id}')">🗑</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text3)">Нет данных</td></tr>';
+}
+
+async function deleteAccrualRow(id){
+  const a = (_payrollData?.accruals||[]).find(x=>String(x.id)===String(id)); if(!a) return;
+  const fmt = n => '₸'+Math.round(n||0).toLocaleString('ru-RU');
+  const linked = /Сдельная/.test(a.comment||'') || a.type==='payment';
+  if(!confirm(`Удалить строку?\n\n${a.emp_name} · ${a.date}\nНачислено ${fmt(a.amount)}, удержано ${fmt(a.deducted)}, к выплате ${fmt(a.net)}`+
+    (linked?'\n\n⚠ Эта строка создана автоматически (этап производства, выплата или выпуск). Если это не дубль, лучше отменить проведение там, где она создана.':'')+
+    '\n\nДействие нельзя отменить.')) return;
+  try{
+    await sbDelete('salary_accruals', `id=eq.${id}`);
+    _payrollData.accruals = _payrollData.accruals.filter(x=>String(x.id)!==String(id));
+    renderAccrualsList();
+  }catch(e){ alert('Не удалось удалить: '+e.message); }
 }
 
 function openAccrualModal(id){
@@ -17931,7 +17952,7 @@ payroll: { title:'Зарплатная ведомость',
 
 accruals: { title:'Начисления ЗП',
   about:'Журнал начислений заработной платы по сотрудникам и инструменты, которые создают начисления.',
-  how:['«+ Начисление» вносит начисление вручную: сотрудник, месяц, оклад, сдельная, премия, удержания. «🔄 Заполнить по карточке» подставляет оклад из карточки.','«📊 Начислить оклад» создаёт оклады за месяц всем сотрудникам с окладом (проверьте рабочие и фактические дни).','«🏖 Отпускные / Больничные» рассчитывает отпускные и больничные.','«📋 История» показывает предыдущие начисления сотрудника.'] },
+  how:['🗑 в конце строки удаляет начисление (например, лишний дубль). Строки, у которых есть точно такая же копия (сотрудник, дата, сумма), подсвечены и помечены «⚠ дубль»: оставьте одну, вторую удалите.','«+ Начисление» вносит начисление вручную: сотрудник, месяц, оклад, сдельная, премия, удержания. «🔄 Заполнить по карточке» подставляет оклад из карточки.','«📊 Начислить оклад» создаёт оклады за месяц всем сотрудникам с окладом (проверьте рабочие и фактические дни).','«🏖 Отпускные / Больничные» рассчитывает отпускные и больничные.','«📋 История» показывает предыдущие начисления сотрудника.'] },
 
 wages: { title:'Сдельная оплата',
   about:'Выработка производственного персонала и начисления по ней: кто, какую операцию и в каком количестве выполнил.',
