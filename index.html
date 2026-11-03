@@ -38197,15 +38197,23 @@ async function postPwbStage(idx){
   const p = prodProgress[_pwbCurrentItemKey];
   const s = p.stages[idx];
   if(!s.stage){ alert('Укажите название этапа.'); return; }
+  let doneDate = new Date().toISOString().slice(0,10);
   {
     const row0 = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
     const ord0 = row0 && ordersData.find(o=>o.num===row0.orderNum);
     const why0 = orderClosedReason(ord0);
     if(why0 && !confirm(`Внимание: заказ ${ord0.num} уже ${why0}.\n\nЗавершить этап «${s.stage}» и ${s.brigade?'добавить его сумму в пул бригады':'начислить сдельную оплату'}?`)) return;
+    if(why0){
+      const rl=(Array.isArray(realizationsData)?realizationsData:[]).filter(r=>r.order_num===ord0.num && r.doc_date).map(r=>String(r.doc_date).slice(0,10)).sort();
+      const def = rl.length ? rl[rl.length-1] : doneDate;
+      const ans = prompt('Когда выполнен этап? Дата определяет, в какой месяц пойдёт оплата (пул бригады / начисление).\nФормат ГГГГ-ММ-ДД. По умолчанию — дата отгрузки заказа.', def);
+      if(ans===null) return;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(ans.trim())){ alert('Неверный формат даты. Нужно ГГГГ-ММ-ДД, например 2026-10-20.'); return; }
+      doneDate = ans.trim();
+    }
   }
   if(s.brigade){
-    const today0 = new Date().toISOString().slice(0,10);
-    s.posted = true; s.postedDate = today0; s.accrualIds = [];
+    s.posted = true; s.postedDate = doneDate; s.accrualIds = [];
     try{ await saveProdProgress(_pwbCurrentItemKey); renderPwbStagesList(); renderProdWorksheet(); }
     catch(e){ alert('Не удалось завершить этап: '+e.message); }
     return;
@@ -38216,7 +38224,7 @@ async function postPwbStage(idx){
   const item = order.items[row.itemIdx];
   const total = computePwbStageAmount(s);
   const ktuSum = s.assignees.reduce((sum,a)=>sum+(a.ktu||1),0)||1;
-  const today = new Date().toISOString().slice(0,10);
+  const today = doneDate;
   const accrualIds = [];
   try{
     for(const a of s.assignees){
