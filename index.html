@@ -17429,7 +17429,19 @@ function brgSyncRows(){
   m.rows = m.rows.filter(r=>mem.has(_brgKey(r.name)) || (+r.days||0)>0);
 }
 
-function brgMarkDirty(){ _brg.dirty = true; const d = document.getElementById('brg-dirty'); if(d) d.style.display = ''; }
+let _brgAutoT = null;
+function brgMarkDirty(){
+  _brg.dirty = true; const d = document.getElementById('brg-dirty'); if(d){ d.className='badge badge-red'; d.textContent='Не сохранено'; d.style.display = ''; }
+  // автосохранение через 2 секунды после последней правки (кроме проведённых месяцев)
+  clearTimeout(_brgAutoT);
+  _brgAutoT = setTimeout(async ()=>{
+    const m=_brg.month; if(!m || m.status==='posted' || !_brg.dirty) return;
+    const ok = await brgSave(true);
+    const d2=document.getElementById('brg-dirty');
+    if(ok && d2){ d2.className='badge badge-green'; d2.textContent='✓ Сохранено '+new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); d2.style.display=''; }
+  }, 2000);
+}
+window.addEventListener('beforeunload', e=>{ if(typeof _brg!=='undefined' && _brg.dirty){ e.preventDefault(); e.returnValue=''; } });
 function brgConfirmLeave(){ return !_brg.dirty || confirm('Есть несохранённые изменения. Перейти без сохранения?'); }
 
 async function brgChangeBrigade(id){
@@ -17600,7 +17612,12 @@ async function brgSave(silent){
     else { const r = await sbInsert('brigade_months', {...payload, brigade_id:b.id, period:m.period}); m.id = r.id; }
     m.deductions = payload.deductions;
     _brg.dirty = false;
-    if(!silent) renderBrigades();
+    if(!silent){
+      renderBrigades();
+      const t=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+      const d=document.getElementById('brg-dirty'); if(d){ d.className='badge badge-green'; d.textContent='✓ Сохранено '+t; d.style.display=''; }
+      if(typeof brdToast==='function') brdToast('✓ Расчёт бригады за '+m.period+' сохранён');
+    }
     return true;
   }catch(e){ alert('Не удалось сохранить: '+e.message+(/400/.test(e.message)?'\nВозможно, не выполнены файлы brigades_2.sql или brigades_3.sql.':'')); return false; }
 }
@@ -17787,7 +17804,7 @@ function renderBrigades(){
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
     (ed?'<button class="btn btn-ghost" onclick="brgSave()">💾 Сохранить</button><button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>'
        :'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgUnpost()">↩ Снять проведение</button>')+
-    '<button class="btn btn-ghost" onclick="exportBrigadeCsv()">📥 CSV</button></div>';
+    '<button class="btn btn-ghost" onclick="printBrigade()">🖨 Печать</button><button class="btn btn-ghost" onclick="exportBrigadeCsv()">📥 CSV</button></div>';
 
   body.innerHTML = h;
   brgRefresh();
@@ -17795,6 +17812,55 @@ function renderBrigades(){
 
 async function brgPostAfterSave(){ if(await brgSave(true)) await brgPost(); }
 
+// Печать расчёта бригады: пул, вычеты, дни × КТУ, доли, к начислению, подписи
+function printBrigade(){
+  const m=_brg.month, b=_brgBrigade(); if(!m||!b){ alert('Нет данных для печати'); return; }
+  const c=brgCalc(m,_brg.stageMap);
+  const f=n=>Math.round(+n||0).toLocaleString('ru-RU');
+  const MN=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+  const [yy,mm]=m.period.split('-').map(Number); const per=MN[mm-1]+' '+yy;
+  const E=_brgEsc;
+  const modeLbl={piece:'сдельщик',pool_salary:'оклад из пула',share_salary:'доля + оклад'};
+  const rows=c.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${E(l.name)}</td><td class="c">${E(modeLbl[l.mode]||'')}</td><td class="r">${l.days}</td><td class="r">${l.ktu}</td><td class="r">${(Math.round(l.w*100)/100)}</td><td class="r">${f(l.share)}</td>${m.deduct_stage_paid?`<td class="r">${f(l.stage)}</td>`:''}<td class="r b">${f(l.net)}</td><td class="sig"></td></tr>`).join('');
+  const dedRows=(m.deductions||[]).filter(d=>(d.name||'').trim()||(+d.amount||0)).map(d=>`<tr><td>${E(d.name||'—')}</td><td class="r">−${f(d.amount)}</td></tr>`).join('');
+  const sheet=_brg.sheet&&_brg.sheet.lines&&m.pool_source==='worksheet' ? _brg.sheet.lines : null;
+  const sheetHtml=sheet ? `<h3>Основание пула — выполненные работы за ${E(per)}</h3><table><thead><tr><th>Дата</th><th>Заказ</th><th>Изделие</th><th>Этап</th><th class="r">Сумма в пул</th></tr></thead><tbody>${
+    sheet.map(x=>`<tr><td>${E(String(x.date||'').split('-').reverse().join('.'))}</td><td>${E(x.order)}</td><td>${E(x.item)}</td><td>${E(x.stage)}</td><td class="r">${f(x.share)}</td></tr>`).join('')
+  }<tr class="tot"><td colspan="4">Итого</td><td class="r">${f(sheet.reduce((t,x)=>t+(+x.share||0),0))}</td></tr></tbody></table>` : '';
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Расчёт бригады ${E(b.name)} — ${E(per)}</title><style>
+  @page{size:A4;margin:14mm} body{font:12px/1.4 Arial,sans-serif;color:#000;margin:0}
+  h2{margin:0 0 2px;font-size:16px} h3{margin:16px 0 6px;font-size:13px} .sub{color:#444;margin-bottom:10px}
+  table{border-collapse:collapse;width:100%;margin-bottom:8px} th,td{border:1px solid #444;padding:4px 6px;vertical-align:top}
+  th{background:#eee;text-align:left} .r{text-align:right;white-space:nowrap} .c{text-align:center} .b{font-weight:700}
+  .tot td{font-weight:700;background:#f4f4f4} .sig{min-width:90px} .sum td:first-child{width:62%} .sum{width:70%}
+  .foot{margin-top:26px;display:flex;gap:40px} .foot div{flex:1;border-top:1px solid #000;padding-top:3px;font-size:11px;color:#333}
+  </style></head><body>
+  <h2>Расчёт сдельной оплаты бригады</h2>
+  <div class="sub"><b>${E(b.name)}</b> · ${E(per)} · ${m.status==='posted'?'начисления проведены':'черновик'}${m.foreman?' · бригадир: '+E(m.foreman):''}</div>
+  <table class="sum"><tbody>
+   <tr><td>Пул за месяц${m.pool_source==='worksheet'?' (из рабочего листа)':''}</td><td class="r">${f(m.pool)}</td></tr>
+   ${(+m.extra)?`<tr><td>Прибавка к пулу</td><td class="r">+${f(m.extra)}</td></tr>`:''}
+   ${dedRows}
+   ${c.bonus?`<tr><td>Доплата бригадиру${m.foreman?' ('+E(m.foreman)+')':''} ${c.fromPool?'— из пула':'— сверх пула'}</td><td class="r">${c.fromPool?'−':'+'}${f(c.bonus)}</td></tr>`:''}
+   ${c.salaryPool?`<tr><td>Оклады, вычтенные из пула</td><td class="r">−${f(c.salaryPool)}</td></tr>`:''}
+   <tr class="tot"><td>К распределению между сдельщиками</td><td class="r">${f(c.dist)}</td></tr>
+   <tr><td>Сумма «дни × КТУ»</td><td class="r">${Math.round(c.totalW*100)/100}</td></tr>
+   <tr><td>Стоимость одной единицы «день × КТУ»</td><td class="r">${f(c.unit)}</td></tr>
+  </tbody></table>
+  <table><thead><tr><th>№</th><th>Сотрудник</th><th class="c">Режим</th><th class="r">Дни</th><th class="r">КТУ</th><th class="r">Дни×КТУ</th><th class="r">Доля пула</th>${m.deduct_stage_paid?'<th class="r">Уже по этапам</th>':''}<th class="r">К начислению</th><th>Подпись</th></tr></thead>
+  <tbody>${rows}<tr class="tot"><td colspan="3">Итого</td><td class="r">${c.days}</td><td></td><td class="r">${Math.round(c.totalW*100)/100}</td><td class="r">${f(c.totalShare)}</td>${m.deduct_stage_paid?`<td class="r">${f(c.totalStage)}</td>`:''}<td class="r">${f(c.totalNet)}</td><td></td></tr></tbody></table>
+  ${m.note?`<div>Примечание: ${E(m.note)}</div>`:''}
+  ${sheetHtml}
+  <div class="foot"><div>Бригадир</div><div>Начальник производства</div><div>Главный бухгалтер</div></div>
+  <div class="sub" style="margin-top:10px">Распечатано ${new Date().toLocaleString('ru-RU')}</div>
+  </body></html>`;
+  let fr=document.getElementById('brg-print-frame');
+  if(fr) fr.remove();
+  fr=document.createElement('iframe'); fr.id='brg-print-frame'; fr.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(fr);
+  fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+  setTimeout(()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ alert('Не удалось открыть печать: '+e.message); } }, 300);
+}
 function exportBrigadeCsv(){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b){ alert('Нет данных'); return; }
   const c = brgCalc(m, _brg.stageMap);
@@ -18725,7 +18791,7 @@ function brdDlgRender(){
       <td>${s.posted?(+s.qty||0):`<input type="number" min="0" step="1" value="${+s.qty||0}" style="width:64px;font-size:12px" onchange="brdDlgQty(${i},this.value)">`}</td>
       <td style="min-width:170px">${exec}</td>
       <td style="text-align:right;font-family:monospace;font-size:12px">₸${fm(amount)}</td>
-      <td style="white-space:nowrap">${s.posted?`<span style="color:var(--green);font-size:12px">✅ ${(s.postedDate||'').split('-').reverse().join('.')}</span> <button class="btn btn-ghost btn-sm" style="font-size:11px" title="Снять с завершения" onclick="brdDlgUnpost(${i})">↩</button>`
+      <td style="white-space:nowrap">${s.posted?`<span style="color:var(--green);font-size:12px">✅ ${(s.postedDate||'').split('-').reverse().join('.')}</span> <button class="btn btn-ghost btn-sm" style="font-size:11px" title="Изменить дату выполнения" onclick="brdDlgDate(${i})">📅</button><button class="btn btn-ghost btn-sm" style="font-size:11px" title="Снять с завершения" onclick="brdDlgUnpost(${i})">↩</button>`
         :`${!s.started?`<button class="btn btn-ghost btn-sm" style="font-size:11px" title="Начать" onclick="brdDlgStart(${i})">▶</button> `:'<span title="В работе">🔨</span> '}<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="brdDlgPost(${i})">✅ Завершить</button>${idxs.length>1?` <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Убрать часть" onclick="brdDlgRemove(${i})">🗑</button>`:''}`}</td></tr>`;
   }).join('');
   const rem=total-sum;
@@ -18760,6 +18826,7 @@ async function brdDlgSetCat(val){
   brdDlgRender(); renderBoard();
 }
 async function brdDlgPost(i){ _pwbCurrentItemKey=_brdDlg.key; await postPwbStage(i); brdDlgRender(); renderBoard(); }
+async function brdDlgDate(i){ _pwbCurrentItemKey=_brdDlg.key; await pwbChangePostedDate(i); brdDlgRender(); renderBoard(); }
 async function brdDlgUnpost(i){ _pwbCurrentItemKey=_brdDlg.key; await unpostPwbStage(i); brdDlgRender(); renderBoard(); }
 async function brdDlgPostAll(){
   const r=brdRowByKey(_brdDlg.key); const idxs=brdDlgIdx().filter(i=>!r.p.stages[i].posted);
@@ -38001,6 +38068,48 @@ function pwbAssignedToMe(stages){
 }
 function pwbIsMine(key,stages){ return !!(_pwbPicks && _pwbPicks.has(key)) || pwbAssignedToMe(stages); }
 // Панель «Мои / Все» над таблицей (host — элемент, перед которым вставляется панель)
+// Дата, которой проводятся этапы (для расчёта ЗП за прошлый месяц). Пусто = сегодня.
+function pwbPostDate(){ try{ return localStorage.getItem('pwbPostDate')||''; }catch(e){ return ''; } }
+function pwbSetPostDate(v){
+  try{ if(v) localStorage.setItem('pwbPostDate',v); else localStorage.removeItem('pwbPostDate'); }catch(e){}
+  document.querySelectorAll('.pwb-postdate-in').forEach(i=>{ if(i.value!==(v||'')) i.value=v||''; });
+  document.querySelectorAll('.pwb-postdate-note').forEach(n=>{ n.textContent = v ? ('этапы будут проведены датой '+v.split('-').reverse().join('.')) : 'сегодняшней датой'; });
+}
+// Сменить дату у уже проведённого этапа (и у его начислений в зарплатной ведомости)
+async function pwbChangePostedDate(idx){
+  const p=prodProgress[_pwbCurrentItemKey]; const st=p&&p.stages[idx]; if(!st||!st.posted) return;
+  const ans=prompt('Новая дата выполнения этапа (ГГГГ-ММ-ДД). Начисления по этапу тоже переедут на эту дату.', st.postedDate||'');
+  if(ans===null) return;
+  const d=ans.trim(); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ alert('Неверный формат даты. Нужно ГГГГ-ММ-ДД, например 2026-10-20.'); return; }
+  try{ await pwbMoveStageDate(st,d); await saveProdProgress(_pwbCurrentItemKey); }
+  catch(e){ alert('Не удалось сменить дату: '+e.message); return; }
+  if(typeof renderPwbStagesList==='function') try{ renderPwbStagesList(); }catch(e){}
+  renderProdWorksheet();
+}
+async function pwbMoveStageDate(st,d){
+  for(const id of (st.accrualIds||[])){
+    await sbPatch('salary_accruals', `id=eq.${id}`, {date:d});
+    if(typeof _payrollData!=='undefined' && _payrollData){ const a=_payrollData.accruals.find(x=>String(x.id)===String(id)); if(a) a.date=d; }
+  }
+  st.postedDate=d;
+}
+// Массово: проведённые этапы с датой из диапазона перенести на другую дату (например, ноябрь → октябрь)
+async function pwbBulkMoveDate(){
+  const from=prompt('Перенести проведённые этапы, у которых дата ОТ (ГГГГ-ММ-ДД):', new Date().toISOString().slice(0,8)+'01'); if(from===null) return;
+  const to=prompt('…и ДО (включительно, ГГГГ-ММ-ДД):', new Date().toISOString().slice(0,10)); if(to===null) return;
+  const nd=prompt('Новая дата выполнения (ГГГГ-ММ-ДД), например 2026-10-31:', ''); if(nd===null) return;
+  const re=/^\d{4}-\d{2}-\d{2}$/;
+  if(![from,to,nd].every(x=>re.test(x.trim()))){ alert('Неверный формат даты. Нужно ГГГГ-ММ-ДД.'); return; }
+  const F=from.trim(), T=to.trim(), N=nd.trim(), list=[];
+  Object.keys(prodProgress).forEach(k=>(prodProgress[k].stages||[]).forEach(st=>{ if(st.posted && st.postedDate>=F && st.postedDate<=T) list.push([k,st]); }));
+  if(!list.length){ alert('Проведённых этапов с датой с '+F+' по '+T+' не найдено.'); return; }
+  if(!confirm('Найдено проведённых этапов: '+list.length+'.\nПеренести их на дату '+N+' (вместе с начислениями)?')) return;
+  let ok=0, bad=0; const keys=new Set();
+  for(const [k,st] of list){ try{ await pwbMoveStageDate(st,N); keys.add(k); ok++; }catch(e){ bad++; } }
+  for(const k of keys){ try{ await saveProdProgress(k); }catch(e){ bad++; } }
+  alert('Перенесено: '+ok+(bad?'. Ошибок: '+bad:'')+'.');
+  renderProdWorksheet(); if(document.getElementById('brd-body')){ try{ renderBoard(); }catch(e){} }
+}
 function pwbRenderBar(barId, beforeEl, withBulk){
   const mine = pwbViewMode()==='mine';
   let n=document.getElementById(barId);
@@ -38010,6 +38119,7 @@ function pwbRenderBar(barId, beforeEl, withBulk){
   n.innerHTML = `<button class="btn btn-sm ${mine?'btn-primary':'btn-ghost'}" onclick="pwbSetView('mine')">👤 Мои позиции${_pwbPicks?' ('+cnt+')':''}</button>`
     +`<button class="btn btn-sm ${mine?'btn-ghost':'btn-primary'}" onclick="pwbSetView('all')">📋 Все позиции</button>`
     +(withBulk?`<button class="btn btn-ghost btn-sm" title="Добавить отмеченные галочками строки в «Мои позиции»" onclick="pwbPickSelected()">⭐ Добавить отмеченные в мои</button>`:'')
+    +`<span style="display:inline-flex;gap:6px;align-items:center;border-left:1px solid var(--border);padding-left:8px" title="Дата, которой проводятся этапы. Пусто = сегодня. Для зарплаты за прошлый месяц укажите дату в нём."><b>📅 Проводить этапы датой:</b><input type="date" class="pwb-postdate-in" value="${pwbPostDate()}" style="font-size:12px;width:auto" onchange="pwbSetPostDate(this.value)"><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="pwbSetPostDate('')" title="Вернуть сегодняшнюю дату">сегодня</button><span class="pwb-postdate-note" style="color:var(--text3)">${pwbPostDate()?'этапы будут проведены датой '+pwbPostDate().split('-').reverse().join('.'):'сегодняшней датой'}</span><button class="btn btn-ghost btn-sm" style="font-size:11px" title="Уже проведённым этапам поменять дату пачкой" onclick="pwbBulkMoveDate()">🔁 Перенести даты проведённых</button></span>`
     +`<span style="flex:1;min-width:220px">${mine
       ? 'Здесь то, что выбрали вы (и где вы назначены исполнителем). Чужие строки не мешают, но в «Все позиции» их можно открыть. Чтобы добавить позицию себе, нажмите ☆ у строки.'
       : 'Показаны все позиции. Нажмите ☆ у строки, чтобы добавить её в «Мои позиции». Данные в строках общие для всех.'}</span>`;
@@ -38191,7 +38301,7 @@ function renderPwbStagesList(){
       `}
       <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
         ${s.posted
-          ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbStage(${idx})">↩ Снять с завершения</button>`
+          ? `<span style="color:var(--green);font-size:12px">✅ ${(s.postedDate||'').split('-').reverse().join('.')}</span> <button class="btn btn-ghost btn-sm" style="font-size:11px" title="Изменить дату выполнения (вместе с начислениями)" onclick="pwbChangePostedDate(${idx})">📅 Дата</button><button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--amber)" onclick="unpostPwbStage(${idx})">↩ Снять с завершения</button>`
           : `${!s.started?`<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent)" onclick="startPwbStage(${idx})">▶️ Начать работу</button>`:`<span class="badge badge-amber" style="font-size:10px">В работе с ${s.startedDate?s.startedDate.split('-').reverse().join('.'):''}</span>`}
              <button class="btn btn-primary btn-sm" style="font-size:11px" onclick="postPwbStage(${idx})">✅ Завершить работу</button>
              <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="removePwbStage(${idx})">🗑 Удалить этап</button>`}
@@ -38317,13 +38427,14 @@ async function postPwbStage(idx){
   const p = prodProgress[_pwbCurrentItemKey];
   const s = p.stages[idx];
   if(!s.stage){ alert('Укажите название этапа.'); return; }
-  let doneDate = new Date().toISOString().slice(0,10);
+  let doneDate = pwbPostDate() || new Date().toISOString().slice(0,10);
+  const _manualDate = !!pwbPostDate();
   {
     const row0 = prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey);
     const ord0 = row0 && ordersData.find(o=>o.num===row0.orderNum);
     const why0 = orderClosedReason(ord0);
     if(why0 && !confirm(`Внимание: заказ ${ord0.num} уже ${why0}.\n\nЗавершить этап «${s.stage}» и ${s.brigade?'добавить его сумму в пул бригады':'начислить сдельную оплату'}?`)) return;
-    if(why0){
+    if(why0 && !_manualDate){
       const rl=(Array.isArray(realizationsData)?realizationsData:[]).filter(r=>r.order_num===ord0.num && r.doc_date).map(r=>String(r.doc_date).slice(0,10)).sort();
       const def = rl.length ? rl[rl.length-1] : doneDate;
       const ans = prompt('Когда выполнен этап? Дата определяет, в какой месяц пойдёт оплата (пул бригады / начисление).\nФормат ГГГГ-ММ-ДД. По умолчанию — дата отгрузки заказа.', def);
