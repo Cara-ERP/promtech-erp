@@ -2531,6 +2531,7 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pwb-import-file').click()">📤 Импорт Excel</button>
           <input type="file" id="pwb-import-file" accept=".xlsx,.xls" style="display:none" onchange="handleProdWorksheetImport(this.files[0])">
           <button class="btn btn-ghost btn-sm" onclick="exportProdWorksheetExcel()">📥 Экспорт Excel</button>
+          <button class="btn btn-ghost btn-sm" onclick="printProdWorksheet()">🖨 Печать</button>
           <button class="btn btn-ghost btn-sm" onclick="deleteSelectedProdWbRows()">✕ Удалить отмеченные</button>
           <button class="btn btn-ghost btn-sm" onclick="clearProdWorksheet()">🗑 Очистить лист</button>
         </div>
@@ -38166,6 +38167,7 @@ function renderProdWorksheet(){
     return true;
   });
 
+  window._pwbAllRows = rows; window._pwbShown = filtered;
   const tbody = document.getElementById('pwb-tbody');
   if(!tbody) return;
   if(!filtered.length && _mine && rows.length){
@@ -38398,6 +38400,51 @@ function orderClosedReason(o){
 }
 
 // Исполнители этапа для отображения: бригада или список сотрудников
+// Печать журнала Рабочего листа производства (альбомная А4): позиции, этапы с исполнителями и статусами, материалы
+function printProdWorksheet(){
+  const all=window._pwbAllRows||[], shown=window._pwbShown||[];
+  if(!all.length){ alert('Рабочий лист пуст — печатать нечего.'); return; }
+  let list=shown;
+  if(shown.length!==all.length){
+    list = confirm(`Сейчас на экране ${shown.length} из ${all.length} позиций (действуют фильтры или режим «Мои позиции»).\n\nOK — печатать ВСЕ ${all.length} позиций листа.\nОтмена — печатать только то, что на экране (${shown.length}).`) ? all : shown;
+  }
+  if(!list.length){ alert('Нет позиций для печати.'); return; }
+  const E=_brgEsc, fd=d=>String(d||'').split('-').reverse().join('.');
+  const fmt=n=>Math.round(+n||0).toLocaleString('ru-RU');
+  const body=list.map((r,i)=>{
+    const ch=marginChannelForOrder(r.order);
+    const st=(r.progress.stages||[]).map(s=>{
+      const w=PIECE_WORKSHOPS.find(x=>x.id===s.workshop);
+      const who=stageExecNames(s).join(', ')||'— не назначен';
+      const stat=s.posted?'✔ '+fd(s.postedDate):(s.started?'в работе':'не начат');
+      return `<div class="st"><b>${E(s.stage||'—')}</b>${w?' · '+E(w.name):''} · ${E(who)}${s.qty?' · '+s.qty+' шт':''}${s.rate?' · '+fmt(s.rate)+' ₸':''} · <i>${stat}</i></div>`;
+    }).join('') || '<span class="mut">этапов нет</span>';
+    const mats=(r.progress.materials||[]).map(m=>`<div>${E(m.name||'?')}${m.qty?' — '+m.qty+' '+E(m.unit||''):''}${m.posted?' ✔':''}</div>`).join('') || '<span class="mut">—</span>';
+    const done=r.progress.stages.length && r.progress.stages.every(s=>s.posted);
+    return `<tr><td class="c">${i+1}</td>
+      <td><b>${E(r.orderNum)}</b><div class="mut">${E(ch?(PL_CHANNEL_LABELS[ch]||ch):'')}</div></td>
+      <td class="nw">${E(r.order.date||'—')}<div class="mut">${E(r.order.deliveryDate||'—')}</div></td>
+      <td><b>№${r.itemIdx+1} ${E(r.item.name)}</b>${r.item.category?`<div class="mut">${E(r.item.category)}</div>`:''}<div class="mut">${E(itemCharacteristicsText(r.item)||'')}</div></td>
+      <td class="c">${r.item.qty||''}</td>
+      <td>${st}</td><td>${mats}</td>
+      <td class="c">${done?'✔ все этапы':(r.progress.stages.some(s=>s.posted)?'частично':'—')}</td></tr>`;
+  }).join('');
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Рабочий лист производства</title><style>
+  @page{size:A4 landscape;margin:10mm} body{font:10.5px/1.35 Arial,sans-serif;color:#000;margin:0}
+  h2{margin:0 0 2px;font-size:15px} .sub{color:#444;margin-bottom:8px}
+  table{border-collapse:collapse;width:100%} th,td{border:1px solid #555;padding:3px 5px;vertical-align:top} th{background:#eee;text-align:left}
+  thead{display:table-header-group} tr{page-break-inside:avoid} .c{text-align:center} .nw{white-space:nowrap} .mut{color:#555;font-size:9.5px} .st{margin-bottom:2px}
+  </style></head><body>
+  <h2>Рабочий лист производства</h2>
+  <div class="sub">Позиций: ${list.length} · распечатано ${new Date().toLocaleString('ru-RU')}${window._currentRole?' · '+E(window._currentRole.name):''}</div>
+  <table><thead><tr><th>№</th><th>Заказ / канал</th><th>Дата заказа / отгрузки</th><th>Изделие</th><th>Кол-во</th><th>Этапы · цех · исполнитель · статус</th><th>Материалы</th><th>Проводки</th></tr></thead><tbody>${body}</tbody></table>
+  </body></html>`;
+  let fr=document.getElementById('pwb-print-frame'); if(fr) fr.remove();
+  fr=document.createElement('iframe'); fr.id='pwb-print-frame'; fr.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(fr);
+  fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+  setTimeout(()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ alert('Не удалось открыть печать: '+e.message); } }, 300);
+}
 function stageExecNames(s){
   return s.brigade ? ['👥 '+(s.brigadeName||'бригада')] : (s.assignees||[]).map(a=>a.name);
 }
