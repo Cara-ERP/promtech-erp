@@ -2476,6 +2476,7 @@ window.onerror = function(msg, src, line, col){
           <div class="tab" onclick="showShopTab('Кровать',this)">Кровать <span class="kanban-count" id="sf-count-Кровать">0</span></div>
           <div class="tab" onclick="showShopTab('Мягкая мебель',this)">Мягкая мебель <span class="kanban-count" id="sf-count-Мягкая_мебель">0</span></div>
           <div class="tab" onclick="showShopTab('Корпусная мебель',this)">Корпусная мебель <span class="kanban-count" id="sf-count-Корпусная_мебель">0</span></div>
+          <div class="tab" onclick="showShopTab('Корпусная мебель с установкой',this)">С установкой <span class="kanban-count" id="sf-count-Корпусная_мебель_с_установкой">0</span></div>
         </div>
         <div id="shopfloor-board-wrap" style="overflow:auto;max-height:70vh">
           <div id="sf-virtual-note" style="display:none;margin-bottom:10px;padding:8px 12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text2)">ℹ️ Позиции с техкартой из вкладки «Технологические карты» показаны <b>только для просмотра</b>: положение на доске берётся из «Рабочего листа производства» (первый незавершённый этап). Менять этапы нужно в рабочем листе или на «🗂 Доске этапов».</div>
@@ -18434,7 +18435,8 @@ async function openPwbApplyTc(){
   const lab={template:'Шаблон',item:'По изделию',category:'По категории'};
   // подсказка: карта по изделию → по категории → первая
   let best = cards.find(c=>c.link_type==='item' && item && c.link_key===item.name)
-          || cards.find(c=>c.link_type==='category' && item && c.link_key===item.category) || cards[0];
+          || cards.find(c=>c.link_type==='category' && item && c.link_key===item.category)
+          || (item ? tcTemplateByCategory(cards, item.category) : null) || cards[0];
   document.getElementById('pwb-tc-sel').innerHTML = cards.map(c=>`<option value="${c.id}" ${c.id===best.id?'selected':''}>${c.name||c.link_key} · ${lab[c.link_type]||''} (${c.stages.length})</option>`).join('');
   pwbTcPreview();
   showModal('pwbApplyTcModal');
@@ -18551,8 +18553,12 @@ function brdRows(ignoreAct){
   const showDone=document.getElementById('brd-done')?.checked;
   const wsF=document.getElementById('brd-ws')?.value||'';
   const noexecOnly=!!document.getElementById('brd-noexec')?.checked;
+  const _mine = pwbViewMode()==='mine';
+  if(!_pwbPicks || !window._pwbBrigMem){ Promise.all([pwbLoadPicks(), pwbLoadBrigadeMembers()]).then(()=>{ try{ renderBoard(); }catch(e){} }); }
+  pwbRenderBar('brd-pick-bar', document.getElementById('brd-acts'), false);
   return prodWbRows.map(r=>brdRowByKey(r.itemKey)).filter(r=>{
     if(!r || !(r.p.stages||[]).length) return false;
+    if(_mine && !pwbIsMine(r.itemKey, r.p.stages)) return false;
     const gs=brdGroups(r); r.groups=gs;
     if(!showDone && gs.every(g=>g.allDone)) return false;
     if(!showDone && orderClosedReason(r.order)) return false;
@@ -18703,7 +18709,9 @@ function brdDlgRender(){
   const first=r.p.stages[idxs[0]]; const w=PIECE_WORKSHOPS.find(x=>x.id===first.workshop);
   const fm=n=>Math.round(n).toLocaleString('ru-RU');
   document.getElementById('brd-dlg-title').textContent=name;
-  document.getElementById('brd-dlg-meta').innerHTML=`${brdEsc(r.orderNum)} · №${r.itemIdx+1} ${brdEsc(r.item.name)} · всего ${total} шт · ${w?w.icon+' '+brdEsc(w.name):'цех не указан'}`;
+  document.getElementById('brd-dlg-meta').innerHTML=`${brdEsc(r.orderNum)} · №${r.itemIdx+1} ${brdEsc(r.item.name)} · всего ${total} шт · ${w?w.icon+' '+brdEsc(w.name):'цех не указан'}`
+    +` · вид: <select style="font-size:11px;padding:1px 4px;width:auto" title="Вид деятельности позиции. Можно сменить, например, на «с установкой»." onchange="brdDlgSetCat(this.value)">`
+    +[...new Set([r.item.category,...productCategories].filter(Boolean))].map(c=>`<option value="${brdEsc(c)}" ${c===r.item.category?'selected':''}>${brdEsc(c)}</option>`).join('')+`</select>`;
   const rowsHtml=idxs.map(i=>{
     const s=r.p.stages[i]; const a=s.assignees||[];
     const exec = s.posted ? `<span>${s.brigade?'👥 '+brdEsc(s.brigadeName||'бригада'):brdEsc(a.map(x=>x.name).join(', '))||'—'}</span>`
@@ -18737,6 +18745,17 @@ async function brdDlgQty(i,val){
   s.qty=q; await brdDlgSave();
 }
 async function brdDlgStart(i){ _pwbCurrentItemKey=_brdDlg.key; startPwbStage(i); setTimeout(()=>{ brdDlgRender(); renderBoard(); },400); }
+async function brdDlgSetCat(val){
+  const r=brdRowByKey(_brdDlg.key); if(!r) return;
+  const order=ordersData.find(o=>o.num===r.orderNum); const item=order&&order.items[r.itemIdx]; if(!item) return;
+  if(item.category===val) return;
+  if(!confirm(`Изменить вид деятельности позиции «${item.name}» (заказ ${order.num}) на «${val||'—'}»?`)) { brdDlgRender(); return; }
+  const old=item.category; item.category=val;
+  try{ await sbPatch('orders', `num=eq.${encodeURIComponent(order.num)}`, {items: order.items}); }
+  catch(e){ item.category=old; alert('Не удалось сохранить: '+e.message); brdDlgRender(); return; }
+  brdToast('Вид деятельности изменён: '+(val||'—'));
+  brdDlgRender(); renderBoard();
+}
 async function brdDlgPost(i){ _pwbCurrentItemKey=_brdDlg.key; await postPwbStage(i); brdDlgRender(); renderBoard(); }
 async function brdDlgUnpost(i){ _pwbCurrentItemKey=_brdDlg.key; await unpostPwbStage(i); brdDlgRender(); renderBoard(); }
 async function brdDlgPostAll(){
@@ -36262,7 +36281,7 @@ function renderOrderReport(){
 // ===== PRODUCT CATEGORIES & ATTRIBUTES (furniture-specific) =====
 
 // Editable list of product categories (shown as the first tab in the catalog modal)
-let productCategories=['Стул','Стол','Кровать','Мягкая мебель','Корпусная мебель'];
+let productCategories=['Стул','Стол','Кровать','Мягкая мебель','Корпусная мебель','Корпусная мебель с установкой'];
 
 // Categories where "Ткань" (fabric) is not applicable — matched by name, so renaming
 // "Стол" or "Корпусная мебель" here would need updating too (rare in practice)
@@ -37378,13 +37397,20 @@ function sfCollectRows(){
 }
 
 // ── Техкарты из вкладки «Технологические карты» + прогресс из Рабочего листа (только просмотр) ──
+// Шаблон техкарты по виду деятельности: имя шаблона начинается с названия вида.
+// «Корпусная мебель (под заказ)» не должен подходить к виду «Корпусная мебель с установкой».
+function tcTemplateByCategory(cards, cat){
+  cat = String(cat||'').toLowerCase().trim(); if(!cat) return null;
+  const longer = (typeof productCategories!=='undefined'?productCategories:[]).map(x=>String(x).toLowerCase().trim()).filter(x=>x.length>cat.length && x.startsWith(cat));
+  return cards.find(c=>c.link_type==='template' && (()=>{ const n=String(c.name||'').toLowerCase().trim(); return n.startsWith(cat) && !longer.some(l=>n.startsWith(l)); })()) || null;
+}
 function sfResolveTc(item){
   const cards=(typeof techCardsData!=='undefined'?techCardsData:[]).filter(c=>(c.stages||[]).length);
   if(!cards.length) return null;
   const cat=String(item.category||'').toLowerCase().trim();
   return cards.find(c=>c.link_type==='item' && c.link_key===item.name)
       || cards.find(c=>c.link_type==='category' && cat && String(c.link_key||'').toLowerCase()===cat)
-      || (cat ? cards.find(c=>c.link_type==='template' && String(c.name||'').toLowerCase().startsWith(cat)) : null)
+      || tcTemplateByCategory(cards, cat)
       || null;
 }
 function sfApplyVirtualTc(order, item, itemIdx){
@@ -37904,6 +37930,87 @@ function pwbPopulateFilters(){
   }
 }
 
+// ══════ «Мои позиции»: каждый сам выбирает, какие позиции ему нужны в Рабочем листе и на Доске этапов ══════
+// Список личный (таблица worksheet_picks: username + item_key). Сами данные строк общие: правка видна всем.
+// «Мои» = выбранные мной ⭐ + те, где я уже назначен исполнителем (лично или через бригаду).
+function pwbUser(){ return window._currentUser||''; }
+function pwbIsLeader(){ return ['director','accountant','foreman','hr'].includes(window._currentUser); }
+function pwbNameKey(n){
+  const m={'ё':'е','ң':'н','ғ':'г','ү':'у','ұ':'у','қ':'к','ә':'а','ө':'о','і':'и','һ':'х'};
+  return String(n||'').toLowerCase().replace(/[ёңғүұқәөіһ]/g,c=>m[c]).replace(/[^a-zа-я\s]/g,' ').trim().split(/\s+/).slice(0,2).join(' ');
+}
+function pwbViewMode(){
+  let v=null; try{ v=localStorage.getItem('pwbView:'+pwbUser()); }catch(e){}
+  if(v!=='mine' && v!=='all') v = pwbIsLeader() ? 'all' : 'mine';
+  return v;
+}
+function pwbSetView(v){
+  try{ localStorage.setItem('pwbView:'+pwbUser(), v); }catch(e){}
+  renderProdWorksheet(); if(document.getElementById('brd-body')){ try{ renderBoard(); }catch(e){} }
+}
+let _pwbPicks = null, _pwbPicksMode = 'db';
+function pwbPicksLocalSave(){ try{ localStorage.setItem('pwbPicks:'+pwbUser(), JSON.stringify([..._pwbPicks])); }catch(e){} }
+async function pwbLoadPicks(){
+  if(_pwbPicks) return;
+  const u=pwbUser(); if(!u || u==='__pin__'){ _pwbPicks=new Set(); return; }
+  try{
+    const rows = await sbFetch('worksheet_picks','select=item_key&username=eq.'+encodeURIComponent(u));
+    _pwbPicks = new Set((rows||[]).map(r=>r.item_key)); _pwbPicksMode='db';
+  }catch(e){
+    _pwbPicksMode='local'; let a=[]; try{ a=JSON.parse(localStorage.getItem('pwbPicks:'+u)||'[]'); }catch(_){}
+    _pwbPicks=new Set(a);
+  }
+}
+async function pwbSetPick(key,on){
+  await pwbLoadPicks(); const u=pwbUser();
+  if(on) _pwbPicks.add(key); else _pwbPicks.delete(key);
+  if(_pwbPicksMode==='db'){
+    try{
+      if(on) await sbInsert('worksheet_picks',{username:u,item_key:key});
+      else await sbDelete('worksheet_picks',`username=eq.${encodeURIComponent(u)}&item_key=eq.${encodeURIComponent(key)}`);
+    }catch(e){ if(!/duplicate|23505|409/i.test(String(e.message))){ _pwbPicksMode='local'; } }
+  }
+  if(_pwbPicksMode==='local') pwbPicksLocalSave();
+}
+async function pwbTogglePick(key){
+  await pwbLoadPicks(); await pwbSetPick(key, !_pwbPicks.has(key));
+  renderProdWorksheet(); if(document.getElementById('brd-body')){ try{ renderBoard(); }catch(e){} }
+}
+async function pwbPickSelected(){
+  if(!pwbSelected.size){ alert('Сначала отметьте строки галочками слева.'); return; }
+  for(const k of [...pwbSelected]) await pwbSetPick(k,true);
+  pwbSelected.clear(); renderProdWorksheet();
+}
+async function pwbLoadBrigadeMembers(){
+  if(window._pwbBrigMem) return;
+  try{
+    const rows = await sbFetch('brigades','select=id,members');
+    window._pwbBrigMem = {}; (rows||[]).forEach(b=>{ window._pwbBrigMem[String(b.id)] = (b.members||[]).map(pwbNameKey); });
+  }catch(e){ window._pwbBrigMem = {}; }
+}
+function pwbAssignedToMe(stages){
+  const role=getCurrentRole(); const me=pwbNameKey((role&&role.name)||window._currentUsername||'');
+  if(!me) return false;
+  return (stages||[]).some(s=>{
+    if((s.assignees||[]).some(a=>pwbNameKey(a.name)===me)) return true;
+    return !!s.brigade && ((window._pwbBrigMem||{})[String(s.brigade)]||[]).includes(me);
+  });
+}
+function pwbIsMine(key,stages){ return !!(_pwbPicks && _pwbPicks.has(key)) || pwbAssignedToMe(stages); }
+// Панель «Мои / Все» над таблицей (host — элемент, перед которым вставляется панель)
+function pwbRenderBar(barId, beforeEl, withBulk){
+  const mine = pwbViewMode()==='mine';
+  let n=document.getElementById(barId);
+  if(!n && beforeEl && beforeEl.parentElement){ n=document.createElement('div'); n.id=barId; n.style.cssText='margin:0 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text2);display:flex;flex-wrap:wrap;gap:8px;align-items:center'; beforeEl.parentElement.insertBefore(n,beforeEl); }
+  if(!n) return;
+  const cnt=_pwbPicks?_pwbPicks.size:0;
+  n.innerHTML = `<button class="btn btn-sm ${mine?'btn-primary':'btn-ghost'}" onclick="pwbSetView('mine')">👤 Мои позиции${_pwbPicks?' ('+cnt+')':''}</button>`
+    +`<button class="btn btn-sm ${mine?'btn-ghost':'btn-primary'}" onclick="pwbSetView('all')">📋 Все позиции</button>`
+    +(withBulk?`<button class="btn btn-ghost btn-sm" title="Добавить отмеченные галочками строки в «Мои позиции»" onclick="pwbPickSelected()">⭐ Добавить отмеченные в мои</button>`:'')
+    +`<span style="flex:1;min-width:220px">${mine
+      ? 'Здесь то, что выбрали вы (и где вы назначены исполнителем). Чужие строки не мешают, но в «Все позиции» их можно открыть. Чтобы добавить позицию себе, нажмите ☆ у строки.'
+      : 'Показаны все позиции. Нажмите ☆ у строки, чтобы добавить её в «Мои позиции». Данные в строках общие для всех.'}</span>`;
+}
 function renderProdWorksheet(){
   pwbPopulateFilters();
   const search = (document.getElementById('pwb-f-search')?.value||'').toLowerCase();
@@ -37923,7 +38030,12 @@ function renderProdWorksheet(){
     return {...r, order, item, progress: prodProgress[r.itemKey]||{stages:[],materials:[],completed:false}};
   }).filter(r=>r.order && r.item);
 
+  const _mine = pwbViewMode()==='mine';
+  if(!_pwbPicks || !window._pwbBrigMem){ Promise.all([pwbLoadPicks(), pwbLoadBrigadeMembers()]).then(()=>renderProdWorksheet()); }
+  pwbRenderBar('pwb-pick-bar', document.getElementById('pwb-tbody')?.closest('table')?.parentElement, true);
+
   const filtered = rows.filter(r=>{
+    if(_mine && !pwbIsMine(r.itemKey, r.progress.stages)) return false;
     if(search && !r.item.name.toLowerCase().includes(search) && search.replace(/^№\s*/,'')!==String(r.itemIdx+1)) return false;
     if(orderF && !r.orderNum.toLowerCase().includes(orderF) && !(/^\d+$/.test(orderF) && (r.orderNum.match(/\d+/g)||[]).some(d=>parseInt(d,10)===parseInt(orderF,10)))) return false;
     if(catF && r.item.category!==catF) return false;
@@ -37943,6 +38055,11 @@ function renderProdWorksheet(){
 
   const tbody = document.getElementById('pwb-tbody');
   if(!tbody) return;
+  if(!filtered.length && _mine && rows.length){
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:24px">В «Моих позициях» пока пусто. Переключитесь на «📋 Все позиции» и нажмите ☆ у нужных строк.</td></tr>';
+    setTimeout(()=>initStickyScroll('pwb'),0);
+    return;
+  }
   if(!filtered.length){
     tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:24px">Лист пуст — добавьте заказы кнопками выше</td></tr>';
     setTimeout(()=>initStickyScroll('pwb'),0);
@@ -37968,7 +38085,7 @@ function renderProdWorksheet(){
       : '<span style="color:var(--text3)">—</span>';
     const charText = itemCharacteristicsText(r.item);
     return `<tr>
-      <td><input type="checkbox" class="pwb-row-check" data-key="${r.itemKey}" onchange="togglePwbRow(this,'${r.itemKey}')" ${pwbSelected.has(r.itemKey)?'checked':''}></td>
+      <td><input type="checkbox" class="pwb-row-check" data-key="${r.itemKey}" onchange="togglePwbRow(this,'${r.itemKey}')" ${pwbSelected.has(r.itemKey)?'checked':''}> <span style="cursor:pointer;font-size:14px" title="${(_pwbPicks&&_pwbPicks.has(r.itemKey))?'Убрать из моих позиций':'Добавить в мои позиции'}" onclick="pwbTogglePick('${r.itemKey}')">${(_pwbPicks&&_pwbPicks.has(r.itemKey))?'⭐':'☆'}</span></td>
       <td style="font-size:11px">
         <div style="font-family:monospace;color:var(--accent)">${r.orderNum}</div>
         <div style="color:var(--text3)">${channel?PL_CHANNEL_LABELS[channel]||channel:'—'}</div>
@@ -40289,7 +40406,7 @@ function jumpToShopFloor(orderNum, itemIdx){
 }
 
 function updateShopTabCounts(){
-  const counts={'Стул':0,'Стол':0,'Кровать':0,'Мягкая мебель':0,'Корпусная мебель':0};
+  const counts={'Стул':0,'Стол':0,'Кровать':0,'Мягкая мебель':0,'Корпусная мебель':0,'Корпусная мебель с установкой':0};
   sfCollectRows().forEach(r=>{ if(counts[r.item.category]!==undefined) counts[r.item.category]++; });
   Object.keys(counts).forEach(cat=>{
     const elId='sf-count-'+cat.replace(/ /g,'_');
