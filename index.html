@@ -18284,11 +18284,11 @@ function openSemiRelease(id){
   g('sr-num').value = d? (d.num||'') : 'ВП-'+String((_sr.list.length||0)+1).padStart(3,'0');
   g('sr-note').value = d? (d.note||'') : '';
   const wsSel=g('sr-ws'); wsSel.innerHTML=srWorkshopOptions(d?d.workshop:'cut'); wsSel.onchange=function(){ const sw=g('sr-who'); if(sw){ const v=sw.value; sw.innerHTML=srWhoOptions(v); } srRenderRows(); };
-  try{ prLoad(); }catch(e){}
+  try{ prLoad().then(()=>{ const n=document.getElementById('sr-items-list'); if(n) n.innerHTML=srRateNames().map(x=>`<option value="${x.replace(/"/g,'&quot;')}">`).join(''); _sr.rows.forEach((r,i)=>{ if(!posted && r.name && !(+r.rate>0)) srAutoRate(i); }); }).catch(()=>{}); }catch(e){}
   _sr.rows = d ? JSON.parse(JSON.stringify(d.rows||[])) : [{name:'',qty:1,unit:'шт',rate:0,who:''}];
   if(!d && g('sr-who')) g('sr-who').value='';
   const names=[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))];
-  g('sr-items-list').innerHTML=names.map(n=>`<option value="${n}">`).join('');
+  g('sr-items-list').innerHTML=[...new Set([...names,...srRateNames()])].map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('');
   ['sr-date','sr-num','sr-note','sr-ws'].forEach(i=>g(i).disabled=!!posted);
   { const ws=[...new Set(_sr.rows.map(r=>r.who).filter(Boolean))]; const hasEmpty=_sr.rows.some(r=>!r.who);
     const sel=g('sr-who'); sel.innerHTML=srWhoOptions(ws.length===1&&!hasEmpty?ws[0]:''); sel.disabled=!!posted; }
@@ -18433,8 +18433,21 @@ function srOpOptions(sel){
   if(sel && !ops.includes(sel)) ops.push(sel);
   return '<option value="">—</option>'+ops.map(o=>`<option value="${String(o).replace(/"/g,'&quot;')}" ${o===sel?'selected':''}>${o}</option>`).join('');
 }
+function srRateNames(){
+  const out=new Set();
+  if(_prates) _prates.forEach(v=>{ if(v && v.kind==='item' && v.item_name) out.add(v.item_name); });
+  (warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).forEach(w=>out.add(w.name));
+  return [...out].sort((a,b)=>a.localeCompare(b,'ru'));
+}
 function srAutoRate(i){
-  const r=_sr.rows[i]; if(!r||!r.op||!r.name) return;
+  const r=_sr.rows[i]; if(!r||!r.name) return;
+  if(!r.op && _prates){
+    // операция не выбрана: если у этого названия расценка есть ровно по одной операции цеха — подставим её
+    const ops=((_wsMeta[(document.getElementById('sr-ws')||{}).value]||{}).operations||[]);
+    const hit=ops.filter(o=>prRateFor(o,r.name,null)!=null);
+    if(hit.length===1){ r.op=hit[0]; srRenderRows(); }
+  }
+  if(!r.op) return;
   const v=prRateFor(r.op, r.name, null);
   if(v!=null && (!r.rateManual || !(+r.rate>0))){ r.rate=v; r.rateManual=false; srRenderRows(); }
 }
