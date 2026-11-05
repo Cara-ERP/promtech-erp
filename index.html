@@ -7435,10 +7435,24 @@ window.onerror = function(msg, src, line, col){
       <div class="section-header">
         <div><div class="section-title">Цеха и участники</div>
           <div class="section-sub">Справочник цехов для рабочего листа, журнала работ, загрузки цехов и выпуска полуфабрикатов.</div></div>
-        <div><button class="btn btn-primary btn-sm" onclick="wsNew()">＋ Цех</button></div>
+        <div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="prOpen()">💰 Расценки по изделиям</button><button class="btn btn-primary btn-sm" onclick="wsNew()">＋ Цех</button></div>
       </div>
       <div id="ws-admin-body"></div>
       <div class="section-sub" style="margin-top:12px;line-height:1.6">Удалить можно только цех, в котором нет работ. Таблица создаётся файлом <code>workshops.sql</code>.</div>
+    </div>
+
+    <div class="modal-overlay" id="prModal">
+      <div class="modal" style="max-width:860px;width:96vw">
+        <div class="modal-header"><div class="modal-title">💰 Расценки: операция × изделие</div><button class="modal-close" onclick="prClose()">✕</button></div>
+        <div class="section-sub" style="margin-bottom:8px;line-height:1.5">Расценка за 1 шт по операции для конкретного изделия. При применении технологической карты расценка этапа берётся отсюда (название этапа должно совпадать с названием операции). Если для изделия расценки нет, остаётся расценка из техкарты.</div>
+        <div class="tabs" style="margin-bottom:8px"><div class="tab active" id="pr-tab-op" onclick="prSetMode('op')">По операции</div><div class="tab" id="pr-tab-item" onclick="prSetMode('item')">По изделию</div></div>
+        <div id="pr-body"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:10px">
+          <span id="pr-dirty" style="font-size:12px;color:var(--amber)"></span>
+          <button class="btn btn-ghost" onclick="prClose()">Закрыть</button>
+          <button class="btn btn-primary" onclick="prSave()">💾 Сохранить</button>
+        </div>
+      </div>
     </div>
 
     <div class="page" id="page-reconcile">
@@ -18493,7 +18507,113 @@ function pwbExecOptions(workshopId, selected, withPlaceholder){
   return (withPlaceholder?'<option value="">— выбрать —</option>':'')+all.map(o).join('');
 }
 // ══════ Заполнение этапов по техкарте + автосписание полуфабриката при начале этапа ══════
+// ═══════ Расценки: операция × изделие (таблица piece_rates) ═══════
+let _prates = null, _prMissing = false;
+const _pr = { mode:'op', op:'', model:'', q:'', draft:{} };
+function prNorm(s){ return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/[^a-z0-9а-я]+/g,''); }
+function prKey(op,item){ return prNorm(op)+'|'+prNorm(item); }
+async function prLoad(force){
+  if(_prates && !force) return;
+  _prates = new Map(); _prMissing = false;
+  try{
+    const rows = await sbFetchAllPages('piece_rates','select=*') || [];
+    rows.forEach(r=>_prates.set(prKey(r.operation,r.item_name), r));
+  }catch(e){ _prMissing = true; }
+}
+function prRateFor(op,itemName){
+  if(!_prates) return null;
+  const r = _prates.get(prKey(op,itemName));
+  return r ? (+r.rate||0) : null;
+}
+async function prOpen(){
+  await prLoad(true);
+  if(typeof loadCatalogFromDB==='function' && (!catalogData||!catalogData.length)){ try{ await loadCatalogFromDB(); }catch(e){} }
+  if(!_wsLoaded && typeof wsLoadWorkshops==='function'){ try{ await wsLoadWorkshops(); }catch(e){} }
+  _pr.draft = {};
+  const ops = wsAllOpNames(); if(!_pr.op || !ops.includes(_pr.op)) _pr.op = ops[0]||'';
+  showModal('prModal'); prRender();
+}
+function prClose(){
+  if(Object.keys(_pr.draft).length && !confirm('Есть несохранённые расценки. Закрыть без сохранения?')) return;
+  _pr.draft = {}; closeModal('prModal');
+}
+function prSetMode(m){ _pr.mode = m; _pr.q=''; document.getElementById('pr-tab-op').classList.toggle('active',m==='op'); document.getElementById('pr-tab-item').classList.toggle('active',m==='item'); prRender(); }
+function prModels(){
+  const seen = new Set(), out = [];
+  (catalogData||[]).forEach(p=>{ const n=String(p.name||'').trim(); if(!n) return; const k=prNorm(n); if(seen.has(k)) return; seen.add(k); out.push({name:n, cat:p.category||''}); });
+  return out.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+}
+function prCur(op,item){
+  const k = prKey(op,item);
+  if(k in _pr.draft) return _pr.draft[k].val;
+  const r = _prates && _prates.get(k); return r ? String(+r.rate) : '';
+}
+function prEdit(op,item,val){
+  const k = prKey(op,item); const saved = _prates && _prates.get(k);
+  const sv = saved ? String(+saved.rate) : '';
+  val = String(val).trim().replace(',','.');
+  if(val===sv){ delete _pr.draft[k]; } else { _pr.draft[k] = {op, item, val}; }
+  prUpdDirty();
+}
+function prUpdDirty(){ const n=Object.keys(_pr.draft).length; const e=document.getElementById('pr-dirty'); if(e) e.textContent = n ? ('Изменено: '+n+' (не сохранено)') : ''; }
+function prRender(){
+  const body = document.getElementById('pr-body'); if(!body) return;
+  const E = x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  if(_prMissing){ body.innerHTML = '<div style="color:var(--red);font-size:13px;padding:12px">Таблица расценок не создана. Выполните файл <code>piece_rates.sql</code> в Supabase и откройте окно заново.</div>'; return; }
+  const ops = wsAllOpNames();
+  if(!ops.length){ body.innerHTML='<div style="padding:12px;color:var(--text3)">Нет операций. Сначала добавьте операции в карточках цехов.</div>'; return; }
+  if(_pr.mode==='op'){
+    const q = prNorm(_pr.q);
+    const all = prModels().filter(m=>!q || prNorm(m.name+' '+m.cat).includes(q));
+    const shown = all.slice(0,300);
+    body.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <select style="font-size:13px" onchange="_pr.op=this.value;prRender()">${ops.map(o=>`<option value="${E(o)}" ${o===_pr.op?'selected':''}>${E(o)}</option>`).join('')}</select>
+        <input type="search" placeholder="🔍 Модель или вид…" value="${E(_pr.q)}" style="font-size:13px;width:220px" oninput="_pr.q=this.value;clearTimeout(window._prT);window._prT=setTimeout(prRender,300)">
+        <span style="flex:1"></span>
+        <input id="pr-fill" type="number" min="0" placeholder="₸" style="width:90px;font-size:13px"><button class="btn btn-ghost btn-sm" onclick="prFillShown()">Задать всем показанным (${shown.length})</button>
+        <select id="pr-copy-from" style="font-size:12px"><option value="">Копировать из…</option>${ops.filter(o=>o!==_pr.op).map(o=>`<option value="${E(o)}">${E(o)}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="prCopyShown()">Копировать</button>
+      </div>
+      <div style="max-height:52vh;overflow:auto"><table class="data-table"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th style="text-align:left">Изделие</th><th style="text-align:left">Вид</th><th style="text-align:right">Расценка, ₸/шт</th></tr></thead><tbody>
+      ${shown.map(m=>`<tr><td style="font-size:12px">${E(m.name)}</td><td style="font-size:11px;color:var(--text3)">${E(m.cat)}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(_pr.op,m.name))}" data-item="${E(m.name)}" class="pr-in" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(_pr.op,this.dataset.item,this.value)"></td></tr>`).join('')||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:16px">Ничего не найдено</td></tr>'}
+      </tbody></table></div>${all.length>shown.length?`<div class="section-sub">Показано ${shown.length} из ${all.length}. Уточните поиск, чтобы увидеть остальные.</div>`:''}`;
+  } else {
+    const models = prModels();
+    body.innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input id="pr-model" list="pr-model-list" value="${E(_pr.model)}" placeholder="Начните вводить название изделия…" style="font-size:13px;flex:1" onchange="_pr.model=this.value;prRender()"><datalist id="pr-model-list">${models.map(m=>`<option value="${E(m.name)}">`).join('')}</datalist></div>`
+      + (_pr.model ? `<div style="max-height:52vh;overflow:auto"><table class="data-table"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th style="text-align:left">Операция</th><th style="text-align:right">Расценка, ₸/шт</th></tr></thead><tbody>${
+        ops.map(o=>`<tr><td style="font-size:12px">${E(o)}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(o,_pr.model))}" data-op="${E(o)}" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(this.dataset.op,_pr.model,this.value)"></td></tr>`).join('')
+      }</tbody></table></div>` : '<div class="section-sub">Выберите изделие, чтобы увидеть и задать расценки по всем операциям.</div>');
+  }
+  prUpdDirty();
+}
+function prFillShown(){
+  const v = document.getElementById('pr-fill')?.value; if(v==='' || v==null) { alert('Введите сумму.'); return; }
+  document.querySelectorAll('#pr-body .pr-in').forEach(i=>{ i.value=v; prEdit(_pr.op, i.dataset.item, v); });
+}
+function prCopyShown(){
+  const from = document.getElementById('pr-copy-from')?.value; if(!from){ alert('Выберите операцию, откуда копировать.'); return; }
+  let n=0;
+  document.querySelectorAll('#pr-body .pr-in').forEach(i=>{ const r=_prates&&_prates.get(prKey(from,i.dataset.item)); if(r){ i.value=+r.rate; prEdit(_pr.op,i.dataset.item,String(+r.rate)); n++; } });
+  if(!n) alert('У операции «'+from+'» нет сохранённых расценок для показанных изделий.');
+}
+async function prSave(){
+  const items = Object.values(_pr.draft); if(!items.length){ alert('Нет изменений.'); return; }
+  const upserts = [], dels = [];
+  for(const d of items){
+    const ex = _prates && _prates.get(prKey(d.op,d.item));
+    const bad = d.val!=='' && !(parseFloat(d.val)>=0);
+    if(bad){ alert('Неверная расценка у «'+d.item+'» / «'+d.op+'»: '+d.val); return; }
+    if(d.val===''){ if(ex) dels.push(ex); }
+    else upserts.push({ operation: ex?ex.operation:d.op, item_name: ex?ex.item_name:d.item, rate: parseFloat(d.val) });
+  }
+  try{
+    for(let i=0;i<upserts.length;i+=200) await sbUpsert('piece_rates', upserts.slice(i,i+200), 'operation,item_name');
+    for(const r of dels) await sbDelete('piece_rates', 'id=eq.'+r.id);
+    _pr.draft = {}; await prLoad(true); prRender();
+    if(typeof brdToast==='function') brdToast('✓ Расценки сохранены: '+upserts.length+(dels.length?', удалено '+dels.length:''));
+  }catch(e){ alert('Не удалось сохранить расценки: '+e.message+'\nЕсли таблицы нет, выполните piece_rates.sql в Supabase.'); }
+}
 async function openPwbApplyTc(){
+  try{ await prLoad(); }catch(e){}
   if(!techCardsData.length){
     try{ techCardsData = await sbFetchAllPages('tech_cards','select=*') || []; }catch(e){}
   }
@@ -18519,8 +18639,10 @@ function pwbTcPreview(){
     const w=PIECE_WORKSHOPS.find(x=>x.id===s.workshop);
     const mem=((_wsMeta[s.workshop]||{}).members||[]);
     const pre = s.responsible || (mem.length===1?mem[0]:'');
+    const _row=prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey), _it=_row&&ordersData.find(o=>o.num===_row.orderNum)?.items?.[_row.itemIdx];
+    const _pr1=_it?prRateFor(s.name,_it.name):null; const _rate=_pr1!=null?_pr1:s.rate;
     return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-      <div style="flex:1;min-width:0"><b>${i+1}. ${s.name}</b><div style="font-size:11px;color:var(--text3)">${w?w.icon+' '+w.name:'цех не указан'}${s.rate?' · ₸'+s.rate:''}${s.semi?' · спишет «'+s.semi+'»':''}</div></div>
+      <div style="flex:1;min-width:0"><b>${i+1}. ${s.name}</b><div style="font-size:11px;color:var(--text3)">${w?w.icon+' '+w.name:'цех не указан'}${_rate?' · ₸'+_rate+(_pr1!=null?' (расценка изделия)':''):''}${s.semi?' · спишет «'+s.semi+'»':''}</div></div>
       <select class="pwb-tc-exec" data-i="${i}" style="font-size:12px;width:170px">${pwbExecOptions(s.workshop,pre,true)}</select></div>`;
   }).join('') : '';
 }
@@ -18535,7 +18657,7 @@ function pwbApplyTc(){
   c.stages.forEach((t,ti)=>{
     const who = picked[ti]!=null ? picked[ti] : (t.responsible||'');
     p.stages.push({stage:t.name||'', workshop:t.workshop||wsGuessByOp(t.name)||'', assignees:who?[{name:who,ktu:1}]:[],
-      payMethod:'rate', rate:+t.rate||0, percent:0, qty, started:false, startedDate:null, posted:false, accrualIds:[]});
+      payMethod:'rate', rate:(()=>{ const v=prRateFor(t.name,item.name); return v!=null?v:(+t.rate||0); })(), percent:0, qty, started:false, startedDate:null, posted:false, accrualIds:[]});
     if(t.semi && (+t.semiQty||0)>0){
       const semiName = semiResolveForItem(t.semi, item);
       const wh = warehouseData.find(w=>w.name===semiName);
