@@ -2879,6 +2879,8 @@ window.onerror = function(msg, src, line, col){
       <div id="wh-tab-release" style="display:none">
         <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
           <div style="font-size:12px;color:var(--text3);flex:1">Цех выпускает каркасы и детали на склад. При проведении: полуфабрикаты приходуются на «Склад полуфабрикатов», исполнителю начисляется сдельная, а для бригады сумма идёт в её месячный пул. Материалы списываются отдельно.</div>
+          <select id="sr-filter-who" onchange="_sr.fWho=this.value;srRender()" style="font-size:12px;width:auto;max-width:220px" title="Показать только выпуски этого исполнителя"></select>
+          <button class="btn btn-ghost btn-sm" onclick="ewOpen()">👤 Выработка сотрудника за месяц</button>
           <button class="btn btn-primary btn-sm" onclick="openSemiRelease()">+ Новый выпуск</button>
         </div>
         <table class="data-table">
@@ -3045,6 +3047,7 @@ window.onerror = function(msg, src, line, col){
           <div class="form-row"><label class="label">Дата</label><input id="sr-date" type="date"></div>
           <div class="form-row"><label class="label">Номер</label><input id="sr-num" type="text"></div>
           <div class="form-row"><label class="label">Цех</label><select id="sr-ws" style="font-size:13px"></select></div>
+          <div class="form-row" style="grid-column:1/-1"><label class="label">Исполнитель на весь документ <span style="font-weight:400;color:var(--text3)">(подставится во все строки; потом в строке можно изменить)</span></label><select id="sr-who" style="font-size:13px" onchange="srSetWhoAll(this.value)"></select></div>
           <div class="form-row" style="grid-column:1/-1"><label class="label">Примечание</label><input id="sr-note" type="text" placeholder="Партия, смена…"></div>
         </div>
         <table class="data-table" style="margin-bottom:8px">
@@ -7452,6 +7455,20 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost" onclick="prClose()">Закрыть</button>
           <button class="btn btn-primary" onclick="prSave()">💾 Сохранить</button>
         </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="ewModal">
+      <div class="modal" style="max-width:900px;width:96vw">
+        <div class="modal-header"><div class="modal-title">👤 Выработка сотрудника за месяц</div><button class="modal-close" onclick="closeModal('ewModal')">✕</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <input id="ew-emp" list="ew-emp-list" placeholder="Сотрудник" style="font-size:13px;width:240px"><datalist id="ew-emp-list"></datalist>
+          <input id="ew-month" type="month" style="font-size:13px;width:auto">
+          <label style="font-size:12px;display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="ew-orders" checked style="width:auto;margin:0"> включить работы по заказам (этапы)</label>
+          <button class="btn btn-primary btn-sm" onclick="ewShow()">Показать</button>
+          <button class="btn btn-ghost btn-sm" onclick="ewPrint()">🖨 Печать</button>
+        </div>
+        <div id="ew-body" style="max-height:62vh;overflow:auto"></div>
       </div>
     </div>
 
@@ -18234,8 +18251,15 @@ function srRender(){
   if(_sr.missing){ tb.innerHTML='<tr><td colspan="8" style="color:var(--red);padding:14px">Таблица semi_releases не создана. Выполните semi_releases.sql в Supabase.</td></tr>'; return; }
   if(!_sr.list.length){ tb.innerHTML='<tr><td colspan="8" style="color:var(--text3);padding:14px">Выпусков пока нет. Нажмите «+ Новый выпуск».</td></tr>'; return; }
   const fm=n=>Math.round(n).toLocaleString('ru-RU');
-  tb.innerHTML=_sr.list.map(d=>{
-    const rows=d.rows||[]; const q=rows.reduce((t,r)=>t+(+r.qty||0),0), sum=rows.reduce((t,r)=>t+(+r.qty||0)*(+r.rate||0),0);
+  // фильтр по исполнителю
+  const whoSet=new Map(); _sr.list.forEach(d=>(d.rows||[]).forEach(r=>{ if(r.who) whoSet.set(r.who, String(r.who).startsWith('b:')?('👥 '+((_sr.brigades.find(b=>'b:'+b.id===r.who)||{}).name||r.who)):String(r.who).slice(2)); }));
+  const fs=document.getElementById('sr-filter-who');
+  if(fs){ const cur=_sr.fWho||''; fs.innerHTML='<option value="">Все исполнители</option>'+[...whoSet].sort((a,b)=>a[1].localeCompare(b[1],'ru')).map(([k,v])=>`<option value="${String(k).replace(/"/g,'&quot;')}" ${k===cur?'selected':''}>${v}</option>`).join(''); }
+  const fw=_sr.fWho||'';
+  const lst=fw?_sr.list.filter(d=>(d.rows||[]).some(r=>r.who===fw)):_sr.list;
+  if(!lst.length){ tb.innerHTML='<tr><td colspan="8" style="color:var(--text3);padding:14px">У этого исполнителя выпусков нет.</td></tr>'; return; }
+  tb.innerHTML=lst.map(d=>{
+    const rows=(fw?(d.rows||[]).filter(r=>r.who===fw):(d.rows||[])); const q=rows.reduce((t,r)=>t+(+r.qty||0),0), sum=rows.reduce((t,r)=>t+(+r.qty||0)*(+r.rate||0),0);
     const ws=PIECE_WORKSHOPS.find(w=>w.id===d.workshop);
     return `<tr onclick="openSemiRelease(${d.id})" style="cursor:pointer">
       <td>${d.date}</td><td style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${d.num||'—'}</td>
@@ -18259,12 +18283,15 @@ function openSemiRelease(id){
   g('sr-date').value = d? d.date : new Date().toISOString().slice(0,10);
   g('sr-num').value = d? (d.num||'') : 'ВП-'+String((_sr.list.length||0)+1).padStart(3,'0');
   g('sr-note').value = d? (d.note||'') : '';
-  const wsSel=g('sr-ws'); wsSel.innerHTML=srWorkshopOptions(d?d.workshop:'cut'); wsSel.onchange=srRenderRows;
+  const wsSel=g('sr-ws'); wsSel.innerHTML=srWorkshopOptions(d?d.workshop:'cut'); wsSel.onchange=function(){ const sw=g('sr-who'); if(sw){ const v=sw.value; sw.innerHTML=srWhoOptions(v); } srRenderRows(); };
   try{ prLoad(); }catch(e){}
   _sr.rows = d ? JSON.parse(JSON.stringify(d.rows||[])) : [{name:'',qty:1,unit:'шт',rate:0,who:''}];
+  if(!d && g('sr-who')) g('sr-who').value='';
   const names=[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))];
   g('sr-items-list').innerHTML=names.map(n=>`<option value="${n}">`).join('');
   ['sr-date','sr-num','sr-note','sr-ws'].forEach(i=>g(i).disabled=!!posted);
+  { const ws=[...new Set(_sr.rows.map(r=>r.who).filter(Boolean))]; const hasEmpty=_sr.rows.some(r=>!r.who);
+    const sel=g('sr-who'); sel.innerHTML=srWhoOptions(ws.length===1&&!hasEmpty?ws[0]:''); sel.disabled=!!posted; }
   srRenderRows();
   ['sr-btn-draft','sr-btn-post'].forEach(i=>g(i).style.display = posted?'none':'');
   showModal('semiRelModal');
@@ -18297,6 +18324,108 @@ function srRenderRows(){
     <td>${posted?'':`<button class="btn btn-ghost btn-sm" onclick="_sr.rows.splice(${i},1);srRenderRows()">✕</button>`}</td></tr>`).join('');
   srTotal();
 }
+// ═══════ Выработка сотрудника за месяц: что сделал и сколько сдельного ═══════
+let _ew = null;
+async function ewOpen(){
+  if(typeof employeesData!=='undefined' && !employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
+  const names=new Set((employeesData||[]).map(e=>e.name).filter(Boolean));
+  Object.values(_wsMeta||{}).forEach(m=>(m.members||[]).forEach(n=>names.add(n)));
+  document.getElementById('ew-emp-list').innerHTML=[...names].sort().map(n=>`<option value="${String(n).replace(/"/g,'&quot;')}">`).join('');
+  const mi=document.getElementById('ew-month'); if(!mi.value) mi.value=new Date().toISOString().slice(0,7);
+  document.getElementById('ew-body').innerHTML='<div class="section-sub" style="padding:10px">Выберите сотрудника и месяц, нажмите «Показать».</div>';
+  _ew=null; showModal('ewModal');
+}
+async function ewShow(){
+  const emp=document.getElementById('ew-emp').value.trim(), per=document.getElementById('ew-month').value, withOrders=document.getElementById('ew-orders').checked;
+  const body=document.getElementById('ew-body');
+  if(!emp||!per){ alert('Выберите сотрудника и месяц.'); return; }
+  body.innerHTML='<div style="padding:14px;color:var(--text3)">Загрузка…</div>';
+  const key=pwbNameKey(emp), from=per+'-01', to=_brgLastDay(per);
+  const lines=[];
+  try{
+    // 1) выпуск полуфабрикатов и деталей (проведённые)
+    const rel=await sbFetchAllPages('semi_releases',`select=num,date,workshop,rows&status=eq.posted&date=gte.${from}&date=lte.${to}&order=date`);
+    (rel||[]).filter(d=>d.date>=from&&d.date<=to).forEach(d=>(d.rows||[]).forEach(r=>{
+      if(!r.who || !String(r.who).startsWith('e:') || pwbNameKey(String(r.who).slice(2))!==key) return;
+      const qty=+r.qty||0, rate=+r.rate||0;
+      lines.push({src:'release', date:d.date, doc:'Выпуск '+(d.num||''), name:r.name, op:r.op||'', qty, rate, amount:Math.round(qty*rate)});
+    }));
+    // 2) этапы по заказам
+    if(withOrders){
+      if((!ordersData||!ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+      const prog=await sbFetchAllPages('production_progress','select=item_key,order_num,item_idx,stages');
+      (prog||[]).forEach(r=>(r.stages||[]).forEach(s=>{
+        if(!s||!s.posted||!s.postedDate||s.postedDate<from||s.postedDate>to||s.brigade) return;
+        const as=s.assignees||[]; const mine=as.filter(a=>pwbNameKey(a.name)===key); if(!mine.length) return;
+        const all=as.reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0)||1;
+        const my=mine.reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0);
+        const order=ordersData.find(o=>o.num===r.order_num); const item=order&&order.items?order.items[r.item_idx]:null;
+        const total=s.payMethod==='percent' ? (item?(item.qty||1)*(item.price||0)*((s.percent||0)/100):0) : (s.rate||0)*(s.qty||1);
+        lines.push({src:'order', date:s.postedDate, doc:'Заказ '+r.order_num, name:(item?item.name:'')+' — '+(s.stage||''), op:s.stage||'', qty:s.qty||1, rate:s.rate||0, amount:Math.round(total*my/all)});
+      }));
+    }
+    lines.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+    // 3) что уже начислено в зарплатной ведомости как сдельная
+    let accrued=0;
+    try{
+      const acc=await sbFetchAllPages('salary_accruals',`select=emp_name,amount,comment&type=eq.salary&date=gte.${from}&date=lte.${to}`);
+      (acc||[]).forEach(a=>{ if(pwbNameKey(a.emp_name)===key && String(a.comment||'').indexOf('Сдельная')===0) accrued+=(+a.amount||0); });
+    }catch(e){}
+    _ew={emp, per, lines, accrued:Math.round(accrued), withOrders};
+  }catch(e){ body.innerHTML='<div style="padding:14px;color:var(--red)">Не удалось собрать выработку: '+_brgEsc(e.message)+'</div>'; return; }
+  ewRender();
+}
+function ewGroups(){
+  const g={};
+  _ew.lines.forEach(l=>{ const k=l.src+'|'+(l.op||'')+'|'+l.name+'|'+l.rate; const x=g[k]||(g[k]={src:l.src,name:l.name,op:l.op,rate:l.rate,qty:0,amount:0}); x.qty+=l.qty; x.amount+=l.amount; });
+  return Object.values(g).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+}
+function ewRender(){
+  const body=document.getElementById('ew-body'); if(!_ew) return;
+  const E=_brgEsc, f=n=>Math.round(+n||0).toLocaleString('ru-RU'), fd=d=>String(d||'').split('-').reverse().join('.');
+  const total=_ew.lines.reduce((t,l)=>t+l.amount,0), qty=_ew.lines.filter(l=>l.src==='release').reduce((t,l)=>t+l.qty,0);
+  const groups=ewGroups();
+  const diff=total-_ew.accrued;
+  body.innerHTML=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div class="card" style="padding:10px 14px"><div style="font-size:11px;color:var(--text3)">Сдельная за месяц</div><div style="font-size:20px;font-weight:700;color:var(--green)">₸${f(total)}</div></div>
+      <div class="card" style="padding:10px 14px"><div style="font-size:11px;color:var(--text3)">Уже начислено в ЗП</div><div style="font-size:20px;font-weight:700">₸${f(_ew.accrued)}</div></div>
+      <div class="card" style="padding:10px 14px"><div style="font-size:11px;color:var(--text3)">${diff>0?'Не начислено':(diff<0?'Начислено больше':'Расхождений нет')}</div><div style="font-size:20px;font-weight:700;color:${diff?'var(--amber)':'var(--text)'}">${diff?'₸'+f(Math.abs(diff)):'—'}</div></div>
+    </div>
+    <div style="font-weight:600;font-size:13px;margin:6px 0">Итого по деталям и работам</div>
+    <table class="data-table"><thead><tr><th style="text-align:left">Деталь / работа</th><th style="text-align:left">Операция</th><th style="text-align:right">Кол-во</th><th style="text-align:right">Расценка</th><th style="text-align:right">Сумма ₸</th></tr></thead><tbody>
+    ${groups.map(g=>`<tr><td>${E(g.name)}${g.src==='order'?' <span class="badge badge-blue" style="font-size:10px">заказ</span>':''}</td><td style="font-size:12px">${E(g.op)}</td><td style="text-align:right">${g.src==='release'?g.qty:'—'}</td><td style="text-align:right">${g.rate?f(g.rate):'—'}</td><td style="text-align:right;font-weight:600">${f(g.amount)}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">За этот месяц работ нет. Проверьте, что выпуски проведены и в них выбран этот сотрудник.</td></tr>'}
+    <tr style="font-weight:700"><td colspan="2">Итого</td><td style="text-align:right">${qty||''}</td><td></td><td style="text-align:right">${f(total)}</td></tr></tbody></table>
+    <div style="font-weight:600;font-size:13px;margin:14px 0 6px">По дням</div>
+    <table class="data-table"><thead><tr><th>Дата</th><th style="text-align:left">Документ</th><th style="text-align:left">Деталь / работа</th><th style="text-align:right">Кол-во</th><th style="text-align:right">Расценка</th><th style="text-align:right">Сумма ₸</th></tr></thead><tbody>
+    ${_ew.lines.map(l=>`<tr><td>${fd(l.date)}</td><td style="font-size:12px">${E(l.doc)}</td><td>${E(l.name)}</td><td style="text-align:right">${l.qty}</td><td style="text-align:right">${l.rate?f(l.rate):'—'}</td><td style="text-align:right">${f(l.amount)}</td></tr>`).join('')}</tbody></table>
+    <div class="section-sub" style="margin-top:8px">Сдельная начисляется в зарплатную ведомость при проведении выпуска (и этапа). Расхождение показывает, если какие-то работы не проведены или были удалены начисления.</div>`;
+}
+function ewPrint(){
+  if(!_ew){ alert('Сначала нажмите «Показать».'); return; }
+  const E=_brgEsc, f=n=>Math.round(+n||0).toLocaleString('ru-RU'), fd=d=>String(d||'').split('-').reverse().join('.');
+  const MN=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+  const [yy,mm]=_ew.per.split('-').map(Number), per=MN[mm-1]+' '+yy;
+  const total=_ew.lines.reduce((t,l)=>t+l.amount,0), groups=ewGroups();
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Выработка ${E(_ew.emp)} — ${E(per)}</title><style>
+  @page{size:A4;margin:14mm} body{font:12px/1.4 Arial,sans-serif;color:#000;margin:0} h2{margin:0 0 2px;font-size:16px} h3{margin:14px 0 6px;font-size:13px} .sub{color:#444;margin-bottom:10px}
+  table{border-collapse:collapse;width:100%;margin-bottom:8px} th,td{border:1px solid #444;padding:4px 6px} th{background:#eee;text-align:left} .r{text-align:right;white-space:nowrap} .tot td{font-weight:700;background:#f4f4f4}
+  .foot{margin-top:26px;display:flex;gap:40px} .foot div{flex:1;border-top:1px solid #000;padding-top:3px;font-size:11px;color:#333}
+  </style></head><body>
+  <h2>Выработка за ${E(per)}</h2><div class="sub"><b>${E(_ew.emp)}</b> · сдельная оплата</div>
+  <h3>Итого по деталям и работам</h3>
+  <table><thead><tr><th>Деталь / работа</th><th>Операция</th><th class="r">Кол-во</th><th class="r">Расценка</th><th class="r">Сумма ₸</th></tr></thead><tbody>
+  ${groups.map(g=>`<tr><td>${E(g.name)}</td><td>${E(g.op)}</td><td class="r">${g.src==='release'?g.qty:''}</td><td class="r">${g.rate?f(g.rate):''}</td><td class="r">${f(g.amount)}</td></tr>`).join('')}
+  <tr class="tot"><td colspan="4">Итого сдельная за месяц</td><td class="r">${f(total)}</td></tr></tbody></table>
+  <h3>По дням</h3>
+  <table><thead><tr><th>Дата</th><th>Документ</th><th>Деталь / работа</th><th class="r">Кол-во</th><th class="r">Расценка</th><th class="r">Сумма ₸</th></tr></thead><tbody>
+  ${_ew.lines.map(l=>`<tr><td>${fd(l.date)}</td><td>${E(l.doc)}</td><td>${E(l.name)}</td><td class="r">${l.qty}</td><td class="r">${l.rate?f(l.rate):''}</td><td class="r">${f(l.amount)}</td></tr>`).join('')}</tbody></table>
+  <div class="foot"><div>Сотрудник</div><div>Начальник производства</div><div>Главный бухгалтер</div></div>
+  <div class="sub" style="margin-top:10px">Распечатано ${new Date().toLocaleString('ru-RU')}</div></body></html>`;
+  let fr=document.getElementById('ew-print-frame'); if(fr) fr.remove();
+  fr=document.createElement('iframe'); fr.id='ew-print-frame'; fr.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(fr); fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+  setTimeout(()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ alert('Не удалось открыть печать: '+e.message); } }, 300);
+}
 // Операции выбранного цеха для строки выпуска; расценка подставляется из таблицы «Расценки по изделиям» (операция + название детали)
 function srOpOptions(sel){
   const ws=(document.getElementById('sr-ws')||{}).value;
@@ -18309,7 +18438,8 @@ function srAutoRate(i){
   const v=prRateFor(r.op, r.name, null);
   if(v!=null && (!r.rateManual || !(+r.rate>0))){ r.rate=v; r.rateManual=false; srRenderRows(); }
 }
-function srAddRow(){ if(_sr.edit&&_sr.edit.status==='posted') return; _sr.rows.push({name:'',qty:1,unit:'шт',rate:0,who:''}); srRenderRows(); }
+function srAddRow(){ if(_sr.edit&&_sr.edit.status==='posted') return; _sr.rows.push({name:'',qty:1,unit:'шт',rate:0,who:(document.getElementById('sr-who')||{}).value||''}); srRenderRows(); }
+function srSetWhoAll(v){ _sr.rows.forEach(r=>{ r.who=v; }); srRenderRows(); }
 function srTotal(){
   let t=0; _sr.rows.forEach((r,i)=>{ const v=(+r.qty||0)*(+r.rate||0); t+=v; const e=document.getElementById('sr-sum-'+i); if(e) e.textContent='₸'+Math.round(v).toLocaleString('ru-RU'); });
   const e=document.getElementById('sr-total'); if(e) e.textContent='₸'+Math.round(t).toLocaleString('ru-RU');
