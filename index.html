@@ -17626,7 +17626,7 @@ async function brgSave(silent){
   try{
     if(m.id) await sbPatch('brigade_months','id=eq.'+m.id, payload);
     else { const r = await sbInsert('brigade_months', {...payload, brigade_id:b.id, period:m.period}); m.id = r.id; }
-    m.deductions = payload.deductions;
+    if(!silent) m.deductions = payload.deductions; // при автосохранении пустую строку вычета не удаляем: пользователь ещё заполняет её
     _brg.dirty = false;
     if(!silent){
       renderBrigades();
