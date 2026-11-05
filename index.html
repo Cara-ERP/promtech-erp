@@ -3048,7 +3048,7 @@ window.onerror = function(msg, src, line, col){
           <div class="form-row" style="grid-column:1/-1"><label class="label">Примечание</label><input id="sr-note" type="text" placeholder="Партия, смена…"></div>
         </div>
         <table class="data-table" style="margin-bottom:8px">
-          <thead><tr><th>Полуфабрикат</th><th>Кол-во</th><th>Расценка ₸/шт</th><th>Кто делал</th><th style="text-align:right">Сумма ₸</th><th></th></tr></thead>
+          <thead><tr><th>Полуфабрикат / деталь</th><th>Операция</th><th>Кол-во</th><th title="Снимите галочку, если деталь только оплачивается и на складе её считать не нужно">На склад</th><th>Расценка ₸/шт</th><th>Кто делал</th><th style="text-align:right">Сумма ₸</th><th></th></tr></thead>
           <tbody id="sr-rows"></tbody>
         </table>
         <datalist id="sr-items-list"></datalist>
@@ -18260,6 +18260,7 @@ function openSemiRelease(id){
   g('sr-num').value = d? (d.num||'') : 'ВП-'+String((_sr.list.length||0)+1).padStart(3,'0');
   g('sr-note').value = d? (d.note||'') : '';
   const wsSel=g('sr-ws'); wsSel.innerHTML=srWorkshopOptions(d?d.workshop:'cut'); wsSel.onchange=srRenderRows;
+  try{ prLoad(); }catch(e){}
   _sr.rows = d ? JSON.parse(JSON.stringify(d.rows||[])) : [{name:'',qty:1,unit:'шт',rate:0,who:''}];
   const names=[...new Set((warehouseData||[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).map(w=>w.name))];
   g('sr-items-list').innerHTML=names.map(n=>`<option value="${n}">`).join('');
@@ -18286,13 +18287,27 @@ function srWhoOptions(sel){
 function srRenderRows(){
   const posted=_sr.edit && _sr.edit.status==='posted'; const dis=posted?'disabled':'';
   document.getElementById('sr-rows').innerHTML=_sr.rows.map((r,i)=>`<tr>
-    <td><input type="text" list="sr-items-list" value="${(r.name||'').replace(/"/g,'&quot;')}" ${dis} style="font-size:12px;width:200px" placeholder="Каркас стула…" onchange="_sr.rows[${i}].name=this.value.trim()"></td>
+    <td><input type="text" list="sr-items-list" value="${(r.name||'').replace(/"/g,'&quot;')}" ${dis} style="font-size:12px;width:200px" placeholder="Каркас стула…" onchange="_sr.rows[${i}].name=this.value.trim();srAutoRate(${i})"></td>
+    <td><select ${dis} style="font-size:12px;max-width:150px" onchange="_sr.rows[${i}].op=this.value;srAutoRate(${i})">${srOpOptions(r.op)}</select></td>
     <td><input type="number" min="0" step="1" value="${r.qty}" ${dis} style="width:70px;font-size:12px" onchange="_sr.rows[${i}].qty=parseFloat(this.value)||0;srTotal()"></td>
-    <td><input type="number" min="0" value="${r.rate}" ${dis} style="width:90px;font-size:12px" onchange="_sr.rows[${i}].rate=parseFloat(this.value)||0;srTotal()"></td>
+    <td style="text-align:center"><input type="checkbox" ${dis} ${r.noStock?'':'checked'} title="Приходовать на склад полуфабрикатов" onchange="_sr.rows[${i}].noStock=!this.checked"></td>
+    <td><input type="number" min="0" value="${r.rate}" ${dis} style="width:90px;font-size:12px" onchange="_sr.rows[${i}].rate=parseFloat(this.value)||0;_sr.rows[${i}].rateManual=true;srTotal()"></td>
     <td><select ${dis} style="font-size:12px;max-width:190px" onchange="_sr.rows[${i}].who=this.value">${srWhoOptions(r.who)}</select></td>
     <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px" id="sr-sum-${i}">₸${Math.round((+r.qty||0)*(+r.rate||0)).toLocaleString('ru-RU')}</td>
     <td>${posted?'':`<button class="btn btn-ghost btn-sm" onclick="_sr.rows.splice(${i},1);srRenderRows()">✕</button>`}</td></tr>`).join('');
   srTotal();
+}
+// Операции выбранного цеха для строки выпуска; расценка подставляется из таблицы «Расценки по изделиям» (операция + название детали)
+function srOpOptions(sel){
+  const ws=(document.getElementById('sr-ws')||{}).value;
+  const ops=((_wsMeta[ws]||{}).operations||[]).slice();
+  if(sel && !ops.includes(sel)) ops.push(sel);
+  return '<option value="">—</option>'+ops.map(o=>`<option value="${String(o).replace(/"/g,'&quot;')}" ${o===sel?'selected':''}>${o}</option>`).join('');
+}
+function srAutoRate(i){
+  const r=_sr.rows[i]; if(!r||!r.op||!r.name) return;
+  const v=prRateFor(r.op, r.name, null);
+  if(v!=null && (!r.rateManual || !(+r.rate>0))){ r.rate=v; r.rateManual=false; srRenderRows(); }
 }
 function srAddRow(){ if(_sr.edit&&_sr.edit.status==='posted') return; _sr.rows.push({name:'',qty:1,unit:'шт',rate:0,who:''}); srRenderRows(); }
 function srTotal(){
@@ -18323,6 +18338,7 @@ async function srPost(id, rows, rec){
   try{
     // 1) приход на склад
     for(const r of rows){
+      if(r.noStock){ r.whItemId=null; done.push(r); continue; } // деталь только оплачивается, на склад не приходуется
       const cat='Полуфабрикаты';
       let it=(warehouseData||[]).find(w=>w.name===r.name && w.warehouse_id==='wh_semi')
           || (warehouseData||[]).find(w=>w.name===r.name && ['Полуфабрикаты','Заготовки','НЗП'].includes(w.category));
@@ -18509,27 +18525,31 @@ function pwbExecOptions(workshopId, selected, withPlaceholder){
 // ══════ Заполнение этапов по техкарте + автосписание полуфабриката при начале этапа ══════
 // ═══════ Расценки: операция × изделие (таблица piece_rates) ═══════
 let _prates = null, _prMissing = false;
-const _pr = { mode:'op', op:'', model:'', q:'', draft:{}, added:{}, removed:new Set() };
+const _pr = { mode:'op', op:'', model:'', q:'', draft:{}, added:{}, addedCat:{}, removed:new Set() };
 function prNorm(s){ return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/[^a-z0-9а-я]+/g,''); }
 function prKey(op,item){ return prNorm(op)+'|'+prNorm(item); }
+function prCatKey(op,cat){ return prNorm(op)+'|k:'+prNorm(cat); }
+function prAllCategories(){ return [...new Set([...(typeof productCategories!=='undefined'?productCategories:[]), ...((catalogData||[]).map(p=>p.category))].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru')); }
 async function prLoad(force){
   if(_prates && !force) return;
   _prates = new Map(); _prMissing = false;
   try{
     const rows = await sbFetchAllPages('piece_rates','select=*') || [];
-    rows.forEach(r=>_prates.set(prKey(r.operation,r.item_name), r));
+    rows.forEach(r=>_prates.set(r.kind==='category' ? prCatKey(r.operation,r.item_name) : prKey(r.operation,r.item_name), r));
   }catch(e){ _prMissing = true; }
 }
-function prRateFor(op,itemName){
+// Порядок: операция + конкретное изделие → операция + вид (категория) → нет (null)
+function prRateFor(op,itemName,category){
   if(!_prates) return null;
-  const r = _prates.get(prKey(op,itemName));
+  let r = _prates.get(prKey(op,itemName));
+  if(!r && category) r = _prates.get(prCatKey(op,category));
   return r ? (+r.rate||0) : null;
 }
 async function prOpen(){
   await prLoad(true);
   if(typeof loadCatalogFromDB==='function' && (!catalogData||!catalogData.length)){ try{ await loadCatalogFromDB(); }catch(e){} }
   if(!_wsLoaded && typeof wsLoadWorkshops==='function'){ try{ await wsLoadWorkshops(); }catch(e){} }
-  _pr.draft = {}; _pr.added = {}; _pr.removed = new Set();
+  _pr.draft = {}; _pr.added = {}; _pr.addedCat = {}; _pr.removed = new Set();
   const ops = wsAllOpNames(); if(!_pr.op || !ops.includes(_pr.op)) _pr.op = ops[0]||'';
   showModal('prModal'); prRender();
 }
@@ -18541,6 +18561,9 @@ function prSetMode(m){ _pr.mode = m; _pr.q=''; document.getElementById('pr-tab-o
 function prModels(){
   const seen = new Set(), out = [];
   (catalogData||[]).forEach(p=>{ const n=String(p.name||'').trim(); if(!n) return; const k=prNorm(n); if(seen.has(k)) return; seen.add(k); out.push({name:n, cat:p.category||''}); });
+  // Детали, уже встречавшиеся в расценках, и полуфабрикаты/заготовки со склада — чтобы вводить одно название одинаково
+  if(_prates) _prates.forEach(r=>{ if(r.kind==='category') return; const n=String(r.item_name||'').trim(); const k=prNorm(n); if(!n||seen.has(k)) return; seen.add(k); out.push({name:n, cat:'деталь'}); });
+  (typeof warehouseData!=='undefined'?warehouseData:[]).filter(w=>['Полуфабрикаты','Заготовки','НЗП'].includes(w.category)).forEach(w=>{ const n=String(w.name||'').trim(); const k=prNorm(n); if(!n||seen.has(k)) return; seen.add(k); out.push({name:n, cat:'полуфабрикат'}); });
   return out.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
 }
 function prCur(op,item){
@@ -18548,12 +18571,33 @@ function prCur(op,item){
   if(k in _pr.draft) return _pr.draft[k].val;
   const r = _prates && _prates.get(k); return r ? String(+r.rate) : '';
 }
-function prEdit(op,item,val){
-  const k = prKey(op,item); const saved = _prates && _prates.get(k);
+function prCurCat(op,cat){
+  const k = prCatKey(op,cat);
+  if(k in _pr.draft) return _pr.draft[k].val;
+  const r = _prates && _prates.get(k); return r ? String(+r.rate) : '';
+}
+function prEditK(kind,op,item,val){
+  const k = kind==='category' ? prCatKey(op,item) : prKey(op,item); const saved = _prates && _prates.get(k);
   const sv = saved ? String(+saved.rate) : '';
   val = String(val).trim().replace(',','.');
-  if(val===sv){ delete _pr.draft[k]; } else { _pr.draft[k] = {op, item, val}; }
+  if(val===sv){ delete _pr.draft[k]; } else { _pr.draft[k] = {kind, op, item, val}; }
   prUpdDirty();
+}
+function prEdit(op,item,val){ prEditK('item',op,item,val); }
+function prEditCat(op,cat,val){ prEditK('category',op,cat,val); }
+function prAddCat(){
+  const sel=document.getElementById('pr-add-cat'); const c=sel?.value; if(!c) return;
+  const on=prNorm(_pr.op); (_pr.addedCat[on]=_pr.addedCat[on]||[]);
+  if(!_pr.addedCat[on].includes(c)) _pr.addedCat[on].push(c);
+  _pr.removed.delete(on+'|k:'+prNorm(c)); prRender();
+  setTimeout(()=>{ const t=[...document.querySelectorAll('#pr-body .pr-cat-in')].find(i=>i.dataset.cat===c); if(t) t.focus(); },50);
+}
+function prRemoveCat(cat){
+  const on=prNorm(_pr.op), k=prCatKey(_pr.op,cat);
+  if(_prates&&_prates.get(k) && !confirm('Убрать расценку на весь вид «'+cat+'»? Она будет удалена при сохранении.')) return;
+  _pr.removed.add(on+'|k:'+prNorm(cat));
+  if(_pr.addedCat[on]) _pr.addedCat[on]=_pr.addedCat[on].filter(x=>x!==cat);
+  prEditCat(_pr.op,cat,''); prRender();
 }
 function prUpdDirty(){ const n=Object.keys(_pr.draft).length; const e=document.getElementById('pr-dirty'); if(e) e.textContent = n ? ('Изменено: '+n+' (не сохранено)') : ''; }
 function prRender(){
@@ -18570,15 +18614,28 @@ function prRender(){
     (_pr.added[on]||[]).forEach(n=>names.set(prNorm(n), n));
     Object.values(_pr.draft).forEach(d=>{ if(prNorm(d.op)===on && d.val!=='') names.set(prNorm(d.item), d.item); });
     _pr.removed.forEach(k=>{ if(k.startsWith(on+'|')) names.delete(k.slice(on.length+1)); });
+    // Расценки на весь вид деятельности (категорию)
+    const cats = new Map();
+    if(_prates) _prates.forEach(r=>{ if(r.kind==='category' && prNorm(r.operation)===on) cats.set(r.item_name, r.item_name); });
+    (_pr.addedCat[on]||[]).forEach(c=>cats.set(c,c));
+    _pr.removed.forEach(k=>{ if(k.startsWith(on+'|k:')){ const kk=k.slice(on.length+3); [...cats.keys()].forEach(c=>{ if(prNorm(c)===kk) cats.delete(c); }); } });
+    const catRows = [...cats.values()].sort((a,b)=>a.localeCompare(b,'ru'));
+    const catRateOf = n => { const m=(catalogData||[]).find(p=>prNorm(p.name)===prNorm(n)); const c=m?m.category:''; const r=c&&_prates?_prates.get(prCatKey(_pr.op,c)):null; const d=c?_pr.draft[prCatKey(_pr.op,c)]:null; const v = d? d.val : (r? String(+r.rate):''); return v!==''? {cat:c, v}:null; };
     const catOf = n => { const m = (catalogData||[]).find(p=>prNorm(p.name)===prNorm(n)); return m ? (m.category||'') : ''; };
     const all = [...names.values()].sort((a,b)=>a.localeCompare(b,'ru')).filter(n=>!q || prNorm(n).includes(q));
     const models = prModels();
     body.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <select style="font-size:13px" onchange="_pr.op=this.value;_pr.q='';prRender()">${ops.map(o=>`<option value="${E(o)}" ${o===_pr.op?'selected':''}>${E(o)}</option>`).join('')}</select>
-        <input id="pr-add-model" list="pr-model-list" placeholder="Вписать изделие и нажать Enter…" style="font-size:13px;width:280px" onkeydown="if(event.key==='Enter'){event.preventDefault();prAddModel()}">
+        <input id="pr-add-model" list="pr-model-list" placeholder="Вписать изделие или деталь и нажать Enter…" style="font-size:13px;width:280px" onkeydown="if(event.key==='Enter'){event.preventDefault();prAddModel()}">
         <datalist id="pr-model-list">${models.map(m=>`<option value="${E(m.name)}">`).join('')}</datalist>
         <button class="btn btn-primary btn-sm" onclick="prAddModel()">＋ Добавить изделие</button>
       </div>
+      <div class="card" style="padding:10px 12px;margin-bottom:10px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px">Одна расценка на весь вид деятельности <span style="font-weight:400;font-size:11px;color:var(--text3)">(действует для любого изделия вида, кроме тех, что внесены ниже отдельно)</span></div>
+        ${catRows.map(c=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span style="flex:1;font-size:13px">${E(c)}</span><input type="number" min="0" step="any" value="${E(prCurCat(_pr.op,c))}" data-cat="${E(c)}" class="pr-cat-in" style="width:110px;font-size:12px;text-align:right" onchange="prEditCat(_pr.op,this.dataset.cat,this.value)"> <span style="font-size:11px;color:var(--text3)">₸/шт</span><a href="#" title="Убрать" style="color:var(--red);text-decoration:none" data-cat="${E(c)}" onclick="event.preventDefault();prRemoveCat(this.dataset.cat)">✕</a></div>`).join('')}
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px"><select id="pr-add-cat" style="font-size:12px"><option value="">Вид деятельности…</option>${prAllCategories().filter(c=>!cats.has(c)).map(c=>`<option value="${E(c)}">${E(c)}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="prAddCat()">＋ Добавить вид</button></div>
+      </div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">Отдельные изделия <span style="font-weight:400;font-size:11px;color:var(--text3)">(перекрывают расценку вида)</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         ${all.length>8?`<input type="search" placeholder="🔍 Поиск в списке…" value="${E(_pr.q)}" style="font-size:13px;width:200px" oninput="_pr.q=this.value;clearTimeout(window._prT);window._prT=setTimeout(prRender,300)">`:''}
         <span style="flex:1"></span>
@@ -18586,13 +18643,13 @@ function prRender(){
         <select id="pr-copy-from" style="font-size:12px"><option value="">Взять список из…</option>${ops.filter(o=>o!==_pr.op).map(o=>`<option value="${E(o)}">${E(o)}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="prCopyShown()">Скопировать</button>
       </div>
       <div style="max-height:50vh;overflow:auto"><table class="data-table"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th style="text-align:left">Изделие</th><th style="text-align:left">Вид</th><th style="text-align:right">Расценка, ₸/шт</th><th></th></tr></thead><tbody>
-      ${all.map(n=>`<tr><td style="font-size:12px">${E(n)}</td><td style="font-size:11px;color:var(--text3)">${E(catOf(n))}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(_pr.op,n))}" data-item="${E(n)}" class="pr-in" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(_pr.op,this.dataset.item,this.value)"></td><td><a href="#" title="Убрать изделие из списка (расценка будет удалена)" style="color:var(--red);text-decoration:none" data-item="${E(n)}" onclick="event.preventDefault();prRemoveModel(this.dataset.item)">✕</a></td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:18px">Список пуст. Впишите название изделия выше и нажмите «＋ Добавить изделие».</td></tr>'}
+      ${all.map(n=>`<tr><td style="font-size:12px">${E(n)}</td><td style="font-size:11px;color:var(--text3)">${E(catOf(n))}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(_pr.op,n))}" data-item="${E(n)}" class="pr-in" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(_pr.op,this.dataset.item,this.value)">${(()=>{ const cr=catRateOf(n); return cr?`<div style="font-size:10px;color:var(--text3)">вид «${E(cr.cat)}»: ${E(cr.v)}</div>`:''; })()}</td><td><a href="#" title="Убрать изделие из списка (расценка будет удалена)" style="color:var(--red);text-decoration:none" data-item="${E(n)}" onclick="event.preventDefault();prRemoveModel(this.dataset.item)">✕</a></td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:18px">Список пуст. Впишите название изделия выше и нажмите «＋ Добавить изделие».</td></tr>'}
       </tbody></table></div>`;
   } else {
     const models = prModels();
     body.innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input id="pr-model" list="pr-model-list" value="${E(_pr.model)}" placeholder="Начните вводить название изделия…" style="font-size:13px;flex:1" onchange="_pr.model=this.value;prRender()"><datalist id="pr-model-list">${models.map(m=>`<option value="${E(m.name)}">`).join('')}</datalist></div>`
       + (_pr.model ? `<div style="max-height:52vh;overflow:auto"><table class="data-table"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th style="text-align:left">Операция</th><th style="text-align:right">Расценка, ₸/шт</th></tr></thead><tbody>${
-        ops.map(o=>`<tr><td style="font-size:12px">${E(o)}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(o,_pr.model))}" data-op="${E(o)}" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(this.dataset.op,_pr.model,this.value)"></td></tr>`).join('')
+        ops.map(o=>{ const mm=(catalogData||[]).find(p=>prNorm(p.name)===prNorm(_pr.model)); const cr=mm&&mm.category&&_prates?_prates.get(prCatKey(o,mm.category)):null; return `<tr><td style="font-size:12px">${E(o)}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(o,_pr.model))}" ${cr?`placeholder="${+cr.rate}"`:''} data-op="${E(o)}" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(this.dataset.op,_pr.model,this.value)">${cr?`<div style="font-size:10px;color:var(--text3)">по виду «${E(mm.category)}»: ${+cr.rate}</div>`:''}</td></tr>`; }).join('')
       }</tbody></table></div>` : '<div class="section-sub">Выберите изделие, чтобы увидеть и задать расценки по всем операциям.</div>');
   }
   prUpdDirty();
@@ -18632,18 +18689,18 @@ async function prSave(){
   const items = Object.values(_pr.draft); if(!items.length){ alert('Нет изменений.'); return; }
   const upserts = [], dels = [];
   for(const d of items){
-    const ex = _prates && _prates.get(prKey(d.op,d.item));
+    const ex = _prates && _prates.get(d.kind==='category' ? prCatKey(d.op,d.item) : prKey(d.op,d.item));
     const bad = d.val!=='' && !(parseFloat(d.val)>=0);
     if(bad){ alert('Неверная расценка у «'+d.item+'» / «'+d.op+'»: '+d.val); return; }
     if(d.val===''){ if(ex) dels.push(ex); }
-    else upserts.push({ operation: ex?ex.operation:d.op, item_name: ex?ex.item_name:d.item, rate: parseFloat(d.val) });
+    else upserts.push({ operation: ex?ex.operation:d.op, kind: d.kind==='category'?'category':'item', item_name: ex?ex.item_name:d.item, rate: parseFloat(d.val) });
   }
   try{
-    for(let i=0;i<upserts.length;i+=200) await sbUpsert('piece_rates', upserts.slice(i,i+200), 'operation,item_name');
+    for(let i=0;i<upserts.length;i+=200) await sbUpsert('piece_rates', upserts.slice(i,i+200), 'operation,kind,item_name');
     for(const r of dels) await sbDelete('piece_rates', 'id=eq.'+r.id);
     _pr.draft = {}; _pr.removed = new Set(); await prLoad(true); prRender();
     if(typeof brdToast==='function') brdToast('✓ Расценки сохранены: '+upserts.length+(dels.length?', удалено '+dels.length:''));
-  }catch(e){ alert('Не удалось сохранить расценки: '+e.message+'\nЕсли таблицы нет, выполните piece_rates.sql в Supabase.'); }
+  }catch(e){ alert('Не удалось сохранить расценки: '+e.message+'\nЕсли таблицы нет или не выполнен piece_rates_2.sql, выполните их в Supabase.'); }
 }
 async function openPwbApplyTc(){
   try{ await prLoad(); }catch(e){}
@@ -18673,7 +18730,7 @@ function pwbTcPreview(){
     const mem=((_wsMeta[s.workshop]||{}).members||[]);
     const pre = s.responsible || (mem.length===1?mem[0]:'');
     const _row=prodWbRows.find(r=>r.itemKey===_pwbCurrentItemKey), _it=_row&&ordersData.find(o=>o.num===_row.orderNum)?.items?.[_row.itemIdx];
-    const _pr1=_it?prRateFor(s.name,_it.name):null; const _rate=_pr1!=null?_pr1:s.rate;
+    const _pr1=_it?prRateFor(s.name,_it.name,_it.category):null; const _rate=_pr1!=null?_pr1:s.rate;
     return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
       <div style="flex:1;min-width:0"><b>${i+1}. ${s.name}</b><div style="font-size:11px;color:var(--text3)">${w?w.icon+' '+w.name:'цех не указан'}${_rate?' · ₸'+_rate+(_pr1!=null?' (расценка изделия)':''):''}${s.semi?' · спишет «'+s.semi+'»':''}</div></div>
       <select class="pwb-tc-exec" data-i="${i}" style="font-size:12px;width:170px">${pwbExecOptions(s.workshop,pre,true)}</select></div>`;
@@ -18690,7 +18747,7 @@ function pwbApplyTc(){
   c.stages.forEach((t,ti)=>{
     const who = picked[ti]!=null ? picked[ti] : (t.responsible||'');
     p.stages.push({stage:t.name||'', workshop:t.workshop||wsGuessByOp(t.name)||'', assignees:who?[{name:who,ktu:1}]:[],
-      payMethod:'rate', rate:(()=>{ const v=prRateFor(t.name,item.name); return v!=null?v:(+t.rate||0); })(), percent:0, qty, started:false, startedDate:null, posted:false, accrualIds:[]});
+      payMethod:'rate', rate:(()=>{ const v=prRateFor(t.name,item.name,item.category); return v!=null?v:(+t.rate||0); })(), percent:0, qty, started:false, startedDate:null, posted:false, accrualIds:[]});
     if(t.semi && (+t.semiQty||0)>0){
       const semiName = semiResolveForItem(t.semi, item);
       const wh = warehouseData.find(w=>w.name===semiName);
