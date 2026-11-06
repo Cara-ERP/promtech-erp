@@ -17417,6 +17417,7 @@ async function brgLoadMonth(){
   const b = _brgBrigade();
   _brg.month = null; _brg.stageMap = {}; _brg.sheet = null; _brg.dirty = false;
   if(!b){ renderBrigades(); return; }
+  await brgLoadPriceMemo();
   const p = _brg.period;
   const rows = await sbFetch('brigade_months', 'select=*&brigade_id=eq.'+b.id+'&period=eq.'+p);
   if(rows && rows.length){
@@ -17599,34 +17600,104 @@ function brgSyncPool(){
   const tot=brgJobsTotal(m); m.pool=Math.round(tot*(1-(+m.reserve_pct||0)/100));
   const e=document.getElementById('brg-pool'); if(e) e.value=m.pool||'';
 }
+// Цены для ЗП запоминаются по названию изделия: новая строка берёт последнюю цену, которую ставили этой бригаде
+const _brgPK = n => String(n||'').trim().toLowerCase().replace(/\s+/g,' ');
+async function brgLoadPriceMemo(){
+  _brg.priceMemo = {}; const b=_brgBrigade(); if(!b) return;
+  try{
+    const rows=await sbFetch('brigade_months','select=period,jobs&brigade_id=eq.'+b.id+'&order=period.desc&limit=12')||[];
+    rows.forEach(r=>(r.jobs||[]).forEach(j=>{ const k=_brgPK(j.item); if(k && +j.price>0 && !(k in _brg.priceMemo)) _brg.priceMemo[k]=+j.price; }));
+  }catch(e){}
+}
 function brgJobAdd(){ _brg.month.jobs.push({order:'',item:'',qty:1,price:0}); brgMarkDirty(); renderBrigades(); }
 function brgJobDel(i){ _brg.month.jobs.splice(i,1); brgSyncPool(); brgMarkDirty(); renderBrigades(); }
 function brgJobPick(j,idx){
   const o=(ordersData||[]).find(x=>x.num===j.order); const it=o&&o.items?o.items[idx]:null;
-  if(!it) return; j.itemIdx=idx; j.item=it.name||''; j.qty=+it.qty||1; j.price=+it.price||0;
+  if(!it) return; j.itemIdx=idx; j.item=it.name||''; j.qty=+it.qty||1; j.price=(_brg.priceMemo||{})[_brgPK(it.name)]||0;
 }
 function brgJobOrder(i,v){
-  const j=_brg.month.jobs[i]; j.order=String(v||'').trim(); j.item=''; delete j.itemIdx;
-  const o=(ordersData||[]).find(x=>x.num===j.order);
-  if(o && o.items && o.items.length===1) brgJobPick(j,0);
+  const jobs=_brg.month.jobs, j=jobs[i]; const num=String(v||'').trim();
+  const o=(typeof findOrderBySearchNum==='function'?findOrderBySearchNum(num):null)||(ordersData||[]).find(x=>x.num===num);
+  if(!o){ j.order=num; j.item=''; delete j.itemIdx; brgSyncPool(); brgMarkDirty(); renderBrigades(); if(num) alert('Заказ «'+num+'» не найден.'); return; }
+  // как в рабочем листе: выбор заказа добавляет все его изделия, лишние строки удаляются кнопкой ✕
+  const have=new Set(jobs.filter((x,k)=>k!==i && x.order===o.num && x.itemIdx!=null).map(x=>x.itemIdx));
+  const memo=_brg.priceMemo||{};
+  const add=[]; (o.items||[]).forEach((it,k)=>{ if(have.has(k)) return; add.push({order:o.num, itemIdx:k, item:it.name||'', qty:+it.qty||1, price:memo[_brgPK(it.name)]||0}); });
+  if(!add.length){ alert('Все изделия заказа '+o.num+' уже в таблице.'); jobs.splice(i,1); }
+  else jobs.splice(i,1,...add);
   brgSyncPool(); brgMarkDirty(); renderBrigades();
 }
 function brgJobItem(i,v){ const j=_brg.month.jobs[i]; if(v==='') { j.item=''; delete j.itemIdx; } else brgJobPick(j,+v); brgSyncPool(); brgMarkDirty(); renderBrigades(); }
 function brgJobText(i,v){ _brg.month.jobs[i].item=v.trim(); brgMarkDirty(); }
 function brgJobQty(i,v){ _brg.month.jobs[i].qty=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
-function brgJobPrice(i,v){ _brg.month.jobs[i].price=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
+function brgJobPrice(i,v){
+  const jobs=_brg.month.jobs, j=jobs[i]; j.price=_brgNum(v);
+  // та же цена — другим строкам с таким же изделием, где цена ещё не проставлена
+  const k=_brgPK(j.item); let n=0;
+  if(k && j.price>0){ (_brg.priceMemo=_brg.priceMemo||{})[k]=j.price; jobs.forEach((x,idx)=>{ if(idx!==i && _brgPK(x.item)===k && !(+x.price>0)){ x.price=j.price; n++; } }); }
+  brgSyncPool(); brgMarkDirty();
+  if(n) renderBrigades(); else brgRefresh();
+}
 function brgSetReserve(v){ _brg.month.reserve_pct=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
 function brgSetDist(v){ _brg.month.dist_mode=v; brgMarkDirty(); renderBrigades(); }
 function brgSetPct(i,v){ _brg.month.rows[i].pct=_brgNum(v); brgMarkDirty(); brgRefresh(); }
+// ── Отметка изделий журнала в рабочем листе производства и на доске ──
+// Изделие попадает на рабочий лист, у него появляется завершённый этап бригады с датой:
+// датой реализации (если она в этом же месяце), иначе последним днём месяца.
+async function brgJobsMark(quiet, clearOnly){
+  const m=_brg.month, b=_brgBrigade(); if(!m||!b) return 0;
+  const MARK=b.id+'|'+m.period, last=_brgLastDay(m.period), from=m.period+'-01';
+  if((typeof ordersData==='undefined'||!ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+  if(!(realizationsData||[]).length && typeof loadRealizationsFromDB==='function'){ try{ await loadRealizationsFromDB(); }catch(e){} }
+  const valid=clearOnly?[]:(m.jobs||[]).filter(j=>j.order && j.itemIdx!=null && (ordersData||[]).find(o=>o.num===j.order));
+  const groups={};
+  valid.forEach(j=>{ const k=itemKeyOf(j.order,j.itemIdx); const g=groups[k]||(groups[k]={key:k,order:j.order,idx:j.itemIdx,name:j.item,qty:0,amount:0,jobs:[]}); g.qty+=+j.qty||0; g.amount+=(+j.qty||0)*(+j.price||0); g.jobs.push(j); });
+  const all=await sbFetchAllPages('production_progress','select=id,item_key,order_num,item_idx,stages,materials,completed')||[];
+  const byKey={}; all.forEach(r=>{ byKey[r.item_key]=r; });
+  const syncMem=(key,r,stages)=>{ if(typeof prodProgress!=='undefined'){ if(prodProgress[key]) prodProgress[key].stages=stages; else if(r&&r.id) prodProgress[key]={id:r.id,version:1,stages,materials:r.materials||[],completed:!!r.completed}; } };
+  // убрать прежние отметки этого месяца у изделий, которых в журнале уже нет
+  for(const r of all){
+    if(groups[r.item_key]) continue;
+    const st=r.stages||[], n=st.filter(x=>x.journalMark!==MARK);
+    if(n.length!==st.length){ await sbPatch('production_progress','id=eq.'+r.id,{stages:n,updated_at:new Date().toISOString()}); syncMem(r.item_key,r,n); }
+  }
+  const list=Object.values(groups);
+  if(list.length){
+    await sbUpsert('production_worksheet', list.map(g=>({order_num:g.order,item_idx:g.idx})), 'order_num,item_idx');
+    if(typeof prodWbRows!=='undefined') list.forEach(g=>{ if(!prodWbRows.some(r=>r.itemKey===g.key)) prodWbRows.push({orderNum:g.order,itemIdx:g.idx,itemKey:g.key}); });
+  }
+  for(const g of list){
+    const o=ordersData.find(x=>x.num===g.order); const it=o&&o.items?o.items[g.idx]:null; const nm=(it&&it.name)||g.name||'';
+    const rl=(realizationsData||[]).filter(r=>r.order_num===g.order && plNormProductName(r.name)===plNormProductName(nm)).map(r=>String(r.doc_date||r.date||'').slice(0,10)).filter(d=>d>=from&&d<=last).sort();
+    const date=rl.length?rl[rl.length-1]:last;
+    const r=byKey[g.key]; const base=((r&&r.stages)||[]).filter(x=>x.journalMark!==MARK);
+    base.push({stage:'Работа бригады', workshop:'', assignees:[], brigade:b.id, brigadeName:b.name, payMethod:'rate',
+      rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK});
+    if(r){ await sbPatch('production_progress','id=eq.'+r.id,{stages:base,updated_at:new Date().toISOString()}); syncMem(g.key,r,base); }
+    else { const ins=await sbInsert('production_progress',{item_key:g.key,order_num:g.order,item_idx:g.idx,stages:base,materials:[],completed:false}); syncMem(g.key,ins,base); }
+    g.jobs.forEach(j=>{ j.marked=date; });
+  }
+  if(clearOnly) (m.jobs||[]).forEach(j=>{ delete j.marked; });
+  (m.jobs||[]).forEach(j=>{ if(!valid.includes(j)) delete j.marked; });
+  await brgSave(true); renderBrigades();
+  const skipped=(m.jobs||[]).length-valid.length;
+  if(!quiet){ alert(clearOnly?'Отметки сняты.':('Отмечено изделий: '+list.length+'.'+(skipped?'\nПропущено строк без выбранного изделия из заказа: '+skipped+'.':'')+'\nОни появились в рабочем листе производства и на доске (этап «Работа бригады» с датой реализации или последним днём месяца).')); }
+  return list.length;
+}
+async function brgJobsMarkClick(clear){
+  try{ await brgJobsMark(false, !!clear); }catch(e){ alert('Не удалось '+(clear?'снять отметки':'отметить в рабочем листе')+': '+e.message); }
+}
 function brgJobsHtml(){
   const m=_brg.month; const isOrd=m.pool_source==='orders';
   const ed=m.status!=='posted', dis=ed?'':' disabled', E=_brgEsc;
   const money=n=>fmtCurrency(Math.round(n));
   const ords=(ordersData||[]).slice(0,600);
   let h='<div class="card" style="padding:14px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap"><div style="font-weight:600">Выполненные заказы за месяц <span style="font-weight:400;font-size:12px;color:var(--text3)">— цены ставит начальник производства</span></div>'+
-    (ed?'<button class="btn btn-ghost btn-sm" onclick="brgJobAdd()">＋ Заказ / изделие</button>':'')+'</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">'+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgJobAdd()">＋ Заказ / изделие</button>':'')+
+    '<button class="btn btn-ghost btn-sm" title="Добавляет изделия на рабочий лист производства и доску с этапом бригады" onclick="brgJobsMarkClick(false)">📋 Отметить в рабочем листе</button>'+
+    ((m.jobs||[]).some(j=>j.marked)?'<button class="btn btn-ghost btn-sm" onclick="brgJobsMarkClick(true)">↩ Снять отметки</button>':'')+'</div></div>'+
     '<datalist id="brg-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
-    '<div style="overflow-x:auto"><table class="data-table" style="min-width:680px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:120px">Цена, ₸</th><th style="text-align:right">Сумма, ₸</th><th></th></tr></thead><tbody>';
+    '<div style="overflow-x:auto"><table class="data-table" style="min-width:680px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:120px" title="Цена для расчёта сдельной (не цена продажи)">Цена для ЗП, ₸</th><th style="text-align:right">Сумма, ₸</th><th></th></tr></thead><tbody>';
   (m.jobs||[]).forEach((j,i)=>{
     const o=(ordersData||[]).find(x=>x.num===j.order);
     let itemCell;
@@ -17634,20 +17705,20 @@ function brgJobsHtml(){
       itemCell='<select style="font-size:12px;max-width:260px"'+dis+' onchange="brgJobItem('+i+',this.value)"><option value="">— выберите изделие —</option>'+
         o.items.map((it,k)=>'<option value="'+k+'"'+(j.itemIdx===k?' selected':'')+'>'+(k+1)+'. '+E(it.name)+' ×'+(it.qty||1)+'</option>').join('')+'</select>';
     } else itemCell='<input type="text" value="'+E(j.item||'')+'" placeholder="Изделие" style="width:240px;font-size:12px"'+dis+' onchange="brgJobText('+i+',this.value)">';
-    h+='<tr><td><input list="brg-ord-list" type="text" value="'+E(j.order||'')+'" placeholder="МО-…" style="width:110px;font-size:12px"'+dis+' onchange="brgJobOrder('+i+',this.value)">'+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+'</td>'+
+    h+='<tr><td><input list="brg-ord-list" type="text" value="'+E(j.order||'')+'" placeholder="МО-…" style="width:110px;font-size:12px"'+dis+' onchange="brgJobOrder('+i+',this.value)">'+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+(j.marked?'<div style="font-size:11px;color:var(--green)">✓ в листе '+E(String(j.marked).split('-').reverse().join('.'))+'</div>':'')+'</td>'+
       '<td>'+itemCell+'</td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.qty||'')+'" style="width:60px;text-align:right"'+dis+' onchange="brgJobQty('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.price||'')+'" placeholder="0" style="width:100px;text-align:right"'+dis+' onchange="brgJobPrice('+i+',this.value)"></td>'+
       '<td id="brg-js-'+i+'" style="text-align:right;font-family:monospace"></td>'+
       '<td>'+(ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgJobDel('+i+')">✕</span>':'')+'</td></tr>';
   });
-  if(!(m.jobs||[]).length) h+='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">Нажмите «＋ Заказ / изделие», выберите заказ и изделие, проставьте цену.</td></tr>';
-  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4">Итого сумма заказов</td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td></tr>';
+  if(!(m.jobs||[]).length) h+='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">Нажмите «＋ Заказ / изделие» и впишите номер заказа — подставятся все его изделия, лишние удалите кнопкой ✕. Проставьте цены для ЗП.</td></tr>';
+  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="3">Итого сумма для расчёта ЗП <span id="brg-jw" style="font-weight:400;font-size:12px"></span></td><td></td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td></tr>';
   if(!isOrd) h+='<tr><td colspan="6" style="font-size:12px;color:var(--text3)">Журнал сейчас не влияет на пул (выбран другой источник пула). '+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgSetSource(\'orders\')">Взять пул из этой таблицы (− резерв)</button>':'')+'</td></tr>';
   else h+=
     '<tr><td colspan="3" style="text-align:right">Резерв (удерживается из суммы), %</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.reserve_pct==null?20:m.reserve_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetReserve(this.value)"></td><td id="brg-jr" style="text-align:right;font-family:monospace;color:var(--text3)"></td><td></td></tr>'+
     '<tr style="font-weight:700"><td colspan="4">Пул бригады (сумма − резерв)</td><td id="brg-jp" style="text-align:right;font-family:monospace;color:var(--green)"></td><td></td></tr>'+
-    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:6px">При выборе заказа и изделия цена подставляется из заказа — при необходимости исправьте её. Пул считается как «сумма заказов − резерв» и делится между сотрудниками по КТУ или по процентам (переключатель в блоке «Пул за месяц»).</div></div>';
+    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:6px">Цены в заказах (дилерские, розничные, со скидками) для ЗП не подходят, поэтому здесь ставятся отдельные цены для расчёта сдельной. Программа запоминает цену по названию изделия: в следующий раз (и в других строках с таким же изделием) она подставится сама. Выберите заказ — подставятся все его изделия, удалите лишние строки. «Отметить в рабочем листе» (и «Провести начисления») добавляет изделия на рабочий лист производства и доску: датой реализации, если она в этом месяце, иначе последним днём месяца. Пул считается как «сумма заказов − резерв» и делится между сотрудниками по КТУ или по процентам (переключатель в блоке «Пул за месяц»).</div></div>';
   return h;
 }
 async function brgSetSource(v){
@@ -17757,6 +17828,7 @@ async function brgPost(){
     }
     m.status = 'posted'; m.accrual_ids = ids; m.posted_date = date;
     if(!(await brgSave(true))) { alert('Начисления созданы ('+ids.length+'), но статус расчёта сохранить не удалось. Нажмите «Сохранить».'); }
+    try{ if((m.jobs||[]).length) await brgJobsMark(true); }catch(e){ console.warn('Отметка в рабочем листе не удалась', e.message); alert('Начисления проведены, но отметить изделия в рабочем листе не удалось: '+e.message+'\nНажмите «📋 Отметить в рабочем листе» в таблице заказов.'); }
     renderBrigades();
   }catch(e){
     // Откатываем уже созданные, чтобы не остались «хвосты»
@@ -17804,6 +17876,7 @@ function brgRefresh(){
   { const tot=brgJobsTotal(m);
     (m.jobs||[]).forEach((j,i)=>set('brg-js-'+i, money((+j.qty||0)*(+j.price||0))));
     set('brg-jt', money(tot));
+    { const nop=(m.jobs||[]).filter(j=>!(+j.price>0)).length; set('brg-jw', nop?'<span style="color:var(--amber,#f5a623)">⚠ без цены: '+nop+'</span>':''); }
     if(m.pool_source==='orders'){ set('brg-jr', '−'+money(tot-m.pool)); set('brg-jp', money(m.pool)); } }
   set('brg-t-days', String(Math.round(c.days*100)/100));
   set('brg-t-w', String(Math.round(c.totalW*100)/100));
@@ -17939,7 +18012,7 @@ function printBrigade(){
   const sheetHtml=sheet ? `<h3>Основание пула — выполненные работы за ${E(per)}</h3><table><thead><tr><th>Дата</th><th>Заказ</th><th>Изделие</th><th>Этап</th><th class="r">Сумма в пул</th></tr></thead><tbody>${
     sheet.map(x=>`<tr><td>${E(String(x.date||'').split('-').reverse().join('.'))}</td><td>${E(x.order)}</td><td>${E(x.item)}</td><td>${E(x.stage)}</td><td class="r">${f(x.share)}</td></tr>`).join('')
   }<tr class="tot"><td colspan="4">Итого</td><td class="r">${f(sheet.reduce((t,x)=>t+(+x.share||0),0))}</td></tr></tbody></table>` : '';
-  const jobsHtml=((m.jobs||[]).length) ? `<h3>${m.pool_source==='orders'?'Основание пула — выполненные':'Выполненные'} заказы за ${E(per)}</h3><table><thead><tr><th>Заказ</th><th>Изделие</th><th class="r">Кол-во</th><th class="r">Цена, ₸</th><th class="r">Сумма, ₸</th></tr></thead><tbody>${
+  const jobsHtml=((m.jobs||[]).length) ? `<h3>${m.pool_source==='orders'?'Основание пула — выполненные':'Выполненные'} заказы за ${E(per)}</h3><table><thead><tr><th>Заказ</th><th>Изделие</th><th class="r">Кол-во</th><th class="r">Цена для ЗП, ₸</th><th class="r">Сумма, ₸</th></tr></thead><tbody>${
     m.jobs.map(j=>`<tr><td>${E(j.order)}</td><td>${E(j.item)}</td><td class="r">${j.qty}</td><td class="r">${f(j.price)}</td><td class="r">${f((+j.qty||0)*(+j.price||0))}</td></tr>`).join('')
   }<tr class="tot"><td colspan="4">Итого</td><td class="r">${f(brgJobsTotal(m))}</td></tr></tbody></table>` : '';
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Расчёт бригады ${E(b.name)} — ${E(per)}</title><style>
