@@ -17340,6 +17340,7 @@ const _brgNum = v => { const n = parseFloat(String(v).replace(',','.').replace(/
 // Чистый расчёт (без обращения к базе) — удобно проверять отдельно
 function brgCalc(m, stageMap){
   stageMap = stageMap || {};
+  const pctMode = m.dist_mode==='percent';
   const ded = (m.deductions||[]).reduce((s,d)=>s+(+d.amount||0),0);
   const gross = (+m.pool||0) + (+m.extra||0);
   const fv = +m.foreman_value||0;
@@ -17351,15 +17352,16 @@ function brgCalc(m, stageMap){
     // piece — сдельщик; pool_salary — оклад вычитается из пула, в делении не участвует; share_salary — делит пул, оклад засчитывается
     const mode = (r.mode==='pool_salary'||r.mode==='share_salary') ? r.mode : 'piece';
     const salary = mode==='piece' ? 0 : (+r.salary||0);
-    return { name:r.name, days, ktu, mode, salary, w:mode==='pool_salary'?0:days*ktu, raw:0, share:0, stage:stageMap[_brgKey(r.name)]||0, net:0 };
+    const pct = (r.pct===''||r.pct==null||isNaN(+r.pct)) ? 0 : +r.pct;
+    return { name:r.name, days, ktu, pct, mode, salary, w:mode==='pool_salary'?0:(pctMode?pct:days*ktu), raw:0, share:0, stage:stageMap[_brgKey(r.name)]||0, net:0 };
   });
   const salaryPool = lines.filter(l=>l.mode==='pool_salary').reduce((t,l)=>t+l.salary,0);
   const dist = gross - ded - (fromPool ? bonus : 0) - salaryPool;
   const totalW = lines.reduce((s,l)=>s+l.w,0);
-  const unit = totalW>0 ? dist/totalW : 0;
+  const unit = pctMode ? dist/100 : (totalW>0 ? dist/totalW : 0);
   lines.forEach(l=>{ l.raw = unit*l.w; l.share = Math.round(l.raw); });
   // Округление до тенге: разницу забирает самая большая доля, чтобы сумма сошлась с пулом
-  if(totalW>0 && lines.length){
+  if(totalW>0 && lines.length && (!pctMode || Math.abs(totalW-100)<1e-6)){
     const diff = Math.round(dist) - lines.reduce((s,l)=>s+l.share,0);
     if(diff!==0){
       const part = lines.filter(l=>l.w>0);
@@ -17373,7 +17375,7 @@ function brgCalc(m, stageMap){
     else if(l.mode==='share_salary') l.net = Math.max(0, l.share - l.salary - st);
     else l.net = l.share - st;
   });
-  return { ded, gross, bonus, fromPool, salaryPool, dist, totalW, unit, lines, totalShare:lines.reduce((s,l)=>s+l.share,0), totalNet:lines.reduce((s,l)=>s+l.net,0),
+  return { pctMode, ded, gross, bonus, fromPool, salaryPool, dist, totalW, unit, lines, totalShare:lines.reduce((s,l)=>s+l.share,0), totalNet:lines.reduce((s,l)=>s+l.net,0),
            totalStage:lines.reduce((s,l)=>s+l.stage,0), days:lines.reduce((s,l)=>s+l.days,0) };
 }
 
@@ -17420,20 +17422,21 @@ async function brgLoadMonth(){
   if(rows && rows.length){
     const m = rows[0];
     m.rows = m.rows||[]; m.deductions = m.deductions||[]; m.accrual_ids = m.accrual_ids||[]; m.pool_source = m.pool_source||'manual'; m.foreman = m.foreman||''; m.foreman_mode = m.foreman_mode||'fixed'; m.foreman_value = +m.foreman_value||0; m.foreman_from_pool = m.foreman_from_pool!==false;
+    m.jobs = m.jobs||[]; m.reserve_pct = m.reserve_pct==null?20:(+m.reserve_pct||0); m.dist_mode = m.dist_mode||'ktu';
     _brg.month = m;
   } else {
     // КТУ берём из прошлого месяца этой бригады — он меняется редко
-    let prevKtu = {}, prevF = { foreman:'', foreman_mode:'fixed', foreman_value:0, foreman_from_pool:true };
+    let prevKtu = {}, prevF = { foreman:'', foreman_mode:'fixed', foreman_value:0, foreman_from_pool:true, reserve_pct:20, dist_mode:'ktu' };
     try{
       const pr = await sbFetch('brigade_months','select=*&brigade_id=eq.'+b.id+'&period=eq.'+_brgPrevPeriod(p));
       if(pr && pr[0]){
         (pr[0].rows||[]).forEach(r=>{ prevKtu[_brgKey(r.name)] = r; });
-        prevF = { foreman:pr[0].foreman||'', foreman_mode:pr[0].foreman_mode||'fixed', foreman_value:+pr[0].foreman_value||0, foreman_from_pool:pr[0].foreman_from_pool!==false };
+        prevF = { foreman:pr[0].foreman||'', foreman_mode:pr[0].foreman_mode||'fixed', foreman_value:+pr[0].foreman_value||0, foreman_from_pool:pr[0].foreman_from_pool!==false, reserve_pct:pr[0].reserve_pct==null?20:(+pr[0].reserve_pct||0), dist_mode:pr[0].dist_mode||'ktu' };
       }
     }catch(e){}
-    _brg.month = { id:null, brigade_id:b.id, period:p, pool:0, extra:0, deductions:[], deduct_stage_paid:false, pool_source:'manual', ...prevF,
+    _brg.month = { id:null, brigade_id:b.id, period:p, pool:0, extra:0, deductions:[], jobs:[], deduct_stage_paid:false, pool_source:'manual', ...prevF,
       status:'draft', accrual_ids:[], note:'',
-      rows:(b.members||[]).map(n=>{ const pr0 = prevKtu[_brgKey(n)]; return {name:n, days:0, ktu: pr0&&pr0.ktu!=null ? pr0.ktu : 1, mode: pr0&&pr0.mode||'piece', salary: pr0&&pr0.salary||0}; }) };
+      rows:(b.members||[]).map(n=>{ const pr0 = prevKtu[_brgKey(n)]; return {name:n, days:0, ktu: pr0&&pr0.ktu!=null ? pr0.ktu : 1, pct: pr0&&pr0.pct||0, mode: pr0&&pr0.mode||'piece', salary: pr0&&pr0.salary||0}; }) };
   }
   brgSyncRows();
   // Что уже начислено по этапам за этот месяц (для режима «вместе»)
@@ -17447,6 +17450,10 @@ async function brgLoadMonth(){
       _brg.stageMap[k] = (_brg.stageMap[k]||0) + (+a.amount||0);
     });
   }catch(e){ console.warn('Бригады: не удалось загрузить начисления по этапам', e.message); }
+  if(_brg.month.pool_source==='orders'){
+    if((typeof ordersData==='undefined' || !ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+    brgSyncPool();
+  }
   if(_brg.month.pool_source==='worksheet' && _brg.month.status!=='posted'){
     try{ await brgRecalcPool(true); }catch(e){ console.warn('Бригады: не удалось взять пул из рабочего листа', e.message); }
   }
@@ -17457,7 +17464,7 @@ async function brgLoadMonth(){
 function brgSyncRows(){
   const b = _brgBrigade(), m = _brg.month; if(!b||!m||m.status==='posted') return;
   const have = new Set(m.rows.map(r=>_brgKey(r.name)));
-  (b.members||[]).forEach(n=>{ if(!have.has(_brgKey(n))) m.rows.push({name:n, days:0, ktu:1, mode:'piece', salary:0}); });
+  (b.members||[]).forEach(n=>{ if(!have.has(_brgKey(n))) m.rows.push({name:n, days:0, ktu:1, pct:0, mode:'piece', salary:0}); });
   const mem = new Set((b.members||[]).map(_brgKey));
   m.rows = m.rows.filter(r=>mem.has(_brgKey(r.name)) || (+r.days||0)>0);
 }
@@ -17587,9 +17594,69 @@ async function brgRecalcPool(quiet){
 async function brgRefreshSheetClick(){
   try{ await brgRecalcPool(false); }catch(e){ alert('Не удалось прочитать рабочий лист: '+e.message); }
 }
+// ── Пул из таблицы выполненных заказов: сумма заказов минус резерв (по умолчанию 20%) ──
+function brgJobsTotal(m){ return (m.jobs||[]).reduce((t,j)=>t+(+j.qty||0)*(+j.price||0),0); }
+function brgSyncPool(){
+  const m=_brg.month; if(!m || m.pool_source!=='orders' || m.status==='posted') return;
+  const tot=brgJobsTotal(m); m.pool=Math.round(tot*(1-(+m.reserve_pct||0)/100));
+  const e=document.getElementById('brg-pool'); if(e) e.value=m.pool||'';
+}
+function brgJobAdd(){ _brg.month.jobs.push({order:'',item:'',qty:1,price:0}); brgMarkDirty(); renderBrigades(); }
+function brgJobDel(i){ _brg.month.jobs.splice(i,1); brgSyncPool(); brgMarkDirty(); renderBrigades(); }
+function brgJobPick(j,idx){
+  const o=(ordersData||[]).find(x=>x.num===j.order); const it=o&&o.items?o.items[idx]:null;
+  if(!it) return; j.itemIdx=idx; j.item=it.name||''; j.qty=+it.qty||1; j.price=+it.price||0;
+}
+function brgJobOrder(i,v){
+  const j=_brg.month.jobs[i]; j.order=String(v||'').trim(); j.item=''; delete j.itemIdx;
+  const o=(ordersData||[]).find(x=>x.num===j.order);
+  if(o && o.items && o.items.length===1) brgJobPick(j,0);
+  brgSyncPool(); brgMarkDirty(); renderBrigades();
+}
+function brgJobItem(i,v){ const j=_brg.month.jobs[i]; if(v==='') { j.item=''; delete j.itemIdx; } else brgJobPick(j,+v); brgSyncPool(); brgMarkDirty(); renderBrigades(); }
+function brgJobText(i,v){ _brg.month.jobs[i].item=v.trim(); brgMarkDirty(); }
+function brgJobQty(i,v){ _brg.month.jobs[i].qty=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
+function brgJobPrice(i,v){ _brg.month.jobs[i].price=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
+function brgSetReserve(v){ _brg.month.reserve_pct=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
+function brgSetDist(v){ _brg.month.dist_mode=v; brgMarkDirty(); renderBrigades(); }
+function brgSetPct(i,v){ _brg.month.rows[i].pct=_brgNum(v); brgMarkDirty(); brgRefresh(); }
+function brgJobsHtml(){
+  const m=_brg.month; if(m.pool_source!=='orders') return '';
+  const ed=m.status!=='posted', dis=ed?'':' disabled', E=_brgEsc;
+  const money=n=>fmtCurrency(Math.round(n));
+  const ords=(ordersData||[]).slice(0,600);
+  let h='<div class="card" style="padding:14px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap"><div style="font-weight:600">Выполненные заказы за месяц <span style="font-weight:400;font-size:12px;color:var(--text3)">— цены ставит начальник производства</span></div>'+
+    (ed?'<button class="btn btn-ghost btn-sm" onclick="brgJobAdd()">＋ Заказ / изделие</button>':'')+'</div>'+
+    '<datalist id="brg-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
+    '<div style="overflow-x:auto"><table class="data-table" style="min-width:680px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:120px">Цена, ₸</th><th style="text-align:right">Сумма, ₸</th><th></th></tr></thead><tbody>';
+  (m.jobs||[]).forEach((j,i)=>{
+    const o=(ordersData||[]).find(x=>x.num===j.order);
+    let itemCell;
+    if(o && o.items && o.items.length){
+      itemCell='<select style="font-size:12px;max-width:260px"'+dis+' onchange="brgJobItem('+i+',this.value)"><option value="">— выберите изделие —</option>'+
+        o.items.map((it,k)=>'<option value="'+k+'"'+(j.itemIdx===k?' selected':'')+'>'+(k+1)+'. '+E(it.name)+' ×'+(it.qty||1)+'</option>').join('')+'</select>';
+    } else itemCell='<input type="text" value="'+E(j.item||'')+'" placeholder="Изделие" style="width:240px;font-size:12px"'+dis+' onchange="brgJobText('+i+',this.value)">';
+    h+='<tr><td><input list="brg-ord-list" type="text" value="'+E(j.order||'')+'" placeholder="МО-…" style="width:110px;font-size:12px"'+dis+' onchange="brgJobOrder('+i+',this.value)">'+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+'</td>'+
+      '<td>'+itemCell+'</td>'+
+      '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.qty||'')+'" style="width:60px;text-align:right"'+dis+' onchange="brgJobQty('+i+',this.value)"></td>'+
+      '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.price||'')+'" placeholder="0" style="width:100px;text-align:right"'+dis+' onchange="brgJobPrice('+i+',this.value)"></td>'+
+      '<td id="brg-js-'+i+'" style="text-align:right;font-family:monospace"></td>'+
+      '<td>'+(ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgJobDel('+i+')">✕</span>':'')+'</td></tr>';
+  });
+  if(!(m.jobs||[]).length) h+='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">Нажмите «＋ Заказ / изделие», выберите заказ и изделие, проставьте цену.</td></tr>';
+  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4">Итого сумма заказов</td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td></tr>'+
+    '<tr><td colspan="3" style="text-align:right">Резерв (удерживается из суммы), %</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.reserve_pct==null?20:m.reserve_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetReserve(this.value)"></td><td id="brg-jr" style="text-align:right;font-family:monospace;color:var(--text3)"></td><td></td></tr>'+
+    '<tr style="font-weight:700"><td colspan="4">Пул бригады (сумма − резерв)</td><td id="brg-jp" style="text-align:right;font-family:monospace;color:var(--green)"></td><td></td></tr>'+
+    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:6px">При выборе заказа и изделия цена подставляется из заказа — при необходимости исправьте её. Пул считается как «сумма заказов − резерв» и делится между сотрудниками по КТУ или по процентам (переключатель в блоке «Пул за месяц»).</div></div>';
+  return h;
+}
 async function brgSetSource(v){
   const m = _brg.month; if(!m || m.status==='posted') return;
   m.pool_source = v; brgMarkDirty();
+  if(v==='orders'){
+    if((typeof ordersData==='undefined' || !ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+    brgSyncPool(); _brg.sheet = null; renderBrigades(); return;
+  }
   if(v==='worksheet'){
     // Эти этапы уже начислены людям по этапам — по умолчанию вычитаем, чтобы не начислить дважды
     m.deduct_stage_paid = true;
@@ -17637,7 +17704,7 @@ function brgDelDed(i){ _brg.month.deductions.splice(i,1); brgMarkDirty(); render
 
 async function brgSave(silent){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b) return false;
-  const payload = { pool:m.pool||0, extra:m.extra||0, rows:m.rows, deductions:m.deductions.filter(d=>(d.name||'').trim()||(+d.amount||0)),
+  const payload = { pool:m.pool||0, extra:m.extra||0, rows:m.rows, jobs:m.jobs||[], reserve_pct:m.reserve_pct==null?20:+m.reserve_pct, dist_mode:m.dist_mode||'ktu', deductions:m.deductions.filter(d=>(d.name||'').trim()||(+d.amount||0)),
     deduct_stage_paid:!!m.deduct_stage_paid, pool_source:m.pool_source||'manual', foreman:m.foreman||'', foreman_mode:m.foreman_mode||'fixed', foreman_value:+m.foreman_value||0, foreman_from_pool:m.foreman_from_pool!==false, status:m.status, accrual_ids:m.accrual_ids||[], posted_date:m.posted_date||null,
     note:m.note||'', updated_at:new Date().toISOString() };
   try{
@@ -17659,7 +17726,8 @@ async function brgSave(silent){
 async function brgPost(){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b||m.status==='posted') return;
   const c = brgCalc(m, _brg.stageMap);
-  if(c.totalW<=0){ alert('Проставьте дни и КТУ: сумма «дни × КТУ» равна нулю.'); return; }
+  if(c.totalW<=0){ alert(c.pctMode?'Проставьте проценты сотрудникам.':'Проставьте дни и КТУ: сумма «дни × КТУ» равна нулю.'); return; }
+  if(c.pctMode && Math.abs(c.totalW-100)>0.01 && !confirm('Сумма процентов = '+(Math.round(c.totalW*100)/100)+'%, а не 100%. Часть пула останется нераспределённой (или будет превышена). Продолжить?')) return;
   if(c.dist<=0){ alert('К распределению получилось '+fmtCurrency(c.dist)+'. Проверьте пул и вычеты.'); return; }
   if(c.bonus>0 && !(m.foreman||'').trim()){ alert('Указана бригадирская доплата, но не выбран бригадир.'); return; }
   const pay = c.lines.filter(l=>l.net>0);
@@ -17714,14 +17782,15 @@ async function brgUnpost(){
 function brgKpiHtml(c){
   const m = _brg.month, money = n => fmtCurrency(Math.round(n));
   const kpi = (l,v,sub,col) => '<div class="kpi"><div class="kpi-label">'+l+'</div><div class="kpi-value"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div>'+(sub?'<div class="kpi-change">'+sub+'</div>':'')+'</div>';
-  return kpi('Пул бригады', money((+m.pool||0)+(+m.extra||0)), 'сумма, сделанная за месяц')+
+  return (m.pool_source==='orders'?kpi('Сумма заказов', money(brgJobsTotal(m)), 'резерв '+(m.reserve_pct==null?20:m.reserve_pct)+'%'):'')+kpi('Пул бригады', money((+m.pool||0)+(+m.extra||0)), 'сумма, сделанная за месяц')+
     kpi('Вычеты', money(c.ded), (m.deductions||[]).length+' поз.')+(c.bonus>0?kpi('Бригадирская доплата', money(c.bonus), c.fromPool?'из пула':'сверх пула'):'')+(c.salaryPool>0?kpi('Оклады из пула', money(c.salaryPool), 'вычтено до деления'):'')+
-    kpi('К распределению', money(c.dist), 'Σ дни × КТУ = '+(Math.round(c.totalW*100)/100), c.dist>0?'var(--green)':'var(--red)')+
-    kpi('Стоимость 1 «балла»', money(c.unit), '1 день при КТУ 1');
+    kpi('К распределению', money(c.dist), c.pctMode?('Σ % = '+(Math.round(c.totalW*100)/100)):('Σ дни × КТУ = '+(Math.round(c.totalW*100)/100)), c.dist>0?'var(--green)':'var(--red)')+
+    (c.pctMode?kpi('Стоимость 1%', money(c.unit), 'от суммы к распределению'):kpi('Стоимость 1 «балла»', money(c.unit), '1 день при КТУ 1'));
 }
 // Обновляет только расчётные ячейки — поля ввода не пересоздаются, фокус не теряется
 function brgRefresh(){
   const m = _brg.month; if(!m) return;
+  brgSyncPool();
   const c = brgCalc(m, _brg.stageMap), money = n => fmtCurrency(Math.round(n));
   const set = (id, html, color) => { const e = document.getElementById(id); if(e){ e.innerHTML = html; if(color!==undefined) e.style.color = color; } };
   const k = document.getElementById('brg-kpi'); if(k) k.innerHTML = brgKpiHtml(c);
@@ -17732,14 +17801,20 @@ function brgRefresh(){
     set('brg-n-'+i, l.mode==='pool_salary' ? 'оклад отдельно' : money(l.net)+(l.net<0?' ⚠':'')+(l.mode==='share_salary'&&l.share-l.salary<=0?' (оклад покрывает)':''), l.net<0?'var(--red)':(l.mode==='pool_salary'?'var(--text3)':'var(--green)'));
   });
   set('brg-t-sal', c.lines.some(l=>l.salary)?money(c.lines.reduce((t,l)=>t+l.salary,0)):'—');
+  if(m.pool_source==='orders'){
+    const tot=brgJobsTotal(m);
+    (m.jobs||[]).forEach((j,i)=>set('brg-js-'+i, money((+j.qty||0)*(+j.price||0))));
+    set('brg-jt', money(tot)); set('brg-jr', '−'+money(tot-m.pool)); set('brg-jp', money(m.pool));
+  }
   set('brg-t-days', String(Math.round(c.days*100)/100));
   set('brg-t-w', String(Math.round(c.totalW*100)/100));
   set('brg-t-s', money(c.totalShare));
   set('brg-t-st', c.totalStage?money(c.totalStage):'—');
   set('brg-t-n', money(c.totalNet));
   set('brg-bonus', c.bonus>0 ? 'Доплата: <b>'+money(c.bonus)+'</b>'+(m.foreman_mode==='percent'?' ('+(+m.foreman_value||0)+'% от '+money(c.gross)+')':'')+(c.fromPool?' — из пула':' — сверх пула')+'. Начисляется бригадиру отдельной строкой.' : 'Доплата не задана.');
-  set('brg-warn', c.lines.some(l=>l.net<0)
-    ? '<div style="font-size:12px;color:var(--red);margin-top:8px">⚠ У части людей по этапам уже начислено больше, чем их доля пула. Таким людям начисление по пулу не создаётся.</div>' : '');
+  set('brg-warn', (c.lines.some(l=>l.net<0)
+    ? '<div style="font-size:12px;color:var(--red);margin-top:8px">⚠ У части людей по этапам уже начислено больше, чем их доля пула. Таким людям начисление по пулу не создаётся.</div>' : '')
+    + (c.pctMode && Math.abs(c.totalW-100)>0.01 ? '<div style="font-size:12px;color:var(--amber,#f5a623);margin-top:8px">⚠ Сумма процентов '+(Math.round(c.totalW*100)/100)+'% (должно быть 100%).</div>' : ''));
 }
 
 function renderBrigades(){
@@ -17765,9 +17840,11 @@ function renderBrigades(){
     '<div class="card" style="padding:14px"><div style="font-weight:600;margin-bottom:10px">Пул за месяц</div>'+
       '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;font-size:13px">'+
         '<label style="display:flex;gap:6px;align-items:center"><input type="radio" name="brg-src" style="width:auto"'+(m.pool_source!=='worksheet'?' checked':'')+dis+' onchange="brgSetSource(\'manual\')"> Вручную</label>'+
-        '<label style="display:flex;gap:6px;align-items:center"><input type="radio" name="brg-src" style="width:auto"'+(m.pool_source==='worksheet'?' checked':'')+dis+' onchange="brgSetSource(\'worksheet\')"> Из рабочего листа производства</label></div>'+
+        '<label style="display:flex;gap:6px;align-items:center"><input type="radio" name="brg-src" style="width:auto"'+(m.pool_source==='worksheet'?' checked':'')+dis+' onchange="brgSetSource(\'worksheet\')"> Из рабочего листа производства</label>'+
+        '<label style="display:flex;gap:6px;align-items:center"><input type="radio" name="brg-src" style="width:auto"'+(m.pool_source==='orders'?' checked':'')+dis+' onchange="brgSetSource(\'orders\')"> Из таблицы выполненных заказов (− резерв)</label></div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;font-size:13px">Делить между сотрудниками: <select style="width:auto"'+dis+' onchange="brgSetDist(this.value)"><option value="ktu"'+(m.dist_mode!=="percent"?" selected":"")+'>по дням × КТУ</option><option value="percent"'+(m.dist_mode==="percent"?" selected":"")+'>по процентам (у каждого свой %)</option></select></div>'+
       '<label class="label">Сумма, сделанная бригадой (Jalpy somma), ₸</label>'+
-      '<div style="display:flex;gap:6px"><input id="brg-pool" type="text" inputmode="decimal" value="'+(m.pool||'')+'" placeholder="0" style="flex:1;min-width:0"'+(ed&&m.pool_source!=='worksheet'?'':' disabled')+' onchange="brgSetPool(this.value)">'+
+      '<div style="display:flex;gap:6px"><input id="brg-pool" type="text" inputmode="decimal" value="'+(m.pool||'')+'" placeholder="0" style="flex:1;min-width:0"'+(ed&&m.pool_source==='manual'?'':' disabled')+' onchange="brgSetPool(this.value)">'+
       (ed&&m.pool_source==='worksheet'?'<button class="btn btn-ghost btn-sm" onclick="brgRefreshSheetClick()">🔄 Пересчитать из листа</button>':'')+'</div>'+
       brgSheetHtml()+
       '<label class="label" style="margin-top:10px">Прибавка к пулу (доп. расход из кассы и т.п.), ₸</label>'+
@@ -17801,7 +17878,7 @@ function renderBrigades(){
   const stageNote = '<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.5;margin:0 0 10px"><input type="checkbox" style="width:auto;margin-top:2px"'+(m.deduct_stage_paid?' checked':'')+dis+' onchange="brgSetStageMode(this.checked)">'+
     '<span><b>Вычесть то, что уже начислено по этапам за этот месяц.</b> Включайте, если часть работ этой бригады проводилась через этапы заказов (КТУ по этапам): тогда по пулу доначисляется только разница, и никто не получит дважды. Если выключено, пул считается отдельно и начисляется целиком.</span></label>';
   h += '<div class="card" style="padding:14px;margin-bottom:12px">'+stageNote+'<div style="overflow-x:auto"><table class="data-table" style="min-width:720px"><thead><tr>'+
-    '<th>Сборщик</th><th title="Сдельщик — получает долю пула. Оклад из пула — оклад вычитается из пула, в делении не участвует. Оклад с зачётом — участвует в делении, из его доли вычитается оклад.">Расчёт</th><th style="text-align:right;width:100px">Оклад, ₸</th><th style="text-align:right;width:90px">Дни</th><th style="text-align:right;width:90px">КТУ</th><th style="text-align:right">Дни × КТУ</th>'+
+    '<th>Сборщик</th><th title="Сдельщик — получает долю пула. Оклад из пула — оклад вычитается из пула, в делении не участвует. Оклад с зачётом — участвует в делении, из его доли вычитается оклад.">Расчёт</th><th style="text-align:right;width:100px">Оклад, ₸</th><th style="text-align:right;width:90px">Дни</th><th style="text-align:right;width:90px">'+(c.pctMode?'% от пула':'КТУ')+'</th><th style="text-align:right">'+(c.pctMode?'Доля, %':'Дни × КТУ')+'</th>'+
     '<th style="text-align:right">Доля пула</th><th style="text-align:right" title="Начислено за месяц через этапы заказов (Сдельная — …)">Уже по этапам</th><th style="text-align:right">К начислению</th></tr></thead><tbody>';
   c.lines.forEach((l,i)=>{
     const neg = l.net<0;
@@ -17812,7 +17889,8 @@ function renderBrigades(){
         '<option value="share_salary"'+(l.mode==='share_salary'?' selected':'')+'>Оклад — с зачётом</option></select></td>'+
       '<td style="text-align:right"><input id="brg-sal-'+i+'" type="text" inputmode="decimal" value="'+(l.mode==='piece'?'':(m.rows[i].salary||''))+'" placeholder="'+(l.mode==='piece'?'—':'₸')+'" style="width:90px;text-align:right"'+(ed&&l.mode!=='piece'?'':' disabled')+' onchange="brgSetSalary('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input id="brg-d-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].days||'')+'" placeholder="0" style="width:70px;text-align:right"'+dis+' onchange="brgSetDays('+i+',this.value)"></td>'+
-      '<td style="text-align:right"><input id="brg-k-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].ktu==null?1:m.rows[i].ktu)+'" style="width:70px;text-align:right"'+dis+' onchange="brgSetKtu('+i+',this.value)"></td>'+
+      (c.pctMode ? '<td style="text-align:right"><input id="brg-k-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].pct||'')+'" placeholder="%" style="width:70px;text-align:right"'+dis+' onchange="brgSetPct('+i+',this.value)"></td>'
+      : '<td style="text-align:right"><input id="brg-k-'+i+'" type="text" inputmode="decimal" value="'+(m.rows[i].ktu==null?1:m.rows[i].ktu)+'" style="width:70px;text-align:right"'+dis+' onchange="brgSetKtu('+i+',this.value)"></td>')+
       '<td id="brg-w-'+i+'" style="text-align:right;font-family:monospace"></td>'+
       '<td id="brg-s-'+i+'" style="text-align:right;font-family:monospace"></td>'+
       '<td id="brg-st-'+i+'" style="text-align:right;font-family:monospace"></td>'+
@@ -17823,6 +17901,8 @@ function renderBrigades(){
     '<td id="brg-t-w" style="text-align:right;font-family:monospace"></td><td id="brg-t-s" style="text-align:right;font-family:monospace"></td>'+
     '<td id="brg-t-st" style="text-align:right;font-family:monospace"></td><td id="brg-t-n" style="text-align:right;font-family:monospace"></td></tr>';
   h += '</tbody></table></div><div id="brg-warn"></div></div>';
+
+  h += brgJobsHtml();
 
   // Состав
   h += '<div class="card" style="padding:14px;margin-bottom:12px"><div style="font-weight:600;margin-bottom:8px">Состав бригады</div>'+
@@ -17854,12 +17934,15 @@ function printBrigade(){
   const [yy,mm]=m.period.split('-').map(Number); const per=MN[mm-1]+' '+yy;
   const E=_brgEsc;
   const modeLbl={piece:'сдельщик',pool_salary:'оклад из пула',share_salary:'доля + оклад'};
-  const rows=c.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${E(l.name)}</td><td class="c">${E(modeLbl[l.mode]||'')}</td><td class="r">${l.days}</td><td class="r">${l.ktu}</td><td class="r">${(Math.round(l.w*100)/100)}</td><td class="r">${f(l.share)}</td>${m.deduct_stage_paid?`<td class="r">${f(l.stage)}</td>`:''}<td class="r b">${f(l.net)}</td><td class="sig"></td></tr>`).join('');
+  const rows=c.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${E(l.name)}</td><td class="c">${E(modeLbl[l.mode]||'')}</td><td class="r">${l.days}</td><td class="r">${c.pctMode?l.pct:l.ktu}</td><td class="r">${(Math.round(l.w*100)/100)}</td><td class="r">${f(l.share)}</td>${m.deduct_stage_paid?`<td class="r">${f(l.stage)}</td>`:''}<td class="r b">${f(l.net)}</td><td class="sig"></td></tr>`).join('');
   const dedRows=(m.deductions||[]).filter(d=>(d.name||'').trim()||(+d.amount||0)).map(d=>`<tr><td>${E(d.name||'—')}</td><td class="r">−${f(d.amount)}</td></tr>`).join('');
   const sheet=_brg.sheet&&_brg.sheet.lines&&m.pool_source==='worksheet' ? _brg.sheet.lines : null;
   const sheetHtml=sheet ? `<h3>Основание пула — выполненные работы за ${E(per)}</h3><table><thead><tr><th>Дата</th><th>Заказ</th><th>Изделие</th><th>Этап</th><th class="r">Сумма в пул</th></tr></thead><tbody>${
     sheet.map(x=>`<tr><td>${E(String(x.date||'').split('-').reverse().join('.'))}</td><td>${E(x.order)}</td><td>${E(x.item)}</td><td>${E(x.stage)}</td><td class="r">${f(x.share)}</td></tr>`).join('')
   }<tr class="tot"><td colspan="4">Итого</td><td class="r">${f(sheet.reduce((t,x)=>t+(+x.share||0),0))}</td></tr></tbody></table>` : '';
+  const jobsHtml=(m.pool_source==='orders'&&(m.jobs||[]).length) ? `<h3>Основание пула — выполненные заказы за ${E(per)}</h3><table><thead><tr><th>Заказ</th><th>Изделие</th><th class="r">Кол-во</th><th class="r">Цена, ₸</th><th class="r">Сумма, ₸</th></tr></thead><tbody>${
+    m.jobs.map(j=>`<tr><td>${E(j.order)}</td><td>${E(j.item)}</td><td class="r">${j.qty}</td><td class="r">${f(j.price)}</td><td class="r">${f((+j.qty||0)*(+j.price||0))}</td></tr>`).join('')
+  }<tr class="tot"><td colspan="4">Итого</td><td class="r">${f(brgJobsTotal(m))}</td></tr></tbody></table>` : '';
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Расчёт бригады ${E(b.name)} — ${E(per)}</title><style>
   @page{size:A4;margin:14mm} body{font:12px/1.4 Arial,sans-serif;color:#000;margin:0}
   h2{margin:0 0 2px;font-size:16px} h3{margin:16px 0 6px;font-size:13px} .sub{color:#444;margin-bottom:10px}
@@ -17871,19 +17954,20 @@ function printBrigade(){
   <h2>Расчёт сдельной оплаты бригады</h2>
   <div class="sub"><b>${E(b.name)}</b> · ${E(per)} · ${m.status==='posted'?'начисления проведены':'черновик'}${m.foreman?' · бригадир: '+E(m.foreman):''}</div>
   <table class="sum"><tbody>
-   <tr><td>Пул за месяц${m.pool_source==='worksheet'?' (из рабочего листа)':''}</td><td class="r">${f(m.pool)}</td></tr>
+   ${m.pool_source==='orders'?`<tr><td>Сумма выполненных заказов</td><td class="r">${f(brgJobsTotal(m))}</td></tr><tr><td>Резерв ${m.reserve_pct==null?20:m.reserve_pct}%</td><td class="r">−${f(brgJobsTotal(m)-m.pool)}</td></tr>`:''}
+   <tr><td>Пул за месяц${m.pool_source==='worksheet'?' (из рабочего листа)':(m.pool_source==='orders'?' (сумма заказов − резерв)':'')}</td><td class="r">${f(m.pool)}</td></tr>
    ${(+m.extra)?`<tr><td>Прибавка к пулу</td><td class="r">+${f(m.extra)}</td></tr>`:''}
    ${dedRows}
    ${c.bonus?`<tr><td>Доплата бригадиру${m.foreman?' ('+E(m.foreman)+')':''} ${c.fromPool?'— из пула':'— сверх пула'}</td><td class="r">${c.fromPool?'−':'+'}${f(c.bonus)}</td></tr>`:''}
    ${c.salaryPool?`<tr><td>Оклады, вычтенные из пула</td><td class="r">−${f(c.salaryPool)}</td></tr>`:''}
    <tr class="tot"><td>К распределению между сдельщиками</td><td class="r">${f(c.dist)}</td></tr>
-   <tr><td>Сумма «дни × КТУ»</td><td class="r">${Math.round(c.totalW*100)/100}</td></tr>
-   <tr><td>Стоимость одной единицы «день × КТУ»</td><td class="r">${f(c.unit)}</td></tr>
+   <tr><td>${c.pctMode?'Сумма процентов':'Сумма «дни × КТУ»'}</td><td class="r">${Math.round(c.totalW*100)/100}</td></tr>
+   <tr><td>${c.pctMode?'Стоимость 1%':'Стоимость одной единицы «день × КТУ»'}</td><td class="r">${f(c.unit)}</td></tr>
   </tbody></table>
-  <table><thead><tr><th>№</th><th>Сотрудник</th><th class="c">Режим</th><th class="r">Дни</th><th class="r">КТУ</th><th class="r">Дни×КТУ</th><th class="r">Доля пула</th>${m.deduct_stage_paid?'<th class="r">Уже по этапам</th>':''}<th class="r">К начислению</th><th>Подпись</th></tr></thead>
+  <table><thead><tr><th>№</th><th>Сотрудник</th><th class="c">Режим</th><th class="r">Дни</th><th class="r">${c.pctMode?'% от пула':'КТУ'}</th><th class="r">${c.pctMode?'Доля, %':'Дни×КТУ'}</th><th class="r">Доля пула</th>${m.deduct_stage_paid?'<th class="r">Уже по этапам</th>':''}<th class="r">К начислению</th><th>Подпись</th></tr></thead>
   <tbody>${rows}<tr class="tot"><td colspan="3">Итого</td><td class="r">${c.days}</td><td></td><td class="r">${Math.round(c.totalW*100)/100}</td><td class="r">${f(c.totalShare)}</td>${m.deduct_stage_paid?`<td class="r">${f(c.totalStage)}</td>`:''}<td class="r">${f(c.totalNet)}</td><td></td></tr></tbody></table>
   ${m.note?`<div>Примечание: ${E(m.note)}</div>`:''}
-  ${sheetHtml}
+  ${sheetHtml}${jobsHtml}
   <div class="foot"><div>Бригадир</div><div>Начальник производства</div><div>Главный бухгалтер</div></div>
   <div class="sub" style="margin-top:10px">Распечатано ${new Date().toLocaleString('ru-RU')}</div>
   </body></html>`;
@@ -17900,8 +17984,8 @@ function exportBrigadeCsv(){
   const q = v => '"'+String(v).replace(/"/g,'""')+'"';
   const out = [['Бригада',b.name,'Период',m.period].map(q).join(';'),
     ['Пул',m.pool||0,'Прибавка',m.extra||0,'Вычеты',c.ded,'К распределению',Math.round(c.dist)].join(';'),
-    ['Сборщик','Дни','КТУ','Дни×КТУ','Доля пула','Уже по этапам','К начислению'].map(q).join(';')];
-  c.lines.forEach(l=>out.push([q(l.name),l.days,l.ktu,l.w,l.share,l.stage,l.net].join(';')));
+    ['Сборщик','Дни',c.pctMode?'% от пула':'КТУ',c.pctMode?'Доля %':'Дни×КТУ','Доля пула','Уже по этапам','К начислению'].map(q).join(';')];
+  c.lines.forEach(l=>out.push([q(l.name),l.days,c.pctMode?l.pct:l.ktu,l.w,l.share,l.stage,l.net].join(';')));
   const blob = new Blob(['﻿'+out.join('\n')], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'brigada_'+m.period+'.csv'; document.body.appendChild(a); a.click(); a.remove();
