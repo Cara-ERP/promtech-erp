@@ -17450,10 +17450,8 @@ async function brgLoadMonth(){
       _brg.stageMap[k] = (_brg.stageMap[k]||0) + (+a.amount||0);
     });
   }catch(e){ console.warn('Бригады: не удалось загрузить начисления по этапам', e.message); }
-  if(_brg.month.pool_source==='orders'){
-    if((typeof ordersData==='undefined' || !ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
-    brgSyncPool();
-  }
+  if((typeof ordersData==='undefined' || !ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+  brgSyncPool();
   if(_brg.month.pool_source==='worksheet' && _brg.month.status!=='posted'){
     try{ await brgRecalcPool(true); }catch(e){ console.warn('Бригады: не удалось взять пул из рабочего листа', e.message); }
   }
@@ -17621,7 +17619,7 @@ function brgSetReserve(v){ _brg.month.reserve_pct=_brgNum(v); brgSyncPool(); brg
 function brgSetDist(v){ _brg.month.dist_mode=v; brgMarkDirty(); renderBrigades(); }
 function brgSetPct(i,v){ _brg.month.rows[i].pct=_brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgJobsHtml(){
-  const m=_brg.month; if(m.pool_source!=='orders') return '';
+  const m=_brg.month; const isOrd=m.pool_source==='orders';
   const ed=m.status!=='posted', dis=ed?'':' disabled', E=_brgEsc;
   const money=n=>fmtCurrency(Math.round(n));
   const ords=(ordersData||[]).slice(0,600);
@@ -17644,7 +17642,9 @@ function brgJobsHtml(){
       '<td>'+(ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgJobDel('+i+')">✕</span>':'')+'</td></tr>';
   });
   if(!(m.jobs||[]).length) h+='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">Нажмите «＋ Заказ / изделие», выберите заказ и изделие, проставьте цену.</td></tr>';
-  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4">Итого сумма заказов</td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td></tr>'+
+  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4">Итого сумма заказов</td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td></tr>';
+  if(!isOrd) h+='<tr><td colspan="6" style="font-size:12px;color:var(--text3)">Журнал сейчас не влияет на пул (выбран другой источник пула). '+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgSetSource(\'orders\')">Взять пул из этой таблицы (− резерв)</button>':'')+'</td></tr>';
+  else h+=
     '<tr><td colspan="3" style="text-align:right">Резерв (удерживается из суммы), %</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.reserve_pct==null?20:m.reserve_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetReserve(this.value)"></td><td id="brg-jr" style="text-align:right;font-family:monospace;color:var(--text3)"></td><td></td></tr>'+
     '<tr style="font-weight:700"><td colspan="4">Пул бригады (сумма − резерв)</td><td id="brg-jp" style="text-align:right;font-family:monospace;color:var(--green)"></td><td></td></tr>'+
     '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:6px">При выборе заказа и изделия цена подставляется из заказа — при необходимости исправьте её. Пул считается как «сумма заказов − резерв» и делится между сотрудниками по КТУ или по процентам (переключатель в блоке «Пул за месяц»).</div></div>';
@@ -17801,11 +17801,10 @@ function brgRefresh(){
     set('brg-n-'+i, l.mode==='pool_salary' ? 'оклад отдельно' : money(l.net)+(l.net<0?' ⚠':'')+(l.mode==='share_salary'&&l.share-l.salary<=0?' (оклад покрывает)':''), l.net<0?'var(--red)':(l.mode==='pool_salary'?'var(--text3)':'var(--green)'));
   });
   set('brg-t-sal', c.lines.some(l=>l.salary)?money(c.lines.reduce((t,l)=>t+l.salary,0)):'—');
-  if(m.pool_source==='orders'){
-    const tot=brgJobsTotal(m);
+  { const tot=brgJobsTotal(m);
     (m.jobs||[]).forEach((j,i)=>set('brg-js-'+i, money((+j.qty||0)*(+j.price||0))));
-    set('brg-jt', money(tot)); set('brg-jr', '−'+money(tot-m.pool)); set('brg-jp', money(m.pool));
-  }
+    set('brg-jt', money(tot));
+    if(m.pool_source==='orders'){ set('brg-jr', '−'+money(tot-m.pool)); set('brg-jp', money(m.pool)); } }
   set('brg-t-days', String(Math.round(c.days*100)/100));
   set('brg-t-w', String(Math.round(c.totalW*100)/100));
   set('brg-t-s', money(c.totalShare));
@@ -17940,7 +17939,7 @@ function printBrigade(){
   const sheetHtml=sheet ? `<h3>Основание пула — выполненные работы за ${E(per)}</h3><table><thead><tr><th>Дата</th><th>Заказ</th><th>Изделие</th><th>Этап</th><th class="r">Сумма в пул</th></tr></thead><tbody>${
     sheet.map(x=>`<tr><td>${E(String(x.date||'').split('-').reverse().join('.'))}</td><td>${E(x.order)}</td><td>${E(x.item)}</td><td>${E(x.stage)}</td><td class="r">${f(x.share)}</td></tr>`).join('')
   }<tr class="tot"><td colspan="4">Итого</td><td class="r">${f(sheet.reduce((t,x)=>t+(+x.share||0),0))}</td></tr></tbody></table>` : '';
-  const jobsHtml=(m.pool_source==='orders'&&(m.jobs||[]).length) ? `<h3>Основание пула — выполненные заказы за ${E(per)}</h3><table><thead><tr><th>Заказ</th><th>Изделие</th><th class="r">Кол-во</th><th class="r">Цена, ₸</th><th class="r">Сумма, ₸</th></tr></thead><tbody>${
+  const jobsHtml=((m.jobs||[]).length) ? `<h3>${m.pool_source==='orders'?'Основание пула — выполненные':'Выполненные'} заказы за ${E(per)}</h3><table><thead><tr><th>Заказ</th><th>Изделие</th><th class="r">Кол-во</th><th class="r">Цена, ₸</th><th class="r">Сумма, ₸</th></tr></thead><tbody>${
     m.jobs.map(j=>`<tr><td>${E(j.order)}</td><td>${E(j.item)}</td><td class="r">${j.qty}</td><td class="r">${f(j.price)}</td><td class="r">${f((+j.qty||0)*(+j.price||0))}</td></tr>`).join('')
   }<tr class="tot"><td colspan="4">Итого</td><td class="r">${f(brgJobsTotal(m))}</td></tr></tbody></table>` : '';
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>Расчёт бригады ${E(b.name)} — ${E(per)}</title><style>
