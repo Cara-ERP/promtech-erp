@@ -1660,34 +1660,51 @@ async function saveOrderToDB(order){
       })
     });
 
+    window._orderSaveError = '';
     if(!res.ok){
       const errText = await res.text();
       console.warn('⚠️ Ошибка сохранения заказа:', res.status, errText);
+      window._orderSaveError = 'заказ: '+res.status+' '+errText.slice(0,200);
       return false;
     }
 
-    // Сохраняем позиции
+    // Сохраняем позиции: сначала вставляем новые, и только потом удаляем прежние —
+    // чтобы при сбое позиции заказа не пропали
     if(order.items && order.items.length > 0){
-      await sbDelete('order_items', `order_num=eq.${order.num}`);
-      await sbInsert('order_items', order.items.map(it=>({
-        order_num:  order.num,
-        name:       it.name,
-        item_type:  it.itemType||it.item_type||'',
-        category:   it.category||'',
-        qty:        it.qty||1,
-        price:      it.price||0,
-        progress:   it.progress||0,
-        status:     it.status||'queue',
-        resp:       it.resp||'',
-        date:       it.date||'',
-        attributes: it.attributes||{},
-      })));
+      const enc = encodeURIComponent(order.num);
+      let oldIds = null;
+      try{ const old = await sbFetch('order_items', `select=id&order_num=eq.${enc}`); oldIds = (old||[]).map(r=>r.id).filter(v=>v!=null); }catch(e){ oldIds = null; }
+      if(oldIds===null) await sbDelete('order_items', `order_num=eq.${enc}`);
+      const ir = await fetch(`${SUPABASE_URL}/rest/v1/order_items`, {
+        method:'POST', headers:{...sbHeaders,'Prefer':'return=minimal'},
+        body: JSON.stringify(order.items.map(it=>({
+          order_num:  order.num,
+          name:       it.name,
+          item_type:  it.itemType||it.item_type||'',
+          category:   it.category||'',
+          qty:        it.qty||1,
+          price:      it.price||0,
+          progress:   it.progress||0,
+          status:     it.status||'queue',
+          resp:       it.resp||'',
+          date:       it.date||'',
+          attributes: it.attributes||{},
+        })))
+      });
+      if(!ir.ok){
+        const t = await ir.text();
+        console.warn('⚠️ Ошибка сохранения позиций:', ir.status, t);
+        window._orderSaveError = 'позиции: '+ir.status+' '+t.slice(0,200);
+        return false;
+      }
+      if(oldIds && oldIds.length) await sbDelete('order_items', `id=in.(${oldIds.join(',')})`);
     }
 
     console.log('✅ Заказ '+order.num+' сохранён в Supabase');
     return true;
   } catch(e) {
     console.warn('⚠️ Ошибка сохранения:', e.message);
+    window._orderSaveError = e.message;
     return false;
   }
 }
@@ -43376,15 +43393,19 @@ async function saveEditedOrder(){
   order.items=items;
   if(endClient !== undefined) order.salonClientName = endClient;
 
-  // Сохраняем изменения в Supabase
-  saveOrderToDB(order).then(ok=>{
-    if(ok) console.log('✅ Заказ '+order.num+' обновлён в Supabase');
-  });
+  // Сохраняем изменения в Supabase и показываем настоящий результат
+  err.style.color='var(--text3)'; err.textContent='Сохраняю…';
+  const savedOk = await saveOrderToDB(order);
 
   renderOrders();
   recalcAllCustomerTurnover();
   renderMrpOrdersJournal();
 
+  if(!savedOk){
+    err.style.color='var(--red)';
+    err.textContent='⚠ НЕ сохранено в базе ('+(window._orderSaveError||'нет связи')+'). Окно оставлено открытым — нажмите «Сохранить» ещё раз или сообщите мне этот текст.';
+    return;
+  }
   err.style.color='var(--green)';
   err.textContent='✓ Изменения сохранены!';
   setTimeout(()=>{
