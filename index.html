@@ -32196,7 +32196,7 @@ function startEditCell(el){
       renderPersons();
     } else if(table==='attrValue'){
       // id here is the array index within the active attribute's option list
-      const arr=attrCatalog[attrCatalogActiveKey];
+      const arr=getActiveCatalogArray();
       if(arr && arr[id]!==undefined) arr[id]=newVal;
       renderAttrValueList();
       refreshAllAttrDropdowns();
@@ -37005,6 +37005,28 @@ let attrCatalog={
 };
 const ATTR_KEYS=Object.keys(attrCatalog);
 
+// Справочник характеристик и категорий хранится в базе (таблица app_settings), чтобы добавленные значения не пропадали после перезагрузки
+let _attrSaveT=null, _attrLoaded=false;
+async function attrCatalogLoad(){
+  try{
+    const rows=await sbFetch('app_settings','select=*&key=eq.attr_catalog');
+    const v=rows&&rows[0]&&rows[0].value;
+    if(v){
+      Object.keys(attrCatalog).forEach(k=>{ if(Array.isArray(v.attrs&&v.attrs[k])) attrCatalog[k].splice(0,attrCatalog[k].length,...v.attrs[k]); });
+      if(Array.isArray(v.categories)&&v.categories.length) productCategories.splice(0,productCategories.length,...v.categories);
+    }
+    _attrLoaded=true;
+  }catch(e){ console.warn('app_settings (справочник характеристик):',e.message); }
+}
+function attrCatalogSave(){
+  clearTimeout(_attrSaveT);
+  _attrSaveT=setTimeout(async()=>{
+    try{ await sbUpsert('app_settings',[{key:'attr_catalog',value:{attrs:attrCatalog,categories:productCategories},updated_at:new Date().toISOString()}],'key'); }
+    catch(e){ console.warn('Справочник характеристик не сохранён (выполните app_settings.sql):',e.message); }
+  },600);
+}
+setTimeout(()=>{ try{ attrCatalogLoad(); }catch(e){} },1500);
+
 // Tabs shown in the catalog modal: "Категория" first, then each attribute
 const CATALOG_TABS=['Категория', ...ATTR_KEYS];
 
@@ -37059,12 +37081,14 @@ function deleteAttrValue(idx){
 
 // Refresh any open attribute <select> elements in both order forms after catalog changes
 function refreshAllAttrDropdowns(){
-  document.querySelectorAll('.attr-select').forEach(sel=>{
+  document.querySelectorAll('select.attr-select').forEach(sel=>{
     const key=sel.dataset.attrKey;
     const current=sel.value;
     const opts=attrCatalog[key]||[];
-    sel.innerHTML='<option value="">—</option>'+opts.map(o=>`<option value="${o}" ${o===current?'selected':''}>${o}</option>`).join('');
+    const hasCustomOpt=!!sel.querySelector('option[value="__custom__"]');
+    sel.innerHTML='<option value="">—</option>'+(current && current!=='__custom__' && !opts.includes(current)?`<option value="${current}" selected>${current}</option>`:'')+opts.map(o=>`<option value="${o}" ${o===current?'selected':''}>${o}</option>`).join('')+(hasCustomOpt?'<option value="__custom__">✏️ Ввести вручную...</option>':'');
   });
+  try{ attrCatalogSave(); }catch(e){}
   // Category dropdowns use a different class/markup (no data-attr-key), refresh separately
   document.querySelectorAll('.oi-category, .eoi-category').forEach(sel=>{
     const current=sel.value;
@@ -41850,6 +41874,7 @@ function buildAttrFieldsHtml(rowId, currentAttrs){
 
     // Остальные — select + кнопка добавить
     const optionsHtml = '<option value="">—</option>'+
+      (curVal && !opts.includes(curVal) ? `<option value="${String(curVal).replace(/"/g,'&quot;')}" selected>${curVal}</option>` : '')+
       opts.map(o=>`<option value="${o}" ${curVal===o?'selected':''}>${o}</option>`).join('')+
       `<option value="__custom__">✏️ Ввести вручную...</option>`;
 
@@ -41868,6 +41893,18 @@ function buildAttrFieldsHtml(rowId, currentAttrs){
   }).join('');
 }
 
+// Значения характеристик строки заказа: из списка либо введённые вручную («✏️ Ввести вручную…»)
+function readRowAttributes(row){
+  const a={};
+  row.querySelectorAll('.attr-select').forEach(sel=>{
+    const key=sel.dataset.attrKey; let v=String(sel.value||'').trim();
+    if(v==='__custom__') v='';
+    if(!v){ const ci=sel.closest('.attr-field')?.querySelector('.attr-custom-input'); if(ci && ci.value.trim()) v=ci.value.trim(); }
+    if(v){ a[key]=v;
+      if(key!=='Прочее' && key!=='Ткань' && attrCatalog[key] && !attrCatalog[key].includes(v)){ attrCatalog[key].push(v); try{ attrCatalogSave(); }catch(e){} } }
+  });
+  return a;
+}
 function onAttrSelectChange(sel, rowId, key){
   const customInput = sel.closest('.attr-field')?.querySelector('.attr-custom-input');
   if(sel.value==='__custom__'){
@@ -41884,7 +41921,7 @@ function addAttrOption(key, rowId){
   const v = val.trim();
   // Добавляем в справочник
   if(!attrCatalog[key]) attrCatalog[key]=[];
-  if(!attrCatalog[key].includes(v)) attrCatalog[key].push(v);
+  if(!attrCatalog[key].includes(v)){ attrCatalog[key].push(v); try{ attrCatalogSave(); }catch(e){} }
   // Добавляем в текущий селект
   const row = document.getElementById(rowId);
   if(!row) return;
@@ -42688,10 +42725,7 @@ function saveCustOrder(){
     const dateStr=itDate
       ? new Date(itDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})
       : new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
-    const attributes={};
-    row.querySelectorAll('.attr-select').forEach(sel=>{
-      if(sel.value) attributes[sel.dataset.attrKey]=sel.value;
-    });
+    const attributes=readRowAttributes(row);
     const techCard = tcStore.has(row.id) ? JSON.parse(JSON.stringify(tcStore.get(row.id))) : null;
     items.push({name,category,attributes,qty,unit:'шт',progress:0,status:'queue',resp,date:dateStr,price,techCard});
   }
@@ -43136,6 +43170,31 @@ function onEditItemCategoryChange(rowId){
   }
 }
 
+// Подсказки из каталога при вводе названия товара в окне редактирования заказа
+async function onEditCatalogSearch(input,rowId){
+  const drop=document.getElementById('edrop-'+rowId); if(!drop) return;
+  const q=input.value.toLowerCase().trim();
+  if(q.length<2){ drop.style.display='none'; return; }
+  if((!catalogData||!catalogData.length) && typeof loadCatalogFromDB==='function'){ try{ await loadCatalogFromDB(); }catch(e){} }
+  const words=q.split(/\s+/);
+  const matches=(catalogData||[]).filter(p=>{ const t=(String(p.name||'')+' '+String(p.category||'')).toLowerCase(); return words.every(w=>t.includes(w)); }).slice(0,15);
+  if(!matches.length){ drop.innerHTML='<div style="padding:8px 12px;font-size:12px;color:var(--text3)">Нет в каталоге — останется произвольное название «'+_brgEsc(input.value)+'»</div>'; drop.style.display='block'; return; }
+  const role=getCurrentRole(), wh=role&&role.channel;
+  drop.innerHTML=matches.map((p,k)=>{ const price=wh&&p.price_wholesale?p.price_wholesale:p.price_retail;
+    return '<div data-k="'+k+'" onmousedown="event.preventDefault()" onclick="selectEditCatalogItem(\''+rowId+'\','+k+')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'"><div style="font-weight:500">'+_brgEsc(p.name)+'</div><div style="font-size:11px;color:var(--text3)">'+_brgEsc(p.category||'')+' · ₸'+Math.round(price||0).toLocaleString('ru-RU')+'</div></div>'; }).join('');
+  drop._matches=matches; drop.style.display='block';
+}
+function selectEditCatalogItem(rowId,k){
+  const drop=document.getElementById('edrop-'+rowId), row=document.getElementById(rowId); if(!drop||!row) return;
+  const p=(drop._matches||[])[k]; if(!p) return;
+  const role=getCurrentRole(), wh=role&&role.channel;
+  row.querySelector('.eoi-name').value=p.name;
+  const price=wh&&p.price_wholesale?p.price_wholesale:p.price_retail;
+  const pe=row.querySelector('.eoi-price'); if(pe && price) pe.value=price;
+  const cs=row.querySelector('.eoi-category');
+  if(cs && p.category){ let opt=[...cs.options].find(o=>o.value===p.category); if(!opt){ opt=document.createElement('option'); opt.value=p.category; opt.textContent=p.category; cs.appendChild(opt); } cs.value=p.category; onEditItemCategoryChange(rowId); }
+  drop.style.display='none'; updateEditOrderTotal();
+}
 function addEditOrderItemRow(item, idx){
   const container=document.getElementById('eo-items');
   const rowId='eo-item-'+(idx!==undefined?idx:Date.now()+Math.random());
@@ -43157,7 +43216,8 @@ function addEditOrderItemRow(item, idx){
   const categoryOptions='<option value="">—</option>'+productCategories.map(c=>`<option value="${c}" ${category===c?'selected':''}>${c}</option>`).join('');
   div.innerHTML=`
     <div class="item-card-main edit-mode">
-      <div><label class="label">Товар</label><input type="text" placeholder="Наименование" class="eoi-name" value="${(name||'').replace(/"/g,'&quot;')}"></div>
+      <div style="position:relative"><label class="label">Товар <span style="font-weight:400;color:var(--text3)">(начните вводить — подскажет из каталога)</span></label><input type="text" placeholder="Наименование" class="eoi-name" autocomplete="off" value="${(name||'').replace(/"/g,'&quot;')}" oninput="onEditCatalogSearch(this,'${rowId}')">
+        <div class="catalog-dropdown" id="edrop-${rowId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:8px;z-index:999;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.3)"></div></div>
       <div><label class="label">Категория</label><select class="eoi-category" onchange="onEditItemCategoryChange('${rowId}')">${categoryOptions}</select></div>
       <div><label class="label">Кол-во</label><input type="number" placeholder="1" min="1" class="eoi-qty" value="${qty}" oninput="updateEditOrderTotal()"></div>
       <div><label class="label">Цена/ед (₸)</label><input type="number" placeholder="0" min="0" class="eoi-price" value="${price}" oninput="updateEditOrderTotal()"></div>
@@ -43173,7 +43233,7 @@ function addEditOrderItemRow(item, idx){
       <div style="max-width:200px"><label class="label">Срок</label><input type="date" class="eoi-date" value="${dateVal}"></div>
       <button class="btn btn-ghost btn-sm tc-open-btn" style="font-size:11px;padding:6px 10px" onclick="openTechCardModal('${rowId}','edit')">${existingTc?'📋 Техкарта ✓ ('+existingTc.length+' эт.)':'📋 Техкарта'}</button>
     </div>
-    <div class="item-card-attrs">${buildEditAttrFieldsHtml(rowId,attributes)}</div>`;
+    <div class="item-card-attrs">${buildAttrFieldsHtml(rowId,attributes)}</div>`;
   container.appendChild(div);
   onEditItemCategoryChange(rowId);
   updateEditOrderTotal();
@@ -43296,10 +43356,7 @@ async function saveEditedOrder(){
     const dateStr=itDate
       ? new Date(itDate).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'})
       : new Date(date).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
-    const attributes={};
-    row.querySelectorAll('.attr-select').forEach(sel=>{
-      if(sel.value) attributes[sel.dataset.attrKey]=sel.value;
-    });
+    const attributes=readRowAttributes(row);
     const techCard = tcStore.has(row.id) ? JSON.parse(JSON.stringify(tcStore.get(row.id))) : null;
     items.push({name,category,attributes,qty,unit:'шт',progress,status:itStatus,resp,date:dateStr,price,techCard});
   }
