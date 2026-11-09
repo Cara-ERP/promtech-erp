@@ -17653,8 +17653,44 @@ function brgJobOrder(i,v){
   const memo=_brg.priceMemo||{};
   const add=[]; (o.items||[]).forEach((it,k)=>{ if(have.has(k)) return; add.push({order:o.num, itemIdx:k, item:it.name||'', qty:+it.qty||1, price:memo[_brgPK(it.name)]||0}); });
   if(!add.length){ alert('Все изделия заказа '+o.num+' уже в таблице.'); jobs.splice(i,1); }
+  else if(add.length>PICK_LIMIT || (document.getElementById('brg-pick-always')||{}).checked){
+    // в заказе много позиций (или включён ручной выбор) — предлагаем отметить только нужные
+    jobs.splice(i,1); brgSyncPool(); brgMarkDirty(); renderBrigades();
+    brgPickOpen(o, add, i); return;
+  }
   else jobs.splice(i,1,...add);
   brgSyncPool(); brgMarkDirty(); renderBrigades();
+}
+const PICK_LIMIT = 5;
+let _brgPick = null;
+function brgPickOpen(o, cand, at){
+  _brgPick={order:o, cand, at, sel:new Set()};
+  let m=document.getElementById('brgPickModal');
+  if(!m){ m=document.createElement('div'); m.className='modal-overlay'; m.id='brgPickModal'; document.body.appendChild(m); }
+  m.innerHTML='<div class="modal" style="max-width:640px;width:96vw"><div class="modal-header"><div class="modal-title" id="brgp-title"></div><button class="modal-close" onclick="brgPickCancel()">✕</button></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><input id="brgp-q" type="search" placeholder="🔍 Найти изделие…" style="font-size:13px;width:240px" oninput="brgPickRender()">'+
+    '<button class="btn btn-ghost btn-sm" onclick="brgPickAll(true)">Отметить все</button><button class="btn btn-ghost btn-sm" onclick="brgPickAll(false)">Снять все</button><span id="brgp-cnt" style="font-size:12px;color:var(--text3)"></span></div>'+
+    '<div id="brgp-list" style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:6px"></div>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn btn-ghost" onclick="brgPickCancel()">Отмена</button><button class="btn btn-primary" onclick="brgPickOk()">Добавить отмеченные</button></div></div>';
+  document.getElementById('brgp-title').textContent='Заказ '+o.num+(o.customer?' — '+o.customer:'')+': выберите изделия';
+  brgPickRender(); showModal('brgPickModal');
+  setTimeout(()=>{ const q=document.getElementById('brgp-q'); if(q) q.focus(); },50);
+}
+function brgPickRender(){
+  const P=_brgPick; if(!P) return; const q=(document.getElementById('brgp-q').value||'').trim().toLowerCase(), E=_brgEsc;
+  const rows=P.cand.map((c,n)=>({c,n})).filter(x=>!q || String(x.c.item).toLowerCase().includes(q));
+  document.getElementById('brgp-list').innerHTML=rows.map(x=>'<label style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer"><input type="checkbox" style="width:auto;margin:0" '+(P.sel.has(x.n)?'checked':'')+' onchange="brgPickToggle('+x.n+',this.checked)"><span style="flex:1">'+(x.c.itemIdx+1)+'. '+E(x.c.item)+'</span><span style="color:var(--text3)">×'+x.c.qty+'</span></label>').join('')||'<div style="padding:14px;color:var(--text3)">Ничего не найдено</div>';
+  document.getElementById('brgp-cnt').textContent='Отмечено: '+P.sel.size+' из '+P.cand.length;
+}
+function brgPickToggle(n,on){ if(on) _brgPick.sel.add(n); else _brgPick.sel.delete(n); document.getElementById('brgp-cnt').textContent='Отмечено: '+_brgPick.sel.size+' из '+_brgPick.cand.length; }
+function brgPickAll(on){ const P=_brgPick; const q=(document.getElementById('brgp-q').value||'').trim().toLowerCase(); P.cand.forEach((c,n)=>{ if(!q || String(c.item).toLowerCase().includes(q)){ if(on) P.sel.add(n); else P.sel.delete(n); } }); brgPickRender(); }
+function brgPickCancel(){ _brgPick=null; closeModal('brgPickModal'); if(_brg.focusNew!==undefined){ _brg.focusNew=true; } renderBrigades(); }
+function brgPickOk(){
+  const P=_brgPick; if(!P) return;
+  const add=P.cand.filter((c,n)=>P.sel.has(n));
+  closeModal('brgPickModal'); _brgPick=null;
+  if(add.length){ const jobs=_brg.month.jobs; jobs.splice(Math.min(P.at,jobs.length),0,...add); brgSyncPool(); brgMarkDirty(); }
+  _brg.focusNew=true; renderBrigades();
 }
 function brgJobItem(i,v){ const j=_brg.month.jobs[i]; if(v==='') { j.item=''; delete j.itemIdx; } else brgJobPick(j,+v); brgSyncPool(); brgMarkDirty(); renderBrigades(); }
 function brgJobText(i,v){ _brg.month.jobs[i].item=v.trim(); brgMarkDirty(); }
@@ -17772,7 +17808,7 @@ function brgJobsHtml(){
       '<td><input type="month" value="'+E(m.period)+'" title="Выберите другой месяц — строка переедет туда" style="font-size:12px;width:130px"'+dis+' onchange="brgJobMonth('+i+',this.value)"></td>'+
       '<td>'+(ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgJobDel('+i+')">✕</span>':'')+'</td></tr>';
   });
- if(ed) h+='<tr><td colspan="7" style="background:var(--surface2,rgba(127,127,127,.06))"><input id="brg-new-order" list="brg-ord-list" type="text" placeholder="＋ Введите № заказа и нажмите Enter — добавятся все его изделия" style="width:100%;max-width:520px;font-size:12px" onchange="brgJobNewOrder(this.value)"> <button class="btn btn-ghost btn-sm" onclick="brgJobAdd()">＋ Пустая строка</button></td></tr>';
+ if(ed) h+='<tr><td colspan="7" style="background:var(--surface2,rgba(127,127,127,.06))"><input id="brg-new-order" list="brg-ord-list" type="text" placeholder="＋ Введите № заказа и нажмите Enter — добавятся все его изделия" style="width:100%;max-width:520px;font-size:12px" onchange="brgJobNewOrder(this.value)"> <label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap" title="Для любого заказа показывать список изделий с галочками (в заказах больше '+PICK_LIMIT+' позиций список показывается всегда)"><input id="brg-pick-always" type="checkbox" style="width:auto;margin:0"'+(_brg.pickAlways?' checked':'')+' onchange="_brg.pickAlways=this.checked"> выбирать изделия вручную</label> <button class="btn btn-ghost btn-sm" onclick="brgJobAdd()">＋ Пустая строка</button></td></tr>';
   if(!(m.jobs||[]).length) h+='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px">Нажмите «＋ Заказ / изделие» и впишите номер заказа — подставятся все его изделия, лишние удалите кнопкой ✕. Проставьте цены для ЗП.</td></tr>';
   h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="3">Итого сумма для расчёта ЗП <span id="brg-jw" style="font-weight:400;font-size:12px"></span></td><td></td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td><td></td></tr>';
   if(!isOrd) h+='<tr><td colspan="7" style="font-size:12px;color:var(--text3)">Журнал сейчас не влияет на пул (выбран другой источник пула). '+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgSetSource(\'orders\')">Взять пул из этой таблицы (− резерв)</button>':'')+'</td></tr>';
