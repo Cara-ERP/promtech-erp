@@ -17423,16 +17423,16 @@ async function brgLoadMonth(){
   if(rows && rows.length){
     const m = rows[0];
     m.rows = m.rows||[]; m.deductions = m.deductions||[]; m.accrual_ids = m.accrual_ids||[]; m.pool_source = m.pool_source||'manual'; m.foreman = m.foreman||''; m.foreman_mode = m.foreman_mode||'fixed'; m.foreman_value = +m.foreman_value||0; m.foreman_from_pool = m.foreman_from_pool!==false;
-    m.jobs = m.jobs||[]; m.reserve_pct = m.reserve_pct==null?20:(+m.reserve_pct||0); m.dist_mode = m.dist_mode||'ktu';
+    m.jobs = m.jobs||[]; m.reserve_pct = m.reserve_pct==null?20:(+m.reserve_pct||0); m.brigade_pct = m.brigade_pct==null?100:(+m.brigade_pct||0); m.dist_mode = m.dist_mode||'ktu';
     _brg.month = m;
   } else {
     // КТУ берём из прошлого месяца этой бригады — он меняется редко
-    let prevKtu = {}, prevF = { foreman:'', foreman_mode:'fixed', foreman_value:0, foreman_from_pool:true, reserve_pct:20, dist_mode:'ktu' };
+    let prevKtu = {}, prevF = { foreman:'', foreman_mode:'fixed', foreman_value:0, foreman_from_pool:true, reserve_pct:20, brigade_pct:100, dist_mode:'ktu' };
     try{
       const pr = await sbFetch('brigade_months','select=*&brigade_id=eq.'+b.id+'&period=eq.'+_brgPrevPeriod(p));
       if(pr && pr[0]){
         (pr[0].rows||[]).forEach(r=>{ prevKtu[_brgKey(r.name)] = r; });
-        prevF = { foreman:pr[0].foreman||'', foreman_mode:pr[0].foreman_mode||'fixed', foreman_value:+pr[0].foreman_value||0, foreman_from_pool:pr[0].foreman_from_pool!==false, reserve_pct:pr[0].reserve_pct==null?20:(+pr[0].reserve_pct||0), dist_mode:pr[0].dist_mode||'ktu' };
+        prevF = { foreman:pr[0].foreman||'', foreman_mode:pr[0].foreman_mode||'fixed', foreman_value:+pr[0].foreman_value||0, foreman_from_pool:pr[0].foreman_from_pool!==false, reserve_pct:pr[0].reserve_pct==null?20:(+pr[0].reserve_pct||0), brigade_pct:pr[0].brigade_pct==null?100:(+pr[0].brigade_pct||0), dist_mode:pr[0].dist_mode||'ktu' };
       }
     }catch(e){}
     _brg.month = { id:null, brigade_id:b.id, period:p, pool:0, extra:0, deductions:[], jobs:[], deduct_stage_paid:false, pool_source:'manual', ...prevF,
@@ -17594,10 +17594,11 @@ async function brgRefreshSheetClick(){
   try{ await brgRecalcPool(false); }catch(e){ alert('Не удалось прочитать рабочий лист: '+e.message); }
 }
 // ── Пул из таблицы выполненных заказов: сумма заказов минус резерв (по умолчанию 20%) ──
+function brgJobsStep1(m){ return brgJobsTotal(m)*(1-(+m.reserve_pct||0)/100); }
 function brgJobsTotal(m){ return (m.jobs||[]).reduce((t,j)=>t+(+j.qty||0)*(+j.price||0),0); }
 function brgSyncPool(){
   const m=_brg.month; if(!m || m.pool_source!=='orders' || m.status==='posted') return;
-  const tot=brgJobsTotal(m); m.pool=Math.round(tot*(1-(+m.reserve_pct||0)/100));
+  const tot=brgJobsTotal(m); m.pool=Math.round(brgJobsStep1(m)*(m.brigade_pct==null?100:(+m.brigade_pct||0))/100);
   const e=document.getElementById('brg-pool'); if(e) e.value=m.pool||'';
 }
 // Цены для ЗП запоминаются по названию изделия: новая строка берёт последнюю цену, которую ставили этой бригаде
@@ -17638,6 +17639,7 @@ function brgJobPrice(i,v){
   brgSyncPool(); brgMarkDirty();
   if(n) renderBrigades(); else brgRefresh();
 }
+function brgSetBrigPct(v){ _brg.month.brigade_pct=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
 function brgSetReserve(v){ _brg.month.reserve_pct=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
 function brgSetDist(v){ _brg.month.dist_mode=v; brgMarkDirty(); renderBrigades(); }
 function brgSetPct(i,v){ _brg.month.rows[i].pct=_brgNum(v); brgMarkDirty(); brgRefresh(); }
@@ -17716,9 +17718,9 @@ function brgJobsHtml(){
   h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="3">Итого сумма для расчёта ЗП <span id="brg-jw" style="font-weight:400;font-size:12px"></span></td><td></td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td></tr>';
   if(!isOrd) h+='<tr><td colspan="6" style="font-size:12px;color:var(--text3)">Журнал сейчас не влияет на пул (выбран другой источник пула). '+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgSetSource(\'orders\')">Взять пул из этой таблицы (− резерв)</button>':'')+'</td></tr>';
   else h+=
-    '<tr><td colspan="3" style="text-align:right">Резерв (удерживается из суммы), %</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.reserve_pct==null?20:m.reserve_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetReserve(this.value)"></td><td id="brg-jr" style="text-align:right;font-family:monospace;color:var(--text3)"></td><td></td></tr>'+
-    '<tr style="font-weight:700"><td colspan="4">Пул бригады (сумма − резерв)</td><td id="brg-jp" style="text-align:right;font-family:monospace;color:var(--green)"></td><td></td></tr>'+
-    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:6px">Цены в заказах (дилерские, розничные, со скидками) для ЗП не подходят, поэтому здесь ставятся отдельные цены для расчёта сдельной. Программа запоминает цену по названию изделия: в следующий раз (и в других строках с таким же изделием) она подставится сама. Выберите заказ — подставятся все его изделия, удалите лишние строки. «Отметить в рабочем листе» (и «Провести начисления») добавляет изделия на рабочий лист производства и доску: датой реализации, если она в этом месяце, иначе последним днём месяца. Пул считается как «сумма заказов − резерв» и делится между сотрудниками по КТУ или по процентам (переключатель в блоке «Пул за месяц»).</div></div>';
+    '<tr><td colspan="3" style="text-align:right"><b>Строка 1.</b> Итоговая сумма минус, %</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.reserve_pct==null?20:m.reserve_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetReserve(this.value)"></td><td style="text-align:right;font-family:monospace"><div id="brg-j1"></div><div id="brg-jr" style="font-size:11px;color:var(--text3)"></div></td><td></td></tr>'+
+    '<tr style="font-weight:700"><td colspan="3" style="text-align:right"><b>Строка 2.</b> Пул бригады = строка 1 × % бригады</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.brigade_pct==null?100:m.brigade_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetBrigPct(this.value)"></td><td id="brg-jp" style="text-align:right;font-family:monospace;color:var(--green)"></td><td></td></tr>'+
+    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:6px">Цены в заказах (дилерские, розничные, со скидками) для ЗП не подходят, поэтому здесь ставятся отдельные цены для расчёта сдельной. Программа запоминает цену по названию изделия: в следующий раз (и в других строках с таким же изделием) она подставится сама. Выберите заказ — подставятся все его изделия, удалите лишние строки. «Отметить в рабочем листе» (и «Провести начисления») добавляет изделия на рабочий лист производства и доску: датой реализации, если она в этом месяце, иначе последним днём месяца. Пул считается в две строки: 1) итоговая сумма минус % (удержание); 2) результат × % бригады = пул. Пул делится между сотрудниками по КТУ или по процентам (переключатель в блоке «Пул за месяц»).</div></div>';
   return h;
 }
 async function brgSetSource(v){
@@ -17775,7 +17777,7 @@ function brgDelDed(i){ _brg.month.deductions.splice(i,1); brgMarkDirty(); render
 
 async function brgSave(silent){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b) return false;
-  const payload = { pool:m.pool||0, extra:m.extra||0, rows:m.rows, jobs:m.jobs||[], reserve_pct:m.reserve_pct==null?20:+m.reserve_pct, dist_mode:m.dist_mode||'ktu', deductions:m.deductions.filter(d=>(d.name||'').trim()||(+d.amount||0)),
+  const payload = { pool:m.pool||0, extra:m.extra||0, rows:m.rows, jobs:m.jobs||[], reserve_pct:m.reserve_pct==null?20:+m.reserve_pct, brigade_pct:m.brigade_pct==null?100:+m.brigade_pct, dist_mode:m.dist_mode||'ktu', deductions:m.deductions.filter(d=>(d.name||'').trim()||(+d.amount||0)),
     deduct_stage_paid:!!m.deduct_stage_paid, pool_source:m.pool_source||'manual', foreman:m.foreman||'', foreman_mode:m.foreman_mode||'fixed', foreman_value:+m.foreman_value||0, foreman_from_pool:m.foreman_from_pool!==false, status:m.status, accrual_ids:m.accrual_ids||[], posted_date:m.posted_date||null,
     note:m.note||'', updated_at:new Date().toISOString() };
   try{
@@ -17854,7 +17856,7 @@ async function brgUnpost(){
 function brgKpiHtml(c){
   const m = _brg.month, money = n => fmtCurrency(Math.round(n));
   const kpi = (l,v,sub,col) => '<div class="kpi"><div class="kpi-label">'+l+'</div><div class="kpi-value"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div>'+(sub?'<div class="kpi-change">'+sub+'</div>':'')+'</div>';
-  return (m.pool_source==='orders'?kpi('Сумма заказов', money(brgJobsTotal(m)), 'резерв '+(m.reserve_pct==null?20:m.reserve_pct)+'%'):'')+kpi('Пул бригады', money((+m.pool||0)+(+m.extra||0)), 'сумма, сделанная за месяц')+
+  return (m.pool_source==='orders'?kpi('Сумма заказов', money(brgJobsTotal(m)), '− '+(m.reserve_pct==null?20:m.reserve_pct)+'%, × '+(m.brigade_pct==null?100:m.brigade_pct)+'% бригады'):'')+kpi('Пул бригады', money((+m.pool||0)+(+m.extra||0)), 'сумма, сделанная за месяц')+
     kpi('Вычеты', money(c.ded), (m.deductions||[]).length+' поз.')+(c.bonus>0?kpi('Бригадирская доплата', money(c.bonus), c.fromPool?'из пула':'сверх пула'):'')+(c.salaryPool>0?kpi('Оклады из пула', money(c.salaryPool), 'вычтено до деления'):'')+
     kpi('К распределению', money(c.dist), c.pctMode?('Σ % = '+(Math.round(c.totalW*100)/100)):('Σ дни × КТУ = '+(Math.round(c.totalW*100)/100)), c.dist>0?'var(--green)':'var(--red)')+
     (c.pctMode?kpi('Стоимость 1%', money(c.unit), 'от суммы к распределению'):kpi('Стоимость 1 «балла»', money(c.unit), '1 день при КТУ 1'));
@@ -17877,7 +17879,7 @@ function brgRefresh(){
     (m.jobs||[]).forEach((j,i)=>set('brg-js-'+i, money((+j.qty||0)*(+j.price||0))));
     set('brg-jt', money(tot));
     { const nop=(m.jobs||[]).filter(j=>!(+j.price>0)).length; set('brg-jw', nop?'<span style="color:var(--amber,#f5a623)">⚠ без цены: '+nop+'</span>':''); }
-    if(m.pool_source==='orders'){ set('brg-jr', '−'+money(tot-m.pool)); set('brg-jp', money(m.pool)); } }
+    if(m.pool_source==='orders'){ const a=brgJobsStep1(m); set('brg-j1', money(a)); set('brg-jr', 'удержано '+money(tot-a)); set('brg-jp', money(m.pool)); } }
   set('brg-t-days', String(Math.round(c.days*100)/100));
   set('brg-t-w', String(Math.round(c.totalW*100)/100));
   set('brg-t-s', money(c.totalShare));
@@ -18026,7 +18028,7 @@ function printBrigade(){
   <h2>Расчёт сдельной оплаты бригады</h2>
   <div class="sub"><b>${E(b.name)}</b> · ${E(per)} · ${m.status==='posted'?'начисления проведены':'черновик'}${m.foreman?' · бригадир: '+E(m.foreman):''}</div>
   <table class="sum"><tbody>
-   ${m.pool_source==='orders'?`<tr><td>Сумма выполненных заказов</td><td class="r">${f(brgJobsTotal(m))}</td></tr><tr><td>Резерв ${m.reserve_pct==null?20:m.reserve_pct}%</td><td class="r">−${f(brgJobsTotal(m)-m.pool)}</td></tr>`:''}
+   ${m.pool_source==='orders'?`<tr><td>Сумма выполненных заказов</td><td class="r">${f(brgJobsTotal(m))}</td></tr><tr><td>1) минус ${m.reserve_pct==null?20:m.reserve_pct}%</td><td class="r">${f(brgJobsStep1(m))}</td></tr><tr><td>2) × ${m.brigade_pct==null?100:m.brigade_pct}% бригады</td><td class="r">${f(m.pool)}</td></tr>`:''}
    <tr><td>Пул за месяц${m.pool_source==='worksheet'?' (из рабочего листа)':(m.pool_source==='orders'?' (сумма заказов − резерв)':'')}</td><td class="r">${f(m.pool)}</td></tr>
    ${(+m.extra)?`<tr><td>Прибавка к пулу</td><td class="r">+${f(m.extra)}</td></tr>`:''}
    ${dedRows}
