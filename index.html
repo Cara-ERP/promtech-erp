@@ -17689,6 +17689,32 @@ async function brgJobsMark(quiet, clearOnly){
 async function brgJobsMarkClick(clear){
   try{ await brgJobsMark(false, !!clear); }catch(e){ alert('Не удалось '+(clear?'снять отметки':'отметить в рабочем листе')+': '+e.message); }
 }
+// Перенос строки журнала в другой месяц (в расчёт этой же бригады за выбранный месяц)
+async function brgJobMonth(i,per){
+  const m=_brg.month,b=_brgBrigade(); if(!m||!b||!per||per===m.period) { renderBrigades(); return; }
+  const j=m.jobs[i]; if(!j) return;
+  try{
+    const ex=await sbFetch('brigade_months','select=*&brigade_id=eq.'+b.id+'&period=eq.'+per);
+    const moved={...j}; delete moved.marked;
+    if(ex && ex.length){
+      const t=ex[0];
+      if(t.status==='posted'){ alert('Расчёт за '+per+' уже проведён. Сначала снимите проведение в том месяце.'); renderBrigades(); return; }
+      const jobs=(t.jobs||[]).concat([moved]);
+      await sbPatch('brigade_months','id=eq.'+t.id,{jobs, updated_at:new Date().toISOString()});
+    } else {
+      await sbInsert('brigade_months',{brigade_id:b.id, period:per, pool:0, extra:0, deductions:[], jobs:[moved], status:'draft', accrual_ids:[], note:'',
+        pool_source:m.pool_source||'manual', reserve_pct:m.reserve_pct==null?20:+m.reserve_pct, brigade_pct:m.brigade_pct==null?100:+m.brigade_pct, dist_mode:m.dist_mode||'ktu',
+        foreman:m.foreman||'', foreman_mode:m.foreman_mode||'fixed', foreman_value:+m.foreman_value||0, foreman_from_pool:m.foreman_from_pool!==false,
+        rows:(b.members||[]).map(n=>({name:n,days:0,ktu:1,pct:0,mode:'piece',salary:0})), updated_at:new Date().toISOString()});
+    }
+    const wasMarked=!!j.marked;
+    m.jobs.splice(i,1); brgSyncPool(); brgMarkDirty();
+    await brgSave(true);
+    if(wasMarked){ try{ await brgJobsMark(true); }catch(e){} }  // убрать отметку этого месяца у перенесённой позиции
+    renderBrigades();
+    if(typeof brdToast==='function') brdToast('✓ Строка перенесена в '+per);
+  }catch(e){ alert('Не удалось перенести строку: '+e.message); renderBrigades(); }
+}
 function brgJobsHtml(){
   const m=_brg.month; const isOrd=m.pool_source==='orders';
   const ed=m.status!=='posted', dis=ed?'':' disabled', E=_brgEsc;
@@ -17699,27 +17725,28 @@ function brgJobsHtml(){
     '<button class="btn btn-ghost btn-sm" title="Добавляет изделия на рабочий лист производства и доску с этапом бригады" onclick="brgJobsMarkClick(false)">📋 Отметить в рабочем листе</button>'+
     ((m.jobs||[]).some(j=>j.marked)?'<button class="btn btn-ghost btn-sm" onclick="brgJobsMarkClick(true)">↩ Снять отметки</button>':'')+'</div></div>'+
     '<datalist id="brg-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
-    '<div style="overflow-x:auto"><table class="data-table" style="min-width:680px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:120px" title="Цена для расчёта сдельной (не цена продажи)">Цена для ЗП, ₸</th><th style="text-align:right">Сумма, ₸</th><th></th></tr></thead><tbody>';
+    '<div style="overflow-x:auto"><table class="data-table" style="min-width:680px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:120px" title="Цена для расчёта сдельной (не цена продажи)">Цена для ЗП, ₸</th><th style="text-align:right">Сумма, ₸</th><th title="Перенести строку в другой месяц">Месяц</th><th></th></tr></thead><tbody>';
   (m.jobs||[]).forEach((j,i)=>{
     const o=(ordersData||[]).find(x=>x.num===j.order);
     let itemCell;
     if(o && o.items && o.items.length){
-      itemCell='<select style="font-size:12px;max-width:260px"'+dis+' onchange="brgJobItem('+i+',this.value)"><option value="">— выберите изделие —</option>'+
+      itemCell='<select title="'+E(j.item||'')+'" style="font-size:12px;max-width:260px"'+dis+' onchange="brgJobItem('+i+',this.value)"><option value="">— выберите изделие —</option>'+
         o.items.map((it,k)=>'<option value="'+k+'"'+(j.itemIdx===k?' selected':'')+'>'+(k+1)+'. '+E(it.name)+' ×'+(it.qty||1)+'</option>').join('')+'</select>';
     } else itemCell='<input type="text" value="'+E(j.item||'')+'" placeholder="Изделие" style="width:240px;font-size:12px"'+dis+' onchange="brgJobText('+i+',this.value)">';
-    h+='<tr><td><input list="brg-ord-list" type="text" value="'+E(j.order||'')+'" placeholder="МО-…" style="width:110px;font-size:12px"'+dis+' onchange="brgJobOrder('+i+',this.value)">'+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+(j.marked?'<div style="font-size:11px;color:var(--green)">✓ в листе '+E(String(j.marked).split('-').reverse().join('.'))+'</div>':'')+'</td>'+
+    h+='<tr><td><input list="brg-ord-list" type="text" value="'+E(j.order||'')+'" title="'+E((j.order||'')+(o&&o.customer?' — '+o.customer:''))+'" placeholder="МО-…" style="width:170px;font-size:12px"'+dis+' onchange="brgJobOrder('+i+',this.value)">'+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+(j.marked?'<div style="font-size:11px;color:var(--green)">✓ в листе '+E(String(j.marked).split('-').reverse().join('.'))+'</div>':'')+'</td>'+
       '<td>'+itemCell+'</td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.qty||'')+'" style="width:60px;text-align:right"'+dis+' onchange="brgJobQty('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.price||'')+'" placeholder="0" style="width:100px;text-align:right"'+dis+' onchange="brgJobPrice('+i+',this.value)"></td>'+
       '<td id="brg-js-'+i+'" style="text-align:right;font-family:monospace"></td>'+
+      '<td><input type="month" value="'+E(m.period)+'" title="Выберите другой месяц — строка переедет туда" style="font-size:12px;width:130px"'+dis+' onchange="brgJobMonth('+i+',this.value)"></td>'+
       '<td>'+(ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgJobDel('+i+')">✕</span>':'')+'</td></tr>';
   });
-  if(!(m.jobs||[]).length) h+='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">Нажмите «＋ Заказ / изделие» и впишите номер заказа — подставятся все его изделия, лишние удалите кнопкой ✕. Проставьте цены для ЗП.</td></tr>';
-  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="3">Итого сумма для расчёта ЗП <span id="brg-jw" style="font-weight:400;font-size:12px"></span></td><td></td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td></tr>';
-  if(!isOrd) h+='<tr><td colspan="6" style="font-size:12px;color:var(--text3)">Журнал сейчас не влияет на пул (выбран другой источник пула). '+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgSetSource(\'orders\')">Взять пул из этой таблицы (− резерв)</button>':'')+'</td></tr>';
+  if(!(m.jobs||[]).length) h+='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px">Нажмите «＋ Заказ / изделие» и впишите номер заказа — подставятся все его изделия, лишние удалите кнопкой ✕. Проставьте цены для ЗП.</td></tr>';
+  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="3">Итого сумма для расчёта ЗП <span id="brg-jw" style="font-weight:400;font-size:12px"></span></td><td></td><td id="brg-jt" style="text-align:right;font-family:monospace"></td><td></td><td></td></tr>';
+  if(!isOrd) h+='<tr><td colspan="7" style="font-size:12px;color:var(--text3)">Журнал сейчас не влияет на пул (выбран другой источник пула). '+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgSetSource(\'orders\')">Взять пул из этой таблицы (− резерв)</button>':'')+'</td></tr>';
   else h+=
-    '<tr><td colspan="3" style="text-align:right"><b>Строка 1.</b> Итоговая сумма минус, %</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.reserve_pct==null?20:m.reserve_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetReserve(this.value)"></td><td style="text-align:right;font-family:monospace"><div id="brg-j1"></div><div id="brg-jr" style="font-size:11px;color:var(--text3)"></div></td><td></td></tr>'+
-    '<tr style="font-weight:700"><td colspan="3" style="text-align:right"><b>Строка 2.</b> Пул бригады = строка 1 × % бригады</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.brigade_pct==null?100:m.brigade_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetBrigPct(this.value)"></td><td id="brg-jp" style="text-align:right;font-family:monospace;color:var(--green)"></td><td></td></tr>'+
+    '<tr><td colspan="3" style="text-align:right"><b>Строка 1.</b> Итоговая сумма минус, %</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.reserve_pct==null?20:m.reserve_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetReserve(this.value)"></td><td style="text-align:right;font-family:monospace"><div id="brg-j1"></div><div id="brg-jr" style="font-size:11px;color:var(--text3)"></div></td><td></td><td></td></tr>'+
+    '<tr style="font-weight:700"><td colspan="3" style="text-align:right"><b>Строка 2.</b> Пул бригады = строка 1 × % бригады</td><td style="text-align:right"><input type="text" inputmode="decimal" value="'+(m.brigade_pct==null?100:m.brigade_pct)+'" style="width:60px;text-align:right"'+dis+' onchange="brgSetBrigPct(this.value)"></td><td id="brg-jp" style="text-align:right;font-family:monospace;color:var(--green)"></td><td></td><td></td></tr>'+
     '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:6px">Цены в заказах (дилерские, розничные, со скидками) для ЗП не подходят, поэтому здесь ставятся отдельные цены для расчёта сдельной. Программа запоминает цену по названию изделия: в следующий раз (и в других строках с таким же изделием) она подставится сама. Выберите заказ — подставятся все его изделия, удалите лишние строки. «Отметить в рабочем листе» (и «Провести начисления») добавляет изделия на рабочий лист производства и доску: датой реализации, если она в этом месяце, иначе последним днём месяца. Пул считается в две строки: 1) итоговая сумма минус % (удержание); 2) результат × % бригады = пул. Пул делится между сотрудниками по КТУ или по процентам (переключатель в блоке «Пул за месяц»).</div></div>';
   return h;
 }
