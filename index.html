@@ -7420,8 +7420,9 @@ window.onerror = function(msg, src, line, col){
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <select id="brg-select" style="width:auto;min-width:200px" onchange="brgChangeBrigade(this.value)"></select>
           <input id="brg-period" type="month" style="width:auto" onchange="brgChangePeriod(this.value)">
-          <button class="btn btn-ghost btn-sm" onclick="brgNewBrigade()">＋ Бригада</button>
-          <button class="btn btn-ghost btn-sm" onclick="brgRenameBrigade()">✎ Название</button>
+          <button id="brg-btn-new" class="btn btn-ghost btn-sm" onclick="brgNewBrigade()">＋ Бригада</button>
+          <button id="brg-btn-ren" class="btn btn-ghost btn-sm" onclick="brgRenameBrigade()">✎ Название</button>
+          <button id="brg-btn-login" class="btn btn-ghost btn-sm" title="Привязать логин бригадира: он будет видеть только эту бригаду" onclick="brgBindLogin()">👤 Логин бригадира</button><span id="brg-login-lbl" style="font-size:12px;color:var(--text3)"></span>
           <button class="btn btn-ghost btn-sm" onclick="if(brgConfirmLeave()) initBrigadesPage(true)">🔄</button>
         </div>
       </div>
@@ -7775,6 +7776,7 @@ window.onerror = function(msg, src, line, col){
                 <option value="manager">Менеджер продаж</option>
                 <option value="storekeeper">Кладовщик</option>
                 <option value="foreman">Начальник цеха</option>
+                <option value="brigadier">Бригадир (видит только свою бригаду)</option>
                 <option value="accountant">Бухгалтер</option>
                 <option value="hr">HR-менеджер</option>
                 <option value="buyer">Менеджер закупок</option>
@@ -17398,6 +17400,8 @@ async function initBrigadesPage(force){
     if(typeof employeesData!=='undefined' && !employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
     if(force || !_brg.list) _brg.list = await sbFetch('brigades','select=*&order=name');
     if(!Array.isArray(_brg.list)) throw new Error('пустой ответ');
+    // Бригадир видит только свою бригаду (та, к которой привязан его логин)
+    if(brgIsBrigadier()){ const me=String(window._currentUser||'').toLowerCase(); _brg.list=_brg.list.filter(b=>String(b.login||'').toLowerCase()===me); }
     if(!_brgBrigade()) _brg.brigadeId = _brg.list.length ? _brg.list[0].id : null;
     brgFillSelect();
     await brgLoadMonth();
@@ -17408,7 +17412,21 @@ async function initBrigadesPage(force){
   }finally{ _brg.loading = false; }
 }
 
+function brgIsBrigadier(){ return !brgCanClose(); }
+async function brgBindLogin(){
+  const b=_brgBrigade(); if(!b || brgIsBrigadier()) return;
+  const cand=Object.keys(_USERS||{}).filter(k=>{ const pg=(_USERS[k].pages||[]); return pg.includes('brigades') && !['director','foreman','accountant'].includes(k) && !_USERS[k].canCloseBrigades; });
+  const hint=cand.length?'\n\nПользователи с доступом к разделу «Бригады»:\n'+cand.map(k=>k+' — '+(_USERS[k].name||'')).join('\n'):'\n\nСначала создайте пользователя с ролью «Бригадир» (Пользователи → Шаблон роли → Бригадир).';
+  const v=prompt('Логин бригадира для «'+b.name+'» (пусто — отвязать):'+hint, b.login||'');
+  if(v===null) return;
+  const login=v.trim().toLowerCase();
+  if(login && !_USERS[login]){ alert('Пользователь «'+login+'» не найден.'); return; }
+  try{ await sbPatch('brigades','id=eq.'+b.id,{login:login||null}); b.login=login||null; brgFillSelect(); }
+  catch(e){ alert('Не удалось привязать: '+e.message+(/400/.test(e.message)?'\nВозможно, не выполнен файл brigades_7.sql.':'')); }
+}
 function brgFillSelect(){
+  { const bw=brgIsBrigadier(); ['brg-btn-new','brg-btn-ren','brg-btn-login'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display=bw?'none':''; });
+    const lb=document.getElementById('brg-login-lbl'); const cb=_brgBrigade(); if(lb) lb.textContent=(!bw && cb && cb.login)?('бригадир: '+cb.login):''; }
   const sel = document.getElementById('brg-select'); if(!sel) return;
   sel.innerHTML = (_brg.list||[]).map(b=>'<option value="'+_brgEsc(b.id)+'"'+(String(b.id)===String(_brg.brigadeId)?' selected':'')+'>'+_brgEsc(b.name)+'</option>').join('') || '<option value="">— бригад нет —</option>';
 }
@@ -17423,7 +17441,7 @@ async function brgLoadMonth(){
   if(rows && rows.length){
     const m = rows[0];
     m.rows = m.rows||[]; m.deductions = m.deductions||[]; m.accrual_ids = m.accrual_ids||[]; m.pool_source = m.pool_source||'manual'; m.foreman = m.foreman||''; m.foreman_mode = m.foreman_mode||'fixed'; m.foreman_value = +m.foreman_value||0; m.foreman_from_pool = m.foreman_from_pool!==false;
-    m.jobs = m.jobs||[]; m.reserve_pct = m.reserve_pct==null?20:(+m.reserve_pct||0); m.brigade_pct = m.brigade_pct==null?100:(+m.brigade_pct||0); m.dist_mode = m.dist_mode||'ktu';
+    m.jobs = m.jobs||[]; m.reserve_pct = m.reserve_pct==null?20:(+m.reserve_pct||0); m.brigade_pct = m.brigade_pct==null?100:(+m.brigade_pct||0); m.closed = !!m.closed; m.dist_mode = m.dist_mode||'ktu';
     _brg.month = m;
   } else {
     // КТУ берём из прошлого месяца этой бригады — он меняется редко
@@ -17453,7 +17471,7 @@ async function brgLoadMonth(){
   }catch(e){ console.warn('Бригады: не удалось загрузить начисления по этапам', e.message); }
   if((typeof ordersData==='undefined' || !ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
   brgSyncPool();
-  if(_brg.month.pool_source==='worksheet' && _brg.month.status!=='posted'){
+  if(_brg.month.pool_source==='worksheet' && !_brgLocked(_brg.month)){
     try{ await brgRecalcPool(true); }catch(e){ console.warn('Бригады: не удалось взять пул из рабочего листа', e.message); }
   }
   renderBrigades();
@@ -17461,7 +17479,7 @@ async function brgLoadMonth(){
 
 // Состав бригады → строки месяца (добавляем недостающих; лишних с нулём дней убираем)
 function brgSyncRows(){
-  const b = _brgBrigade(), m = _brg.month; if(!b||!m||m.status==='posted') return;
+  const b = _brgBrigade(), m = _brg.month; if(!b||!m||_brgLocked(m)) return;
   const have = new Set(m.rows.map(r=>_brgKey(r.name)));
   (b.members||[]).forEach(n=>{ if(!have.has(_brgKey(n))) m.rows.push({name:n, days:0, ktu:1, pct:0, mode:'piece', salary:0}); });
   const mem = new Set((b.members||[]).map(_brgKey));
@@ -17474,7 +17492,7 @@ function brgMarkDirty(){
   // автосохранение через 2 секунды после последней правки (кроме проведённых месяцев)
   clearTimeout(_brgAutoT);
   _brgAutoT = setTimeout(async ()=>{
-    const m=_brg.month; if(!m || m.status==='posted' || !_brg.dirty) return;
+    const m=_brg.month; if(!m || _brgLocked(m) || !_brg.dirty) return;
     const ok = await brgSave(true);
     const d2=document.getElementById('brg-dirty');
     if(ok && d2){ d2.className='badge badge-green'; d2.textContent='✓ Сохранено '+new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); d2.style.display=''; }
@@ -17512,6 +17530,7 @@ async function brgSaveMembers(b){
   await sbPatch('brigades','id=eq.'+b.id,{members:b.members});
 }
 async function brgAddMember(){
+  if(_brgLocked()){ alert('Расчёт за этот месяц закрыт или проведён — состав менять нельзя.'); return; }
   const b = _brgBrigade(), inp = document.getElementById('brg-new-member'); if(!b||!inp) return;
   const name = inp.value.trim(); if(!name) return;
   if((b.members||[]).some(n=>_brgKey(n)===_brgKey(name))){ inp.value=''; return; }
@@ -17523,6 +17542,7 @@ async function brgAddMember(){
   }catch(e){ b.members.pop(); alert('Не удалось добавить: '+e.message); }
 }
 async function brgRemoveMember(i){
+  if(_brgLocked()){ alert('Расчёт за этот месяц закрыт или проведён — состав менять нельзя.'); return; }
   const b = _brgBrigade(); if(!b) return;
   const name = b.members[i];
   if(!confirm('Убрать «'+name+'» из состава бригады? В расчётах прошлых месяцев он останется.')) return;
@@ -17531,7 +17551,10 @@ async function brgRemoveMember(i){
   catch(e){ b.members = old; alert('Не удалось убрать: '+e.message); }
 }
 
-function _brgEditable(){ return _brg.month && _brg.month.status!=='posted'; }
+function _brgLocked(m){ m=m||_brg.month; return !m || m.status==='posted' || !!m.closed; }
+function _brgEditable(){ return !_brgLocked(); }
+// Закрывать и открывать расчёт могут директор, начальник цеха (производства) и главный бухгалтер
+function brgCanClose(){ const k=window._currentUser, r=getCurrentRole(); return !!(k && (['director','foreman','accountant'].includes(k) || (r && r.canCloseBrigades))); }
 
 // Пул из «Рабочего листа производства»: этапы, проведённые («Завершить работу») в выбранном месяце,
 // где исполнителями указаны люди из этой бригады. Если на этапе есть и другие исполнители,
@@ -17584,7 +17607,7 @@ async function brgComputeSheet(){
   return { total:Math.round(total), lines, noItem };
 }
 async function brgRecalcPool(quiet){
-  const m = _brg.month; if(!m || m.status==='posted') return;
+  const m = _brg.month; if(!m || _brgLocked(m)) return;
   const sh = await brgComputeSheet();
   _brg.sheet = sh;
   if(Math.round(+m.pool||0)!==sh.total){ m.pool = sh.total; if(!quiet) brgMarkDirty(); else _brg.dirty = _brg.dirty; }
@@ -17597,7 +17620,7 @@ async function brgRefreshSheetClick(){
 function brgJobsStep1(m){ return brgJobsTotal(m)*(1-(+m.reserve_pct||0)/100); }
 function brgJobsTotal(m){ return (m.jobs||[]).reduce((t,j)=>t+(+j.qty||0)*(+j.price||0),0); }
 function brgSyncPool(){
-  const m=_brg.month; if(!m || m.pool_source!=='orders' || m.status==='posted') return;
+  const m=_brg.month; if(!m || m.pool_source!=='orders' || _brgLocked(m)) return;
   const tot=brgJobsTotal(m); m.pool=Math.round(brgJobsStep1(m)*(m.brigade_pct==null?100:(+m.brigade_pct||0))/100);
   const e=document.getElementById('brg-pool'); if(e) e.value=m.pool||'';
 }
@@ -17687,10 +17710,12 @@ async function brgJobsMark(quiet, clearOnly){
   return list.length;
 }
 async function brgJobsMarkClick(clear){
+  if(_brg.month&&_brg.month.closed && !brgCanClose()){ alert('Расчёт за этот месяц закрыт.'); return; }
   try{ await brgJobsMark(false, !!clear); }catch(e){ alert('Не удалось '+(clear?'снять отметки':'отметить в рабочем листе')+': '+e.message); }
 }
 // Перенос строки журнала в другой месяц (в расчёт этой же бригады за выбранный месяц)
 async function brgJobMonth(i,per){
+  if(_brgLocked()){ renderBrigades(); return; }
   const m=_brg.month,b=_brgBrigade(); if(!m||!b||!per||per===m.period) { renderBrigades(); return; }
   const j=m.jobs[i]; if(!j) return;
   try{
@@ -17698,6 +17723,7 @@ async function brgJobMonth(i,per){
     const moved={...j}; delete moved.marked;
     if(ex && ex.length){
       const t=ex[0];
+      if(t.closed){ alert('Расчёт за '+per+' закрыт. Его должен открыть начальник производства или директор.'); renderBrigades(); return; }
       if(t.status==='posted'){ alert('Расчёт за '+per+' уже проведён. Сначала снимите проведение в том месяце.'); renderBrigades(); return; }
       const jobs=(t.jobs||[]).concat([moved]);
       await sbPatch('brigade_months','id=eq.'+t.id,{jobs, updated_at:new Date().toISOString()});
@@ -17717,7 +17743,7 @@ async function brgJobMonth(i,per){
 }
 function brgJobsHtml(){
   const m=_brg.month; const isOrd=m.pool_source==='orders';
-  const ed=m.status!=='posted', dis=ed?'':' disabled', E=_brgEsc;
+  const ed=!_brgLocked(m), dis=ed?'':' disabled', E=_brgEsc;
   const money=n=>fmtCurrency(Math.round(n));
   const ords=(ordersData||[]).slice(0,600);
   let h='<div class="card" style="padding:14px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap"><div style="font-weight:600">Выполненные заказы за месяц <span style="font-weight:400;font-size:12px;color:var(--text3)">— цены ставит начальник производства</span></div>'+
@@ -17751,7 +17777,7 @@ function brgJobsHtml(){
   return h;
 }
 async function brgSetSource(v){
-  const m = _brg.month; if(!m || m.status==='posted') return;
+  const m = _brg.month; if(!m || _brgLocked(m)) return;
   m.pool_source = v; brgMarkDirty();
   if(v==='orders'){
     if((typeof ordersData==='undefined' || !ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
@@ -17804,7 +17830,7 @@ function brgDelDed(i){ _brg.month.deductions.splice(i,1); brgMarkDirty(); render
 
 async function brgSave(silent){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b) return false;
-  const payload = { pool:m.pool||0, extra:m.extra||0, rows:m.rows, jobs:m.jobs||[], reserve_pct:m.reserve_pct==null?20:+m.reserve_pct, brigade_pct:m.brigade_pct==null?100:+m.brigade_pct, dist_mode:m.dist_mode||'ktu', deductions:m.deductions.filter(d=>(d.name||'').trim()||(+d.amount||0)),
+  const payload = { pool:m.pool||0, extra:m.extra||0, rows:m.rows, jobs:m.jobs||[], reserve_pct:m.reserve_pct==null?20:+m.reserve_pct, brigade_pct:m.brigade_pct==null?100:+m.brigade_pct, dist_mode:m.dist_mode||'ktu', closed:!!m.closed, closed_by:m.closed_by||null, closed_at:m.closed_at||null, deductions:m.deductions.filter(d=>(d.name||'').trim()||(+d.amount||0)),
     deduct_stage_paid:!!m.deduct_stage_paid, pool_source:m.pool_source||'manual', foreman:m.foreman||'', foreman_mode:m.foreman_mode||'fixed', foreman_value:+m.foreman_value||0, foreman_from_pool:m.foreman_from_pool!==false, status:m.status, accrual_ids:m.accrual_ids||[], posted_date:m.posted_date||null,
     note:m.note||'', updated_at:new Date().toISOString() };
   try{
@@ -17825,6 +17851,7 @@ async function brgSave(silent){
 // Провести: создаёт по человеку одно начисление в Зарплатной ведомости
 async function brgPost(){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b||m.status==='posted') return;
+  if(m.closed && !brgCanClose()){ alert('Расчёт закрыт. Проводить его может начальник производства или директор.'); return; }
   const c = brgCalc(m, _brg.stageMap);
   if(c.totalW<=0){ alert(c.pctMode?'Проставьте проценты сотрудникам.':'Проставьте дни и КТУ: сумма «дни × КТУ» равна нулю.'); return; }
   if(c.pctMode && Math.abs(c.totalW-100)>0.01 && !confirm('Сумма процентов = '+(Math.round(c.totalW*100)/100)+'%, а не 100%. Часть пула останется нераспределённой (или будет превышена). Продолжить?')) return;
@@ -17868,6 +17895,7 @@ async function brgPost(){
 }
 async function brgUnpost(){
   const m = _brg.month; if(!m||m.status!=='posted') return;
+  if(m.closed){ alert('Расчёт закрыт. Сначала откройте его (🔓 Открыть расчёт).'); return; }
   if(!confirm('Снять проведение? Начисления этой бригады за '+m.period+' будут удалены из Зарплатной ведомости.')) return;
   try{
     for(const id of (m.accrual_ids||[])){
@@ -17922,13 +17950,16 @@ function renderBrigades(){
   const body = document.getElementById('brg-body'); if(!body) return;
   const b = _brgBrigade(), m = _brg.month;
   if(!b){
-    body.innerHTML = '<div class="card" style="padding:20px;line-height:1.7">Бригад пока нет. Нажмите «＋ Бригада», затем добавьте состав.</div>'; return;
+    body.innerHTML = '<div class="card" style="padding:20px;line-height:1.7">'+(brgIsBrigadier()?'К вашему логину не привязана бригада. Обратитесь к начальнику производства или директору.':'Бригад пока нет. Нажмите «＋ Бригада», затем добавьте состав.')+'</div>'; return;
   }
   if(!m) return;
-  const ed = m.status!=='posted', dis = ed?'':' disabled';
+  const ed = !_brgLocked(m), dis = ed?'':' disabled';
   const c = brgCalc(m, _brg.stageMap);
   const money = n => fmtCurrency(Math.round(n));
   let h = '<div id="brg-kpi" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px">'+brgKpiHtml(c)+'</div>';
+
+ // Закрытие месяца
+  if(m.closed) h += '<div class="card" style="padding:12px 14px;margin-bottom:12px;border:1px solid var(--red);display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="badge badge-red">🔒 Расчёт закрыт</span><span style="font-size:12px;color:var(--text3)">'+_brgEsc(m.closed_by||'')+(m.closed_at?', '+new Date(m.closed_at).toLocaleString('ru-RU'):'')+'. Изменять и добавлять данные за этот месяц нельзя'+(brgCanClose()?'. Чтобы править, нажмите «🔓 Открыть расчёт».':'; открыть расчёт может начальник производства или директор.')+'</span></div>';
 
   // Статус
   h += '<div class="card" style="padding:12px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap'+(ed?'':';border:1px solid var(--green)')+'">'+
@@ -18016,14 +18047,35 @@ function renderBrigades(){
 
   // Кнопки
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
-    (ed?'<button class="btn btn-ghost" onclick="brgSave()">💾 Сохранить</button><button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>'
-       :'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgUnpost()">↩ Снять проведение</button>')+
+    (m.closed ? (brgCanClose()?'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgReopen()">🔓 Открыть расчёт</button>'+(m.status!=='posted'?'<button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>':''):'')
+     : (ed?'<button class="btn btn-ghost" onclick="brgSave()">💾 Сохранить</button><button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>'
+       :'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgUnpost()">↩ Снять проведение</button>')
+       +(brgCanClose()?'<button class="btn btn-ghost" style="color:var(--red)" title="После закрытия бригадир не сможет ничего менять за этот месяц" onclick="brgClose()">🔒 Закрыть расчёт</button>':''))+
     '<button class="btn btn-ghost" onclick="printBrigade()">🖨 Печать</button><button class="btn btn-ghost" onclick="exportBrigadeCsv()">📥 CSV</button></div>';
 
   body.innerHTML = h;
   brgRefresh();
 }
 
+async function brgClose(){
+  const m=_brg.month; if(!m||m.closed) return;
+  if(!brgCanClose()){ alert('Закрыть расчёт может начальник производства, директор или главный бухгалтер.'); return; }
+  if(!confirm('Закрыть расчёт бригады за '+m.period+'?'+(m.status!=='posted'?'\n\nРасчёт ещё не проведён.':'')+'\n\nПосле закрытия бригадир не сможет ничего менять и добавлять за этот месяц. Открыть расчёт обратно сможет только начальник производства или директор.')) return;
+  if(!(await brgSave(true))) return;
+  const role=getCurrentRole();
+  m.closed=true; m.closed_by=(role&&role.name)||window._currentUser||''; m.closed_at=new Date().toISOString();
+  if(!(await brgSave(true))){ m.closed=false; return; }
+  renderBrigades();
+  if(typeof brdToast==='function') brdToast('🔒 Расчёт за '+m.period+' закрыт');
+}
+async function brgReopen(){
+  const m=_brg.month; if(!m||!m.closed) return;
+  if(!brgCanClose()){ alert('Открыть расчёт может начальник производства или директор.'); return; }
+  if(!confirm('Открыть расчёт за '+m.period+' для изменений?')) return;
+  m.closed=false; m.closed_by=null; m.closed_at=null;
+  if(!(await brgSave(true))){ m.closed=true; return; }
+  renderBrigades();
+}
 async function brgPostAfterSave(){ if(await brgSave(true)) await brgPost(); }
 
 // Печать расчёта бригады: пул, вычеты, дни × КТУ, доли, к начислению, подписи
@@ -24814,7 +24866,7 @@ async function toggleUserActive(userId, active){
 function applyUserRoleTemplate(){
   const tpl = document.getElementById('u-role-template').value;
   if(!tpl) return;
-  const role = _USERS[tpl];
+  const role = tpl==='brigadier' ? {label:'Бригадир', pages:['brigades'], channel:''} : _USERS[tpl];
   if(!role) return;
 
   document.getElementById('u-label').value   = role.label||'';
