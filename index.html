@@ -18663,10 +18663,10 @@ function ejClose(){ if(_ej.dirty && !confirm('Есть несохранённы�
 async function ejRenderList(){
   const per=document.getElementById('ej-month').value, box=document.getElementById('ej-list'); if(!per||!box) return;
   try{
-    const rows=await sbFetch('emp_jobs',`select=id,emp_name,operation,jobs,status,period&period=eq.${per}&order=emp_name`)||[];
+    const rows=await sbFetch('emp_jobs',`select=id,emp_name,operation,jobs,status,period,team&period=eq.${per}&order=emp_name`)||[];
     box.innerHTML=rows.length?('<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Журналы за месяц (нажмите, чтобы открыть):</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+
       rows.map(r=>{ const t=(r.jobs||[]).reduce((a,j)=>a+(+j.qty||0)*(+j.rate||0),0);
-        return '<button class="btn btn-ghost btn-sm" onclick="ejPick('+JSON.stringify(r.emp_name).replace(/"/g,'&quot;')+','+JSON.stringify(r.operation||'').replace(/"/g,'&quot;')+')">'+_brgEsc(r.emp_name)+' · '+_brgEsc(r.operation||'—')+' · ₸'+_ejMoney(t)+(r.status==='posted'?' ✓':'')+'</button>'; }).join('')+'</div>'):'';
+        return '<button class="btn btn-ghost btn-sm" onclick="ejPick('+JSON.stringify(r.emp_name).replace(/"/g,'&quot;')+','+JSON.stringify(r.operation||'').replace(/"/g,'&quot;')+')">'+_brgEsc((r.team&&r.team.length>1)?r.team.map(x=>x.name.split(' ')[0]).join(' + '):r.emp_name)+' · '+_brgEsc(r.operation||'—')+' · ₸'+_ejMoney(t)+(r.status==='posted'?' ✓':'')+'</button>'; }).join('')+'</div>'):'';
   }catch(e){ box.innerHTML='<div style="color:var(--red);font-size:12px">Не удалось прочитать журналы: '+_brgEsc(e.message)+'. Выполнен ли файл emp_jobs.sql?</div>'; }
 }
 function ejPick(emp,op){ document.getElementById('ej-emp').value=emp; const sel=document.getElementById('ej-op'); if(op && ![...sel.options].some(o=>o.value===op)){ const o=document.createElement('option'); o.value=op; o.textContent=op; sel.appendChild(o); } sel.value=op; ejLoad(); }
@@ -18686,7 +18686,7 @@ async function ejLoad(){
   body.innerHTML='<div style="padding:14px;color:var(--text3)">Загрузка…</div>';
   try{
     const rows=await sbFetch('emp_jobs',`select=*&emp_name=eq.${encodeURIComponent(emp)}&period=eq.${per}&operation=eq.${encodeURIComponent(op)}`)||[];
-    _ej.rec = rows[0] ? {...rows[0], jobs:rows[0].jobs||[], accrual_ids:rows[0].accrual_ids||[]} : {id:null, emp_name:emp, period:per, operation:op, link_stage:true, jobs:[], status:'draft', accrual_ids:[], posted_date:null, note:''};
+    _ej.rec = rows[0] ? {...rows[0], jobs:rows[0].jobs||[], accrual_ids:rows[0].accrual_ids||[], team:rows[0].team||[]} : {id:null, emp_name:emp, period:per, operation:op, link_stage:true, jobs:[], team:[], status:'draft', accrual_ids:[], posted_date:null, note:''};
     _ej.dirty=false; ejRender();
   }catch(e){ body.innerHTML='<div style="padding:14px;color:var(--red)">Не удалось открыть журнал: '+_brgEsc(e.message)+'<br><span style="color:var(--text3)">Проверьте, что в Supabase выполнен файл emp_jobs.sql.</span></div>'; }
 }
@@ -18696,7 +18696,7 @@ function ejMarkDirty(){
 }
 async function ejSave(silent){
   const r=_ej.rec; if(!r) return false;
-  const payload={ link_stage:!!r.link_stage, jobs:r.jobs, status:r.status, accrual_ids:r.accrual_ids||[], posted_date:r.posted_date||null, note:r.note||'', updated_at:new Date().toISOString() };
+  const payload={ link_stage:!!r.link_stage, jobs:r.jobs, team:r.team||[], status:r.status, accrual_ids:r.accrual_ids||[], posted_date:r.posted_date||null, note:r.note||'', updated_at:new Date().toISOString() };
   try{
     if(r.id) await sbPatch('emp_jobs','id=eq.'+r.id,payload);
     else { const ins=await sbInsert('emp_jobs',{...payload, emp_name:r.emp_name, period:r.period, operation:r.operation}); r.id=ins.id; }
@@ -18734,11 +18734,29 @@ function ejRecalcRates(){
   r.jobs.forEach(j=>{ const rt=ejRateFor(r,j); if(rt!=null && (!(+j.rate>0) || j.rateAuto)){ j.rate=rt; j.rateAuto=true; n++; } });
   ejMarkDirty(); ejRender(); if(!n) alert('Расценок по этой операции для изделий журнала не найдено. Заполните их в «Цеха и участники → Расценки по изделиям».');
 }
+// Участники: если несколько сотрудников работают вместе — сумма делится по КТУ (как у этапа с несколькими исполнителями)
+function ejParts(r){ return (r.team&&r.team.length)?r.team:[{name:r.emp_name,ktu:1}]; }
+function ejShares(r,total){
+  const ps=ejParts(r), sum=ps.reduce((t,x)=>t+(+x.ktu||0),0)||1;
+  const out=ps.map(x=>({name:x.name,ktu:+x.ktu||0,amount:Math.round(total*(+x.ktu||0)/sum)}));
+  const diff=Math.round(total)-out.reduce((t,x)=>t+x.amount,0);
+  if(diff&&out.length){ let big=out[0]; out.forEach(x=>{ if(x.ktu>big.ktu) big=x; }); big.amount+=diff; }
+  return out;
+}
+function ejTeamAdd(v){
+  const r=_ej.rec; if(!r||r.status==='posted') return; v=String(v||'').trim(); if(!v||v.startsWith('👥')){ ejRender(); return; }
+  if(!r.team||!r.team.length) r.team=[{name:r.emp_name,ktu:1}];
+  if(r.team.some(x=>pwbNameKey(x.name)===pwbNameKey(v))){ ejRender(); return; }
+  r.team.push({name:v,ktu:1}); ejMarkDirty(); ejRender();
+}
+function ejTeamKtu(i,v){ _ej.rec.team[i].ktu=v===''?1:_brgNum(v); ejMarkDirty(); ejRefresh(); }
+function ejTeamDel(i){ const r=_ej.rec; r.team.splice(i,1); if(r.team.length<2) r.team=[]; ejMarkDirty(); ejRender(); }
 function ejTotal(r){ return r.jobs.reduce((t,j)=>t+(+j.qty||0)*(+j.rate||0),0); }
 function ejRefresh(){
   const r=_ej.rec; if(!r) return;
   r.jobs.forEach((j,i)=>{ const e=document.getElementById('ej-s-'+i); if(e) e.textContent=_ejMoney((+j.qty||0)*(+j.rate||0)); });
   const t=document.getElementById('ej-total'); if(t) t.textContent='₸'+_ejMoney(ejTotal(r));
+  if(r.team&&r.team.length>1){ ejShares(r,ejTotal(r)).forEach((x,i)=>{ const e=document.getElementById('ej-sh-'+i); if(e) e.textContent='₸'+_ejMoney(x.amount); }); }
   const nr=r.jobs.filter(j=>!(+j.rate>0)).length; const w=document.getElementById('ej-warn'); if(w) w.innerHTML=nr?'⚠ без расценки: '+nr:'';
 }
 function ejRender(){
@@ -18748,6 +18766,9 @@ function ejRender(){
   const st=document.getElementById('ej-state'); if(st){ if(posted){ st.className='badge badge-green'; st.textContent='Проведено '+(r.posted_date||''); } else if(!_ej.dirty){ st.className='badge badge-amber'; st.textContent=r.id?'Черновик':'Новый журнал'; } }
   let h='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px">'+
     '<label style="font-size:12px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto;margin:0"'+(r.link_stage?' checked':'')+dis+' onchange="ejSetLink(this.checked)"> при проведении отметить этап «<b>'+E(r.operation)+'</b>» выполненным в рабочем листе и на доске (всем строкам, кроме отмеченных «без этапа»)</label></div>'+
+    '<div style="margin-bottom:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px"><div style="font-size:12px;color:var(--text3);margin-bottom:6px">Работают вместе? Добавьте участников — сумма журнала разделится между ними по КТУ.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+      (r.team&&r.team.length>1 ? r.team.map((x,i)=>'<span class="badge badge-blue" style="display:inline-flex;gap:6px;align-items:center;font-size:12px">'+E(x.name)+' КТУ <input type="text" inputmode="decimal" value="'+(x.ktu==null?1:x.ktu)+'" style="width:44px;font-size:12px;text-align:center;padding:1px 3px"'+dis+' onchange="ejTeamKtu('+i+',this.value)"> <span id="ej-sh-'+i+'" style="font-family:monospace"></span>'+(posted||pwbNameKey(x.name)===pwbNameKey(r.emp_name)?'':' <span style="cursor:pointer" onclick="ejTeamDel('+i+')">✕</span>')+'</span>').join('') : '<span style="font-size:12px">'+E(r.emp_name)+' — один</span>')+
+      (posted?'':'<input list="ej-emp-list" type="text" placeholder="＋ добавить участника" style="width:200px;font-size:12px" onchange="ejTeamAdd(this.value);this.value=\'\'">')+'</div></div>'+
     '<datalist id="ej-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
     '<div style="overflow-x:auto"><table class="data-table" style="min-width:720px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:110px" title="Подставляется из «Расценок по изделиям», можно исправить">Расценка, ₸</th><th style="text-align:right">Сумма, ₸</th><th title="Не отмечать этап в рабочем листе для этой строки">Без этапа</th><th></th></tr></thead><tbody>';
   r.jobs.forEach((j,i)=>{
@@ -18792,8 +18813,8 @@ async function ejMarkStages(r, clearOnly){
     const date=rl.length?rl[rl.length-1]:last;
     const row=byKey[g.key]; const base=((row&&row.stages)||[]).filter(z=>z.journalMark!==MARK);
     // этап этой операции у этого сотрудника уже заведён в рабочем листе обычным способом — не дублируем
-    if(base.some(z=>String(z.stage||'').trim().toLowerCase()===String(r.operation).trim().toLowerCase() && z.posted && (z.assignees||[]).some(a=>pwbNameKey(a.name)===pwbNameKey(r.emp_name)))){ conflicts.push(g.order+' · '+nm); continue; }
-    base.push({stage:r.operation, workshop:wsId, assignees:[{name:r.emp_name,ktu:1}], brigade:null, brigadeName:'', payMethod:'rate', rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK});
+    if(base.some(z=>String(z.stage||'').trim().toLowerCase()===String(r.operation).trim().toLowerCase() && z.posted && (z.assignees||[]).some(a=>ejParts(r).some(pp=>pwbNameKey(pp.name)===pwbNameKey(a.name))))){ conflicts.push(g.order+' · '+nm); continue; }
+    base.push({stage:r.operation, workshop:wsId, assignees:ejParts(r).map(x=>({name:x.name,ktu:+x.ktu||1})), brigade:null, brigadeName:'', payMethod:'rate', rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK});
     if(row){ await sbPatch('production_progress','id=eq.'+row.id,{stages:base,updated_at:new Date().toISOString()}); syncMem(g.key,row,base); }
     else { const ins=await sbInsert('production_progress',{item_key:g.key,order_num:g.order,item_idx:g.idx,stages:base,materials:[],completed:false}); syncMem(g.key,ins,base); }
   }
@@ -18804,14 +18825,19 @@ async function ejPost(){
   const total=Math.round(ejTotal(r));
   if(!r.jobs.length||total<=0){ alert('В журнале нет строк с суммой. Проставьте количество и расценки.'); return; }
   const nr=r.jobs.filter(j=>!(+j.rate>0)).length;
-  if(!confirm('Провести выработку «'+r.emp_name+'» за '+r.period+'?\n\nОперация: '+r.operation+'\nСтрок: '+r.jobs.length+(nr?' (без расценки: '+nr+')':'')+'\nСумма сдельной: '+fmtCurrency(total)+(r.link_stage?'\n\nЭтап «'+r.operation+'» будет отмечен выполненным в рабочем листе и на доске.':''))) return;
+  const shares=ejShares(r,total);
+  if(!confirm('Провести выработку «'+r.emp_name+'» за '+r.period+'?\n\nОперация: '+r.operation+'\nСтрок: '+r.jobs.length+(nr?' (без расценки: '+nr+')':'')+'\nСумма сдельной: '+fmtCurrency(total)+(shares.length>1?'\nДелится по КТУ:\n'+shares.map(x=>'  '+x.name+' (КТУ '+x.ktu+') — '+fmtCurrency(x.amount)).join('\n'):'')+(r.link_stage?'\n\nЭтап «'+r.operation+'» будет отмечен выполненным в рабочем листе и на доске.':''))) return;
   if(!(await ejSave(true))) return;
   const date=_brgLastDay(r.period);
   try{
-    const a=await sbInsert('salary_accruals',{emp_name:r.emp_name,date,amount:total,deducted:0,net:total,type:'salary',
-      comment:'Сдельная — '+r.operation+' за '+r.period+' (журнал выработки по заказам, строк: '+r.jobs.length+')', details:{accruals:[{type:'Сдельная',amount:total}],deductions:[]}});
-    if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals.push(a);
-    r.status='posted'; r.accrual_ids=[a.id]; r.posted_date=date;
+    const ids=[];
+    try{
+      for(const sh of shares){ if(sh.amount<=0) continue;
+        const a=await sbInsert('salary_accruals',{emp_name:sh.name,date,amount:sh.amount,deducted:0,net:sh.amount,type:'salary',
+          comment:'Сдельная — '+r.operation+' за '+r.period+' (журнал выработки по заказам, строк: '+r.jobs.length+(shares.length>1?'; доля КТУ '+sh.ktu+' из '+shares.length+' чел.':'')+')', details:{accruals:[{type:'Сдельная',amount:sh.amount}],deductions:[]}});
+        ids.push(a.id); if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals.push(a); }
+    }catch(e){ for(const id of ids){ try{ await sbDelete('salary_accruals','id=eq.'+id); }catch(_){} } throw e; }
+    r.status='posted'; r.accrual_ids=ids; r.posted_date=date;
     let info='';
     try{ const m=await ejMarkStages(r,false); if(r.link_stage) info='\nЭтап отмечен у изделий: '+m.marked+(m.conflicts.length?'\nПропущено (этап уже есть в рабочем листе у этого сотрудника — проверьте, чтобы не оплатить дважды): '+m.conflicts.join('; '):''); }
     catch(e){ info='\n⚠ Этап в рабочем листе отметить не удалось: '+e.message; }
@@ -18840,6 +18866,7 @@ function ejPrint(){
   <table><thead><tr><th>№</th><th>Заказ</th><th>Изделие</th><th class="r">Кол-во</th><th class="r">Расценка, ₸</th><th class="r">Сумма, ₸</th></tr></thead><tbody>
   ${r.jobs.map((j,i)=>`<tr><td>${i+1}</td><td>${E(j.order)}</td><td>${E(j.item)}</td><td class="r">${j.qty}</td><td class="r">${f(j.rate)}</td><td class="r">${f((+j.qty||0)*(+j.rate||0))}</td></tr>`).join('')}
   <tr class="tot"><td colspan="5">Итого сдельная за месяц</td><td class="r">${f(total)}</td></tr></tbody></table>
+  ${(r.team&&r.team.length>1)?`<h3 style="font-size:13px;margin:10px 0 4px">Распределение по КТУ</h3><table><thead><tr><th>Сотрудник</th><th class="r">КТУ</th><th class="r">К начислению, ₸</th><th>Подпись</th></tr></thead><tbody>${ejShares(r,total).map(x=>`<tr><td>${E(x.name)}</td><td class="r">${x.ktu}</td><td class="r">${f(x.amount)}</td><td style="min-width:90px"></td></tr>`).join('')}</tbody></table>`:''}
   ${r.note?'<div>Примечание: '+E(r.note)+'</div>':''}
   <div class="foot"><div>Сотрудник</div><div>Начальник производства</div><div>Главный бухгалтер</div></div>
   <div class="sub" style="margin-top:10px">Распечатано ${new Date().toLocaleString('ru-RU')}</div></body></html>`;
@@ -18891,8 +18918,11 @@ async function ewShow(){
     // 2б) журнал «Выработка по заказам» (проведённые)
     try{
       const ej=await sbFetchAllPages('emp_jobs',`select=emp_name,operation,jobs,status,period&status=eq.posted&period=eq.${per}`);
-      (ej||[]).forEach(r=>{ if(pwbNameKey(r.emp_name)!==key) return; (r.jobs||[]).forEach(j=>{ const q=+j.qty||0, rt=+j.rate||0;
-        lines.push({src:'order', date:to, doc:'Журнал '+(r.operation||''), name:(j.item||'')+' — заказ '+(j.order||''), op:r.operation||'', qty:q, rate:rt, amount:Math.round(q*rt)}); }); });
+      (ej||[]).forEach(r=>{
+        const ps=(r.team&&r.team.length)?r.team:[{name:r.emp_name,ktu:1}]; const me=ps.find(x=>pwbNameKey(x.name)===key); if(!me) return;
+        const sum=ps.reduce((t,x)=>t+(+x.ktu||0),0)||1, k=(+me.ktu||0)/sum;
+        (r.jobs||[]).forEach(j=>{ const q=+j.qty||0, rt=+j.rate||0;
+          lines.push({src:'order', date:to, doc:'Журнал '+(r.operation||''), name:(j.item||'')+' — заказ '+(j.order||'')+(ps.length>1?' (доля '+Math.round(k*100)+'%)':''), op:r.operation||'', qty:q, rate:rt, amount:Math.round(q*rt*k)}); }); });
     }catch(e){}
     lines.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
     // 3) что уже начислено в зарплатной ведомости как сдельная
