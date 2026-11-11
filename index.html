@@ -7481,9 +7481,10 @@ window.onerror = function(msg, src, line, col){
       <div class="modal" style="max-width:1000px;width:97vw">
         <div class="modal-header"><div class="modal-title">📒 Выработка по заказам — сотрудник за месяц</div><button class="modal-close" onclick="ejClose()">✕</button></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-          <input id="ej-emp" list="ej-emp-list" placeholder="Сотрудник (или бригада)" style="font-size:13px;width:240px" onchange="ejLoad()"><datalist id="ej-emp-list"></datalist>
-          <input id="ej-month" type="month" style="font-size:13px;width:auto" onchange="ejLoad()">
-          <select id="ej-op" style="font-size:13px;width:auto;max-width:240px" onchange="ejLoad()"></select>
+          <button class="btn btn-primary btn-sm" onclick="ejNew()" title="Очистить поля и выбрать другого сотрудника / операцию">＋ Новый журнал</button>
+          <label style="font-size:11px;color:var(--text3)">Сотрудник<br><input id="ej-emp" list="ej-emp-list" placeholder="выберите или впишите…" style="font-size:13px;width:220px" onchange="ejLoad()"></label><datalist id="ej-emp-list"></datalist>
+          <label style="font-size:11px;color:var(--text3)">Месяц<br><input id="ej-month" type="month" style="font-size:13px;width:auto" onchange="ejLoad()"></label>
+          <label style="font-size:11px;color:var(--text3)">Операция<br><select id="ej-op" style="font-size:13px;width:auto;max-width:240px" onchange="ejOpChange(this)"></select></label>
           <span id="ej-state"></span>
         </div>
         <div id="ej-list" style="margin-bottom:10px"></div>
@@ -18654,7 +18655,7 @@ async function ejOpen(){
   document.getElementById('ej-emp-list').innerHTML=[...names].sort().map(n=>`<option value="${_brgEsc(n)}">`).join('')+(_sr.brigades||[]).map(b=>`<option value="👥 ${_brgEsc(b.name)}">`).join('');
   const mi=document.getElementById('ej-month'); if(!mi.value) mi.value=new Date().toISOString().slice(0,7);
   const ops=wsAllOpNames(); const cur=document.getElementById('ej-op').value;
-  document.getElementById('ej-op').innerHTML='<option value="">— операция —</option>'+ops.map(o=>`<option value="${_brgEsc(o)}" ${o===cur?'selected':''}>${_brgEsc(o)}</option>`).join('');
+  document.getElementById('ej-op').innerHTML='<option value="">— операция —</option>'+ops.map(o=>`<option value="${_brgEsc(o)}" ${o===cur?'selected':''}>${_brgEsc(o)}</option>`).join('')+'<option value="__new">＋ Другая операция…</option>';
   _ej.rec=null; _ej.dirty=false;
   document.getElementById('ej-body').innerHTML='<div class="section-sub" style="padding:10px">Выберите сотрудника, месяц и операцию — откроется журнал. Или откройте уже заведённый журнал из списка выше.</div>';
   showModal('ejModal'); ejRenderList();
@@ -18670,6 +18671,22 @@ async function ejRenderList(){
   }catch(e){ box.innerHTML='<div style="color:var(--red);font-size:12px">Не удалось прочитать журналы: '+_brgEsc(e.message)+'. Выполнен ли файл emp_jobs.sql?</div>'; }
 }
 function ejPick(emp,op){ document.getElementById('ej-emp').value=emp; const sel=document.getElementById('ej-op'); if(op && ![...sel.options].some(o=>o.value===op)){ const o=document.createElement('option'); o.value=op; o.textContent=op; sel.appendChild(o); } sel.value=op; ejLoad(); }
+function ejNew(){
+  if(_ej.dirty && _ej.rec) ejSave(true);
+  document.getElementById('ej-emp').value=''; document.getElementById('ej-op').value=''; _ej.rec=null; _ej.dirty=false;
+  document.getElementById('ej-body').innerHTML='<div class="section-sub" style="padding:10px">Выберите сотрудника (из списка или впишите имя), месяц и операцию — откроется новый журнал.</div>';
+  document.getElementById('ej-emp').focus();
+}
+function ejOpChange(sel){
+  if(sel.value==='__new'){
+    const n=(prompt('Название операции (как в расценках / этапах):')||'').trim();
+    if(!n){ sel.value=''; return; }
+    let o=[...sel.options].find(x=>x.value===n);
+    if(!o){ o=document.createElement('option'); o.value=n; o.textContent=n; sel.insertBefore(o, sel.lastElementChild); }
+    sel.value=n;
+  }
+  ejLoad();
+}
 async function ejLoad(){
   if(_ej.dirty && _ej.rec){ await ejSave(true); }
   const emp=document.getElementById('ej-emp').value.trim(), per=document.getElementById('ej-month').value, op=document.getElementById('ej-op').value;
