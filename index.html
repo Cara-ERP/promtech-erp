@@ -18647,7 +18647,7 @@ async function ejOpen(){
   if(typeof employeesData!=='undefined' && !employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
   if(!_wsLoaded && typeof wsLoadWorkshops==='function'){ try{ await wsLoadWorkshops(); }catch(e){} }
   if((typeof ordersData==='undefined'||!ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
-  try{ await prLoad(); }catch(e){}
+  try{ await prLoad(); await prHistLoad(); }catch(e){}
   try{ _sr.brigades = _sr.brigades&&_sr.brigades.length ? _sr.brigades : ((await sbFetch('brigades','select=id,name&active=eq.true&order=name'))||[]); }catch(e){}
   const names=new Set((employeesData||[]).map(e=>e.name).filter(Boolean));
   Object.values(_wsMeta||{}).forEach(m=>(m.members||[]).forEach(n=>names.add(n)));
@@ -18707,8 +18707,7 @@ async function ejSave(silent){
 }
 function ejRateFor(r,j){
   const o=(ordersData||[]).find(x=>x.num===j.order); const it=o&&o.items?o.items[j.itemIdx]:null;
-  let v=prRateFor(r.operation, j.item, it&&it.category||null);
-  return v;
+  return prRateAt(r.operation, j.item, it&&it.category||null, _brgLastDay(r.period));
 }
 function ejAddOrder(v){
   const r=_ej.rec; if(!r||r.status==='posted') return;
@@ -18723,16 +18722,52 @@ function ejAddOrder(v){
     brgPickOpen(o, cand, r.jobs.length, {onOk:l=>{ if(l.length) add(l); else ejRender(); }, onCancel:()=>ejRender()});
   } else add(cand);
 }
+// Изделие без заказа: название вводится вручную (подсказки — из расценок и каталога), этап в рабочем листе не отмечается
+function ejAddFree(){
+  const r=_ej.rec; if(!r||r.status==='posted') return;
+  r.jobs.push({order:'',itemIdx:null,item:'',qty:1,rate:0,noStage:true}); ejMarkDirty(); _ej.focusFree=true; ejRender();
+}
+function ejItemName(i,v){
+  const r=_ej.rec, j=r.jobs[i]; j.item=String(v||'').trim();
+  const rt=prRateAt(r.operation,j.item,((catalogData||[]).find(p=>plNormProductName(p.name)===plNormProductName(j.item))||{}).category||null,_brgLastDay(r.period));
+  if(rt!=null && (!(+j.rate>0)||j.rateAuto)){ j.rate=rt; j.rateAuto=true; }
+  ejMarkDirty(); ejRender();
+}
 function ejQty(i,v){ _ej.rec.jobs[i].qty=_brgNum(v); ejMarkDirty(); ejRefresh(); }
 function ejRate(i,v){ const j=_ej.rec.jobs[i]; j.rate=_brgNum(v); j.rateAuto=false; ejMarkDirty(); ejRefresh(); }
 function ejNoStage(i,on){ _ej.rec.jobs[i].noStage=!!on; ejMarkDirty(); }
 function ejDel(i){ _ej.rec.jobs.splice(i,1); ejMarkDirty(); ejRender(); }
 function ejSetLink(on){ _ej.rec.link_stage=!!on; ejMarkDirty(); ejRender(); }
 function ejSetNote(v){ _ej.rec.note=v; ejMarkDirty(); }
-function ejRecalcRates(){
+// Записать расценки журнала в справочник (+историю) с выбранной даты
+async function ejSyncRates(fromPost){
+  const r=_ej.rec; if(!r) return true;
+  const date0=_brgLastDay(r.period);
+  const map=new Map();
+  r.jobs.forEach(j=>{
+    if(!j.item || !(+j.rate>0)) return;
+    const o=(ordersData||[]).find(x=>x.num===j.order); const it=o&&o.items?o.items[j.itemIdx]:null;
+    const old=prRateAt(r.operation,j.item,it&&it.category||null,date0);
+    if(old!=null && Math.abs(old-(+j.rate))<0.005) return;
+    map.set(prKey(r.operation,j.item),{op:r.operation,kind:'item',item:j.item,rate:+j.rate,old});
+  });
+  const list=[...map.values()];
+  if(!list.length){ if(!fromPost) alert('Все расценки журнала уже совпадают со справочником.'); return true; }
+  const def=r.period+'-01';
+  const txt=(fromPost?'Расценки в журнале отличаются от справочника.\n':'')+'Записать в справочник расценок ('+list.length+'):\n\n'+list.slice(0,12).map(x=>'• '+x.item+': '+(x.old==null?'нет':'₸'+x.old)+' → ₸'+x.rate).join('\n')+(list.length>12?'\n… и ещё '+(list.length-12):'')+'\n\nС какой даты действует новая расценка? (ГГГГ-ММ-ДД)'+(fromPost?'\nОтмена — не обновлять справочник.':'');
+  const d=prompt(txt,def); if(d===null) return true;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d.trim())){ alert('Дата в формате ГГГГ-ММ-ДД, например '+def); return false; }
+  try{
+    const res=await prWriteRates(list,d.trim());
+    if(_prhMissing) alert('Справочник обновлён, но таблица истории не создана — выполните piece_rate_history.sql в Supabase.');
+    if(typeof brdToast==='function') brdToast('✓ Расценки записаны: '+res.total+(res.current<res.total?' (прошлой датой: '+(res.total-res.current)+' — только в историю)':''));
+    ejRecalcRates(true); return true;
+  }catch(e){ alert('Не удалось записать расценки: '+e.message); return false; }
+}
+function ejRecalcRates(quiet){
   const r=_ej.rec; if(!r||r.status==='posted') return; let n=0;
   r.jobs.forEach(j=>{ const rt=ejRateFor(r,j); if(rt!=null && (!(+j.rate>0) || j.rateAuto)){ j.rate=rt; j.rateAuto=true; n++; } });
-  ejMarkDirty(); ejRender(); if(!n) alert('Расценок по этой операции для изделий журнала не найдено. Заполните их в «Цеха и участники → Расценки по изделиям».');
+  ejMarkDirty(); ejRender(); if(!n && !quiet) alert('Расценок по этой операции для изделий журнала не найдено. Заполните их в «Цеха и участники → Расценки по изделиям».');
 }
 // Участники: если несколько сотрудников работают вместе — сумма делится по КТУ (как у этапа с несколькими исполнителями)
 function ejParts(r){ return (r.team&&r.team.length)?r.team:[{name:r.emp_name,ktu:1}]; }
@@ -18769,26 +18804,29 @@ function ejRender(){
     '<div style="margin-bottom:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px"><div style="font-size:12px;color:var(--text3);margin-bottom:6px">Работают вместе? Добавьте участников — сумма журнала разделится между ними по КТУ.</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
       (r.team&&r.team.length>1 ? r.team.map((x,i)=>'<span class="badge badge-blue" style="display:inline-flex;gap:6px;align-items:center;font-size:12px">'+E(x.name)+' КТУ <input type="text" inputmode="decimal" value="'+(x.ktu==null?1:x.ktu)+'" style="width:44px;font-size:12px;text-align:center;padding:1px 3px"'+dis+' onchange="ejTeamKtu('+i+',this.value)"> <span id="ej-sh-'+i+'" style="font-family:monospace"></span>'+(posted||pwbNameKey(x.name)===pwbNameKey(r.emp_name)?'':' <span style="cursor:pointer" onclick="ejTeamDel('+i+')">✕</span>')+'</span>').join('') : '<span style="font-size:12px">'+E(r.emp_name)+' — один</span>')+
       (posted?'':'<input list="ej-emp-list" type="text" placeholder="＋ добавить участника" style="width:200px;font-size:12px" onchange="ejTeamAdd(this.value);this.value=\'\'">')+'</div></div>'+
+    '<datalist id="ej-item-list">'+srRateNames().map(n=>'<option value="'+E(n)+'">').join('')+'</datalist>'+
     '<datalist id="ej-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
     '<div style="overflow-x:auto"><table class="data-table" style="min-width:720px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:110px" title="Подставляется из «Расценок по изделиям», можно исправить">Расценка, ₸</th><th style="text-align:right">Сумма, ₸</th><th title="Не отмечать этап в рабочем листе для этой строки">Без этапа</th><th></th></tr></thead><tbody>';
   r.jobs.forEach((j,i)=>{
     const o=(ordersData||[]).find(x=>x.num===j.order);
-    h+='<tr><td>'+E(j.order)+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+'</td><td>'+E(j.item)+'</td>'+
+    const free=!j.order;
+    h+='<tr><td>'+(free?'<span style="color:var(--text3)">без заказа</span>':E(j.order)+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':''))+'</td><td>'+(free&&!posted?'<input id="ej-free-'+i+'" list="ej-item-list" type="text" value="'+E(j.item)+'" placeholder="Название изделия / детали" style="width:260px;font-size:12px" onchange="ejItemName('+i+',this.value)">':E(j.item))+'</td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.qty||'')+'" style="width:60px;text-align:right"'+dis+' onchange="ejQty('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.rate||'')+'" placeholder="0" style="width:90px;text-align:right"'+dis+' onchange="ejRate('+i+',this.value)"></td>'+
       '<td id="ej-s-'+i+'" style="text-align:right;font-family:monospace"></td>'+
-      '<td style="text-align:center"><input type="checkbox" style="width:auto"'+(j.noStage?' checked':'')+(posted||!r.link_stage?' disabled':'')+' onchange="ejNoStage('+i+',this.checked)"></td>'+
+      '<td style="text-align:center"><input type="checkbox" style="width:auto"'+(j.noStage||!j.order?' checked':'')+(posted||!r.link_stage||!j.order?' disabled':'')+' onchange="ejNoStage('+i+',this.checked)"></td>'+
       '<td>'+(posted?'':'<span style="cursor:pointer;color:var(--red)" onclick="ejDel('+i+')">✕</span>')+'</td></tr>';
   });
-  if(!posted) h+='<tr><td colspan="7" style="background:var(--surface2,rgba(127,127,127,.06))"><input id="ej-new-order" list="ej-ord-list" type="text" placeholder="＋ Введите № заказа и нажмите Enter — добавятся все его изделия" style="width:100%;max-width:520px;font-size:12px" onchange="ejAddOrder(this.value)"> <label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap"><input id="ej-pick-always" type="checkbox" style="width:auto;margin:0"> выбирать изделия вручную</label> <button class="btn btn-ghost btn-sm" onclick="ejRecalcRates()" title="Заново подставить расценки по операции и изделию">🔄 Расценки</button></td></tr>';
+  if(!posted) h+='<tr><td colspan="7" style="background:var(--surface2,rgba(127,127,127,.06))"><input id="ej-new-order" list="ej-ord-list" type="text" placeholder="＋ Введите № заказа и нажмите Enter — добавятся все его изделия" style="width:100%;max-width:520px;font-size:12px" onchange="ejAddOrder(this.value)"> <label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap"><input id="ej-pick-always" type="checkbox" style="width:auto;margin:0"> выбирать изделия вручную</label> <button class="btn btn-ghost btn-sm" onclick="ejAddFree()" title="Строка для изделия или детали, которая сделана не по заказу покупателя">＋ Изделие без заказа</button> <button class="btn btn-ghost btn-sm" onclick="ejRecalcRates()" title="Заново подставить расценки по операции и изделию">🔄 Расценки</button></td></tr>';
   if(!r.jobs.length) h+='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px">Журнал пуст. Впишите номер заказа в строке выше.</td></tr>';
   h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4">Итого сдельная <span id="ej-warn" style="font-weight:400;font-size:12px;color:var(--amber,#f5a623)"></span></td><td id="ej-total" style="text-align:right;font-family:monospace;color:var(--green)"></td><td colspan="2"></td></tr></tbody></table></div>'+
     '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap"><input type="text" value="'+E(r.note||'')+'" placeholder="Примечание" style="flex:1;min-width:200px;font-size:12px"'+dis+' onchange="ejSetNote(this.value)">'+
     (posted?'<button class="btn btn-ghost" style="color:var(--amber)" onclick="ejUnpost()">↩ Снять проведение</button>':'<button class="btn btn-ghost" onclick="ejSave()">💾 Сохранить</button><button class="btn btn-primary" onclick="ejPost()">✅ Провести начисление</button>')+
-    '<button class="btn btn-ghost" onclick="ejPrint()">🖨 Печать</button></div>'+
+    (posted?'':'<button class="btn btn-ghost" title="Расценки, которые вы поставили в журнале, попадут в справочник с историей «с даты»" onclick="ejSyncRates()">💾 Расценки → справочник</button>')+'<button class="btn btn-ghost" onclick="ejPrint()">🖨 Печать</button></div>'+
     '<div style="font-size:11px;color:var(--text3);margin-top:6px">При проведении сотруднику создаётся одна сдельная запись в Зарплатной ведомости (последним днём месяца). Расценки берутся из «Цеха и участники → 💰 Расценки по изделиям» по паре «операция + изделие».</div>';
   body.innerHTML=h; ejRefresh();
   if(_ej.focus){ _ej.focus=false; const ne=document.getElementById('ej-new-order'); if(ne) ne.focus(); }
+  if(_ej.focusFree){ _ej.focusFree=false; for(let i=r.jobs.length-1;i>=0;i--){ if(!r.jobs[i].order){ const fe=document.getElementById('ej-free-'+i); if(fe) fe.focus(); break; } } }
 }
 // Отметка этапа выполненным (оптом): этап «операция» с исполнителем и датой — реализации (если в этом месяце) или последним днём месяца
 async function ejMarkStages(r, clearOnly){
@@ -18824,6 +18862,7 @@ async function ejPost(){
   const r=_ej.rec; if(!r||r.status==='posted') return;
   const total=Math.round(ejTotal(r));
   if(!r.jobs.length||total<=0){ alert('В журнале нет строк с суммой. Проставьте количество и расценки.'); return; }
+  if(!(await ejSyncRates(true))) return;
   const nr=r.jobs.filter(j=>!(+j.rate>0)).length;
   const shares=ejShares(r,total);
   if(!confirm('Провести выработку «'+r.emp_name+'» за '+r.period+'?\n\nОперация: '+r.operation+'\nСтрок: '+r.jobs.length+(nr?' (без расценки: '+nr+')':'')+'\nСумма сдельной: '+fmtCurrency(total)+(shares.length>1?'\nДелится по КТУ:\n'+shares.map(x=>'  '+x.name+' (КТУ '+x.ktu+') — '+fmtCurrency(x.amount)).join('\n'):'')+(r.link_stage?'\n\nЭтап «'+r.operation+'» будет отмечен выполненным в рабочем листе и на доске.':''))) return;
@@ -18922,7 +18961,7 @@ async function ewShow(){
         const ps=(r.team&&r.team.length)?r.team:[{name:r.emp_name,ktu:1}]; const me=ps.find(x=>pwbNameKey(x.name)===key); if(!me) return;
         const sum=ps.reduce((t,x)=>t+(+x.ktu||0),0)||1, k=(+me.ktu||0)/sum;
         (r.jobs||[]).forEach(j=>{ const q=+j.qty||0, rt=+j.rate||0;
-          lines.push({src:'order', date:to, doc:'Журнал '+(r.operation||''), name:(j.item||'')+' — заказ '+(j.order||'')+(ps.length>1?' (доля '+Math.round(k*100)+'%)':''), op:r.operation||'', qty:q, rate:rt, amount:Math.round(q*rt*k)}); }); });
+          lines.push({src:'order', date:to, doc:'Журнал '+(r.operation||''), name:(j.item||'')+(j.order?' — заказ '+j.order:' — без заказа')+(ps.length>1?' (доля '+Math.round(k*100)+'%)':''), op:r.operation||'', qty:q, rate:rt, amount:Math.round(q*rt*k)}); }); });
     }catch(e){}
     lines.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
     // 3) что уже начислено в зарплатной ведомости как сдельная
@@ -19233,6 +19272,56 @@ function prNorm(s){ return String(s||'').toLowerCase().replace(/ё/g,'е').repla
 function prKey(op,item){ return prNorm(op)+'|'+prNorm(item); }
 function prCatKey(op,cat){ return prNorm(op)+'|k:'+prNorm(cat); }
 function prAllCategories(){ return [...new Set([...(typeof productCategories!=='undefined'?productCategories:[]), ...((catalogData||[]).map(p=>p.category))].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru')); }
+// ── История расценок: с даты valid_from действует rate ──
+let _prh = null, _prhMissing = false;
+async function prHistLoad(force){
+  if(_prh && !force) return;
+  _prh = new Map(); _prhMissing = false;
+  try{
+    const rows = await sbFetchAllPages('piece_rate_history','select=*&order=valid_from.asc') || [];
+    rows.forEach(r=>{ const k = r.kind==='category' ? prCatKey(r.operation,r.item_name) : prKey(r.operation,r.item_name); if(!_prh.has(k)) _prh.set(k,[]); _prh.get(k).push(r); });
+    _prh.forEach(a=>a.sort((x,y)=>String(x.valid_from).localeCompare(String(y.valid_from))));
+  }catch(e){ _prhMissing = true; }
+}
+function _prhAt(key,date){
+  const a = _prh && _prh.get(key); if(!a) return null;
+  let v = null; for(const r of a){ if(String(r.valid_from)<=date) v = r; else break; }
+  return v ? +v.rate : null;
+}
+// Расценка на дату (YYYY-MM-DD): изделие → вид; без истории — текущая из справочника
+function prRateAt(op,itemName,category,date){
+  if(!date || !_prh || _prhMissing || !_prh.size) return prRateFor(op,itemName,category);
+  let v = _prhAt(prKey(op,itemName),date);
+  if(v==null && category) v = _prhAt(prCatKey(op,category),date);
+  if(v==null && !(_prh.has(prKey(op,itemName)) || (category && _prh.has(prCatKey(op,category))))) return prRateFor(op,itemName,category);
+  return v;
+}
+// Записать расценки (list: {op,kind,item,rate}) с даты: история + текущий справочник, если дата не раньше последней записи
+async function prWriteRates(list, validFrom){
+  const who = (typeof getCurrentUserName==='function' ? getCurrentUserName() : '') || '';
+  await prLoad(); await prHistLoad();
+  const hist = [], cur = [];
+  for(const d of list){
+    const kind = d.kind==='category' ? 'category' : 'item';
+    const key = kind==='category' ? prCatKey(d.op,d.item) : prKey(d.op,d.item);
+    const ex = _prates && _prates.get(key);
+    const op = ex ? ex.operation : d.op, nm = ex ? ex.item_name : d.item;
+    hist.push({ operation:op, kind, item_name:nm, rate:+d.rate, valid_from:validFrom, created_by:who||null });
+    const a = _prh && _prh.get(key); const last = a && a.length ? String(a[a.length-1].valid_from) : '';
+    if(!last || validFrom>=last) cur.push({ operation:op, kind, item_name:nm, rate:+d.rate });
+  }
+  if(!_prhMissing) for(let i=0;i<hist.length;i+=200) await sbUpsert('piece_rate_history', hist.slice(i,i+200), 'operation,kind,item_name,valid_from');
+  for(let i=0;i<cur.length;i+=200) await sbUpsert('piece_rates', cur.slice(i,i+200), 'operation,kind,item_name');
+  await prLoad(true); await prHistLoad(true);
+  return { total:hist.length, current:cur.length };
+}
+function prHistShow(op,item,kind){
+  const key = kind==='category' ? prCatKey(op,item) : prKey(op,item);
+  const a = (_prh && _prh.get(key)) || [];
+  if(_prhMissing){ alert('Таблица истории не создана. Выполните piece_rate_history.sql в Supabase.'); return; }
+  if(!a.length){ alert('История расценки пуста.'); return; }
+  alert('История расценки\n«'+item+'» / «'+op+'»\n\n'+a.slice().reverse().map(r=>(String(r.valid_from)<'2001-01-01'?'раньше':'с '+String(r.valid_from).split('-').reverse().join('.'))+' — ₸'+(+r.rate).toLocaleString('ru-RU')).join('\n'));
+}
 async function prLoad(force){
   if(_prates && !force) return;
   _prates = new Map(); _prMissing = false;
@@ -19346,7 +19435,7 @@ function prRender(){
         <select id="pr-copy-from" style="font-size:12px"><option value="">Взять список из…</option>${ops.filter(o=>o!==_pr.op).map(o=>`<option value="${E(o)}">${E(o)}</option>`).join('')}</select><button class="btn btn-ghost btn-sm" onclick="prCopyShown()">Скопировать</button>
       </div>
       <div style="max-height:50vh;overflow:auto"><table class="data-table"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th style="text-align:left">Изделие</th><th style="text-align:left">Вид</th><th style="text-align:right">Расценка, ₸/шт</th><th></th></tr></thead><tbody>
-      ${all.map(n=>`<tr><td style="font-size:12px">${E(n)}</td><td style="font-size:11px;color:var(--text3)">${E(catOf(n))}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(_pr.op,n))}" data-item="${E(n)}" class="pr-in" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(_pr.op,this.dataset.item,this.value)">${(()=>{ const cr=catRateOf(n); return cr?`<div style="font-size:10px;color:var(--text3)">вид «${E(cr.cat)}»: ${E(cr.v)}</div>`:''; })()}</td><td><a href="#" title="Убрать изделие из списка (расценка будет удалена)" style="color:var(--red);text-decoration:none" data-item="${E(n)}" onclick="event.preventDefault();prRemoveModel(this.dataset.item)">✕</a></td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:18px">Список пуст. Впишите название изделия выше и нажмите «＋ Добавить изделие».</td></tr>'}
+      ${all.map(n=>`<tr><td style="font-size:12px">${E(n)}</td><td style="font-size:11px;color:var(--text3)">${E(catOf(n))}</td><td style="text-align:right"><input type="number" min="0" step="any" value="${E(prCur(_pr.op,n))}" data-item="${E(n)}" class="pr-in" style="width:110px;font-size:12px;text-align:right" onchange="prEdit(_pr.op,this.dataset.item,this.value)">${(()=>{ const cr=catRateOf(n); return cr?`<div style="font-size:10px;color:var(--text3)">вид «${E(cr.cat)}»: ${E(cr.v)}</div>`:''; })()}</td><td><a href="#" title="История расценки" style="text-decoration:none;margin-right:6px" data-item="${E(n)}" onclick="event.preventDefault();prHistShow(_pr.op,this.dataset.item,'item')">🕘</a><a href="#" title="Убрать изделие из списка (расценка будет удалена)" style="color:var(--red);text-decoration:none" data-item="${E(n)}" onclick="event.preventDefault();prRemoveModel(this.dataset.item)">✕</a></td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:18px">Список пуст. Впишите название изделия выше и нажмите «＋ Добавить изделие».</td></tr>'}
       </tbody></table></div>`;
   } else {
     const models = prModels();
@@ -19399,7 +19488,8 @@ async function prSave(){
     else upserts.push({ operation: ex?ex.operation:d.op, kind: d.kind==='category'?'category':'item', item_name: ex?ex.item_name:d.item, rate: parseFloat(d.val) });
   }
   try{
-    for(let i=0;i<upserts.length;i+=200) await sbUpsert('piece_rates', upserts.slice(i,i+200), 'operation,kind,item_name');
+    await prHistLoad();
+    if(upserts.length) await prWriteRates(upserts.map(u=>({op:u.operation,kind:u.kind,item:u.item_name,rate:u.rate})), new Date().toISOString().slice(0,10));
     for(const r of dels) await sbDelete('piece_rates', 'id=eq.'+r.id);
     _pr.draft = {}; _pr.removed = new Set(); await prLoad(true); prRender();
     if(typeof brdToast==='function') brdToast('✓ Расценки сохранены: '+upserts.length+(dels.length?', удалено '+dels.length:''));
