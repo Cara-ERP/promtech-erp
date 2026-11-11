@@ -2897,6 +2897,7 @@ window.onerror = function(msg, src, line, col){
         <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
           <div style="font-size:12px;color:var(--text3);flex:1">Цех выпускает каркасы и детали на склад. При проведении: полуфабрикаты приходуются на «Склад полуфабрикатов», исполнителю начисляется сдельная, а для бригады сумма идёт в её месячный пул. Материалы списываются отдельно.</div>
           <select id="sr-filter-who" onchange="_sr.fWho=this.value;srRender()" style="font-size:12px;width:auto;max-width:220px" title="Показать только выпуски этого исполнителя"></select>
+          <button class="btn btn-ghost btn-sm" onclick="ejOpen()">📒 Выработка по заказам</button>
           <button class="btn btn-ghost btn-sm" onclick="ewOpen()">👤 Выработка сотрудника за месяц</button>
           <button class="btn btn-primary btn-sm" onclick="openSemiRelease()">+ Новый выпуск</button>
         </div>
@@ -7473,6 +7474,20 @@ window.onerror = function(msg, src, line, col){
           <button class="btn btn-ghost" onclick="prClose()">Закрыть</button>
           <button class="btn btn-primary" onclick="prSave()">💾 Сохранить</button>
         </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="ejModal">
+      <div class="modal" style="max-width:1000px;width:97vw">
+        <div class="modal-header"><div class="modal-title">📒 Выработка по заказам — сотрудник за месяц</div><button class="modal-close" onclick="ejClose()">✕</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <input id="ej-emp" list="ej-emp-list" placeholder="Сотрудник (или бригада)" style="font-size:13px;width:240px" onchange="ejLoad()"><datalist id="ej-emp-list"></datalist>
+          <input id="ej-month" type="month" style="font-size:13px;width:auto" onchange="ejLoad()">
+          <select id="ej-op" style="font-size:13px;width:auto;max-width:240px" onchange="ejLoad()"></select>
+          <span id="ej-state"></span>
+        </div>
+        <div id="ej-list" style="margin-bottom:10px"></div>
+        <div id="ej-body" style="max-height:58vh;overflow:auto"></div>
       </div>
     </div>
 
@@ -17586,6 +17601,7 @@ async function brgComputeSheet(){
   (prog||[]).forEach(r=>{
     (r.stages||[]).forEach(s=>{
       if(!s || !s.posted || !s.postedDate || s.postedDate<from || s.postedDate>to) return;
+      if(String(s.journalMark||'').startsWith('e|')) return; // этап отмечен журналом выработки сотрудника — оплачен отдельно
       let all, mine, who;
       if(s.brigade){
         // Этап назначен на бригаду: полная сумма идёт в её пул
@@ -17680,8 +17696,8 @@ function brgJobOrder(i,v){
 }
 const PICK_LIMIT = 5;
 let _brgPick = null;
-function brgPickOpen(o, cand, at){
-  _brgPick={order:o, cand, at, sel:new Set()};
+function brgPickOpen(o, cand, at, cb){
+  _brgPick={order:o, cand, at, sel:new Set(), onOk:cb&&cb.onOk, onCancel:cb&&cb.onCancel};
   let m=document.getElementById('brgPickModal');
   if(!m){ m=document.createElement('div'); m.className='modal-overlay'; m.id='brgPickModal'; document.body.appendChild(m); }
   m.innerHTML='<div class="modal" style="max-width:640px;width:96vw"><div class="modal-header"><div class="modal-title" id="brgp-title"></div><button class="modal-close" onclick="brgPickCancel()">✕</button></div>'+
@@ -17701,11 +17717,12 @@ function brgPickRender(){
 }
 function brgPickToggle(n,on){ if(on) _brgPick.sel.add(n); else _brgPick.sel.delete(n); document.getElementById('brgp-cnt').textContent='Отмечено: '+_brgPick.sel.size+' из '+_brgPick.cand.length; }
 function brgPickAll(on){ const P=_brgPick; const q=(document.getElementById('brgp-q').value||'').trim().toLowerCase(); P.cand.forEach((c,n)=>{ if(!q || String(c.item).toLowerCase().includes(q)){ if(on) P.sel.add(n); else P.sel.delete(n); } }); brgPickRender(); }
-function brgPickCancel(){ _brgPick=null; closeModal('brgPickModal'); if(_brg.focusNew!==undefined){ _brg.focusNew=true; } renderBrigades(); }
+function brgPickCancel(){ const P=_brgPick; _brgPick=null; closeModal('brgPickModal'); if(P&&P.onCancel){ P.onCancel(); return; } if(_brg.focusNew!==undefined){ _brg.focusNew=true; } renderBrigades(); }
 function brgPickOk(){
   const P=_brgPick; if(!P) return;
   const add=P.cand.filter((c,n)=>P.sel.has(n));
   closeModal('brgPickModal'); _brgPick=null;
+  if(P.onOk){ P.onOk(add); return; }
   if(add.length){ const jobs=_brg.month.jobs; jobs.splice(Math.min(P.at,jobs.length),0,...add); brgSyncPool(); brgMarkDirty(); }
   _brg.focusNew=true; renderBrigades();
 }
@@ -18621,6 +18638,216 @@ function srRenderRows(){
     <td>${posted?'':`<button class="btn btn-ghost btn-sm" onclick="_sr.rows.splice(${i},1);srRenderRows()">✕</button>`}</td></tr>`).join('');
   srTotal();
 }
+// ═══════ Выработка по заказам: сотрудник делает свою операцию по разным заказам ═══════
+// Журнал за месяц: заказ → изделие → кол-во → расценка (из «Расценок по изделиям») → сумма.
+// «Провести» начисляет сдельную сотруднику и (оптом) отмечает этап операции выполненным в рабочем листе и на доске.
+let _ej = { rec:null, dirty:false, saveT:null };
+const _ejMoney = n => Math.round(+n||0).toLocaleString('ru-RU');
+async function ejOpen(){
+  if(typeof employeesData!=='undefined' && !employeesData.length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
+  if(!_wsLoaded && typeof wsLoadWorkshops==='function'){ try{ await wsLoadWorkshops(); }catch(e){} }
+  if((typeof ordersData==='undefined'||!ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+  try{ await prLoad(); }catch(e){}
+  try{ _sr.brigades = _sr.brigades&&_sr.brigades.length ? _sr.brigades : ((await sbFetch('brigades','select=id,name&active=eq.true&order=name'))||[]); }catch(e){}
+  const names=new Set((employeesData||[]).map(e=>e.name).filter(Boolean));
+  Object.values(_wsMeta||{}).forEach(m=>(m.members||[]).forEach(n=>names.add(n)));
+  document.getElementById('ej-emp-list').innerHTML=[...names].sort().map(n=>`<option value="${_brgEsc(n)}">`).join('')+(_sr.brigades||[]).map(b=>`<option value="👥 ${_brgEsc(b.name)}">`).join('');
+  const mi=document.getElementById('ej-month'); if(!mi.value) mi.value=new Date().toISOString().slice(0,7);
+  const ops=wsAllOpNames(); const cur=document.getElementById('ej-op').value;
+  document.getElementById('ej-op').innerHTML='<option value="">— операция —</option>'+ops.map(o=>`<option value="${_brgEsc(o)}" ${o===cur?'selected':''}>${_brgEsc(o)}</option>`).join('');
+  _ej.rec=null; _ej.dirty=false;
+  document.getElementById('ej-body').innerHTML='<div class="section-sub" style="padding:10px">Выберите сотрудника, месяц и операцию — откроется журнал. Или откройте уже заведённый журнал из списка выше.</div>';
+  showModal('ejModal'); ejRenderList();
+}
+function ejClose(){ if(_ej.dirty && !confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return; closeModal('ejModal'); }
+async function ejRenderList(){
+  const per=document.getElementById('ej-month').value, box=document.getElementById('ej-list'); if(!per||!box) return;
+  try{
+    const rows=await sbFetch('emp_jobs',`select=id,emp_name,operation,jobs,status,period&period=eq.${per}&order=emp_name`)||[];
+    box.innerHTML=rows.length?('<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Журналы за месяц (нажмите, чтобы открыть):</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+
+      rows.map(r=>{ const t=(r.jobs||[]).reduce((a,j)=>a+(+j.qty||0)*(+j.rate||0),0);
+        return '<button class="btn btn-ghost btn-sm" onclick="ejPick('+JSON.stringify(r.emp_name).replace(/"/g,'&quot;')+','+JSON.stringify(r.operation||'').replace(/"/g,'&quot;')+')">'+_brgEsc(r.emp_name)+' · '+_brgEsc(r.operation||'—')+' · ₸'+_ejMoney(t)+(r.status==='posted'?' ✓':'')+'</button>'; }).join('')+'</div>'):'';
+  }catch(e){ box.innerHTML='<div style="color:var(--red);font-size:12px">Не удалось прочитать журналы: '+_brgEsc(e.message)+'. Выполнен ли файл emp_jobs.sql?</div>'; }
+}
+function ejPick(emp,op){ document.getElementById('ej-emp').value=emp; const sel=document.getElementById('ej-op'); if(op && ![...sel.options].some(o=>o.value===op)){ const o=document.createElement('option'); o.value=op; o.textContent=op; sel.appendChild(o); } sel.value=op; ejLoad(); }
+async function ejLoad(){
+  if(_ej.dirty && _ej.rec){ await ejSave(true); }
+  const emp=document.getElementById('ej-emp').value.trim(), per=document.getElementById('ej-month').value, op=document.getElementById('ej-op').value;
+  ejRenderList();
+  if(emp.startsWith('👥')){
+    // бригады ведут свой журнал на странице «Бригады (пул и КТУ)»
+    const nm=emp.replace(/^👥\s*/,''); const b=(_sr.brigades||[]).find(x=>x.name===nm);
+    if(b){ closeModal('ejModal'); try{ _brg.brigadeId=b.id; _brg.period=per; }catch(e){} showPage('brigades'); }
+    return;
+  }
+  const body=document.getElementById('ej-body');
+  if(!emp||!per){ return; }
+  if(!op){ body.innerHTML='<div class="section-sub" style="padding:10px">Выберите операцию.</div>'; return; }
+  body.innerHTML='<div style="padding:14px;color:var(--text3)">Загрузка…</div>';
+  try{
+    const rows=await sbFetch('emp_jobs',`select=*&emp_name=eq.${encodeURIComponent(emp)}&period=eq.${per}&operation=eq.${encodeURIComponent(op)}`)||[];
+    _ej.rec = rows[0] ? {...rows[0], jobs:rows[0].jobs||[], accrual_ids:rows[0].accrual_ids||[]} : {id:null, emp_name:emp, period:per, operation:op, link_stage:true, jobs:[], status:'draft', accrual_ids:[], posted_date:null, note:''};
+    _ej.dirty=false; ejRender();
+  }catch(e){ body.innerHTML='<div style="padding:14px;color:var(--red)">Не удалось открыть журнал: '+_brgEsc(e.message)+'<br><span style="color:var(--text3)">Проверьте, что в Supabase выполнен файл emp_jobs.sql.</span></div>'; }
+}
+function ejMarkDirty(){
+  _ej.dirty=true; const st=document.getElementById('ej-state'); if(st){ st.className='badge badge-red'; st.textContent='Не сохранено'; }
+  clearTimeout(_ej.saveT); _ej.saveT=setTimeout(()=>{ if(_ej.dirty && _ej.rec && _ej.rec.status!=='posted') ejSave(true); },2500);
+}
+async function ejSave(silent){
+  const r=_ej.rec; if(!r) return false;
+  const payload={ link_stage:!!r.link_stage, jobs:r.jobs, status:r.status, accrual_ids:r.accrual_ids||[], posted_date:r.posted_date||null, note:r.note||'', updated_at:new Date().toISOString() };
+  try{
+    if(r.id) await sbPatch('emp_jobs','id=eq.'+r.id,payload);
+    else { const ins=await sbInsert('emp_jobs',{...payload, emp_name:r.emp_name, period:r.period, operation:r.operation}); r.id=ins.id; }
+    _ej.dirty=false; const st=document.getElementById('ej-state'); if(st){ st.className='badge badge-green'; st.textContent='✓ Сохранено '+new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }
+    if(!silent) ejRenderList();
+    return true;
+  }catch(e){ alert('Не удалось сохранить журнал: '+e.message+(/relation|404|42P01/.test(e.message)?'\nВыполните emp_jobs.sql в Supabase.':'')); return false; }
+}
+function ejRateFor(r,j){
+  const o=(ordersData||[]).find(x=>x.num===j.order); const it=o&&o.items?o.items[j.itemIdx]:null;
+  let v=prRateFor(r.operation, j.item, it&&it.category||null);
+  return v;
+}
+function ejAddOrder(v){
+  const r=_ej.rec; if(!r||r.status==='posted') return;
+  v=String(v||'').trim(); if(!v) return;
+  const o=(typeof findOrderBySearchNum==='function'?findOrderBySearchNum(v):null)||(ordersData||[]).find(x=>x.num===v);
+  if(!o){ alert('Заказ «'+v+'» не найден.'); return; }
+  const have=new Set(r.jobs.filter(x=>x.order===o.num&&x.itemIdx!=null).map(x=>x.itemIdx));
+  const cand=[]; (o.items||[]).forEach((it,k)=>{ if(have.has(k)) return; cand.push({order:o.num,itemIdx:k,item:it.name||'',qty:+it.qty||1,rate:0}); });
+  if(!cand.length){ alert('Все изделия заказа '+o.num+' уже в журнале.'); return; }
+  const add=list=>{ list.forEach(j=>{ const rt=ejRateFor(r,j); j.rate=rt!=null?rt:0; j.rateAuto=rt!=null; }); r.jobs.push(...list); ejMarkDirty(); _ej.focus=true; ejRender(); };
+  if(cand.length>PICK_LIMIT || (document.getElementById('ej-pick-always')||{}).checked){
+    brgPickOpen(o, cand, r.jobs.length, {onOk:l=>{ if(l.length) add(l); else ejRender(); }, onCancel:()=>ejRender()});
+  } else add(cand);
+}
+function ejQty(i,v){ _ej.rec.jobs[i].qty=_brgNum(v); ejMarkDirty(); ejRefresh(); }
+function ejRate(i,v){ const j=_ej.rec.jobs[i]; j.rate=_brgNum(v); j.rateAuto=false; ejMarkDirty(); ejRefresh(); }
+function ejNoStage(i,on){ _ej.rec.jobs[i].noStage=!!on; ejMarkDirty(); }
+function ejDel(i){ _ej.rec.jobs.splice(i,1); ejMarkDirty(); ejRender(); }
+function ejSetLink(on){ _ej.rec.link_stage=!!on; ejMarkDirty(); ejRender(); }
+function ejSetNote(v){ _ej.rec.note=v; ejMarkDirty(); }
+function ejRecalcRates(){
+  const r=_ej.rec; if(!r||r.status==='posted') return; let n=0;
+  r.jobs.forEach(j=>{ const rt=ejRateFor(r,j); if(rt!=null && (!(+j.rate>0) || j.rateAuto)){ j.rate=rt; j.rateAuto=true; n++; } });
+  ejMarkDirty(); ejRender(); if(!n) alert('Расценок по этой операции для изделий журнала не найдено. Заполните их в «Цеха и участники → Расценки по изделиям».');
+}
+function ejTotal(r){ return r.jobs.reduce((t,j)=>t+(+j.qty||0)*(+j.rate||0),0); }
+function ejRefresh(){
+  const r=_ej.rec; if(!r) return;
+  r.jobs.forEach((j,i)=>{ const e=document.getElementById('ej-s-'+i); if(e) e.textContent=_ejMoney((+j.qty||0)*(+j.rate||0)); });
+  const t=document.getElementById('ej-total'); if(t) t.textContent='₸'+_ejMoney(ejTotal(r));
+  const nr=r.jobs.filter(j=>!(+j.rate>0)).length; const w=document.getElementById('ej-warn'); if(w) w.innerHTML=nr?'⚠ без расценки: '+nr:'';
+}
+function ejRender(){
+  const r=_ej.rec, body=document.getElementById('ej-body'); if(!r||!body) return;
+  const posted=r.status==='posted', dis=posted?' disabled':'', E=_brgEsc;
+  const ords=(ordersData||[]).slice(0,600);
+  const st=document.getElementById('ej-state'); if(st){ if(posted){ st.className='badge badge-green'; st.textContent='Проведено '+(r.posted_date||''); } else if(!_ej.dirty){ st.className='badge badge-amber'; st.textContent=r.id?'Черновик':'Новый журнал'; } }
+  let h='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px">'+
+    '<label style="font-size:12px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto;margin:0"'+(r.link_stage?' checked':'')+dis+' onchange="ejSetLink(this.checked)"> при проведении отметить этап «<b>'+E(r.operation)+'</b>» выполненным в рабочем листе и на доске (всем строкам, кроме отмеченных «без этапа»)</label></div>'+
+    '<datalist id="ej-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
+    '<div style="overflow-x:auto"><table class="data-table" style="min-width:720px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:110px" title="Подставляется из «Расценок по изделиям», можно исправить">Расценка, ₸</th><th style="text-align:right">Сумма, ₸</th><th title="Не отмечать этап в рабочем листе для этой строки">Без этапа</th><th></th></tr></thead><tbody>';
+  r.jobs.forEach((j,i)=>{
+    const o=(ordersData||[]).find(x=>x.num===j.order);
+    h+='<tr><td>'+E(j.order)+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+'</td><td>'+E(j.item)+'</td>'+
+      '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.qty||'')+'" style="width:60px;text-align:right"'+dis+' onchange="ejQty('+i+',this.value)"></td>'+
+      '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.rate||'')+'" placeholder="0" style="width:90px;text-align:right"'+dis+' onchange="ejRate('+i+',this.value)"></td>'+
+      '<td id="ej-s-'+i+'" style="text-align:right;font-family:monospace"></td>'+
+      '<td style="text-align:center"><input type="checkbox" style="width:auto"'+(j.noStage?' checked':'')+(posted||!r.link_stage?' disabled':'')+' onchange="ejNoStage('+i+',this.checked)"></td>'+
+      '<td>'+(posted?'':'<span style="cursor:pointer;color:var(--red)" onclick="ejDel('+i+')">✕</span>')+'</td></tr>';
+  });
+  if(!posted) h+='<tr><td colspan="7" style="background:var(--surface2,rgba(127,127,127,.06))"><input id="ej-new-order" list="ej-ord-list" type="text" placeholder="＋ Введите № заказа и нажмите Enter — добавятся все его изделия" style="width:100%;max-width:520px;font-size:12px" onchange="ejAddOrder(this.value)"> <label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap"><input id="ej-pick-always" type="checkbox" style="width:auto;margin:0"> выбирать изделия вручную</label> <button class="btn btn-ghost btn-sm" onclick="ejRecalcRates()" title="Заново подставить расценки по операции и изделию">🔄 Расценки</button></td></tr>';
+  if(!r.jobs.length) h+='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px">Журнал пуст. Впишите номер заказа в строке выше.</td></tr>';
+  h+='<tr style="font-weight:700;border-top:2px solid var(--border)"><td colspan="4">Итого сдельная <span id="ej-warn" style="font-weight:400;font-size:12px;color:var(--amber,#f5a623)"></span></td><td id="ej-total" style="text-align:right;font-family:monospace;color:var(--green)"></td><td colspan="2"></td></tr></tbody></table></div>'+
+    '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap"><input type="text" value="'+E(r.note||'')+'" placeholder="Примечание" style="flex:1;min-width:200px;font-size:12px"'+dis+' onchange="ejSetNote(this.value)">'+
+    (posted?'<button class="btn btn-ghost" style="color:var(--amber)" onclick="ejUnpost()">↩ Снять проведение</button>':'<button class="btn btn-ghost" onclick="ejSave()">💾 Сохранить</button><button class="btn btn-primary" onclick="ejPost()">✅ Провести начисление</button>')+
+    '<button class="btn btn-ghost" onclick="ejPrint()">🖨 Печать</button></div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-top:6px">При проведении сотруднику создаётся одна сдельная запись в Зарплатной ведомости (последним днём месяца). Расценки берутся из «Цеха и участники → 💰 Расценки по изделиям» по паре «операция + изделие».</div>';
+  body.innerHTML=h; ejRefresh();
+  if(_ej.focus){ _ej.focus=false; const ne=document.getElementById('ej-new-order'); if(ne) ne.focus(); }
+}
+// Отметка этапа выполненным (оптом): этап «операция» с исполнителем и датой — реализации (если в этом месяце) или последним днём месяца
+async function ejMarkStages(r, clearOnly){
+  const MARK='e|'+r.emp_name+'|'+r.period+'|'+r.operation, last=_brgLastDay(r.period), from=r.period+'-01';
+  if(!(realizationsData||[]).length && typeof loadRealizationsFromDB==='function'){ try{ await loadRealizationsFromDB(); }catch(e){} }
+  const wsId=wsGuessByOp(r.operation)||'';
+  const use=(clearOnly||!r.link_stage)?[]:r.jobs.filter(j=>!j.noStage && j.order && j.itemIdx!=null && (ordersData||[]).find(o=>o.num===j.order));
+  const groups={}; use.forEach(j=>{ const k=itemKeyOf(j.order,j.itemIdx); const g=groups[k]||(groups[k]={key:k,order:j.order,idx:j.itemIdx,name:j.item,qty:0,amount:0}); g.qty+=+j.qty||0; g.amount+=(+j.qty||0)*(+j.rate||0); });
+  const all=await sbFetchAllPages('production_progress','select=id,item_key,order_num,item_idx,stages,materials,completed')||[];
+  const byKey={}; all.forEach(x=>{ byKey[x.item_key]=x; });
+  const syncMem=(key,row,stages)=>{ if(typeof prodProgress!=='undefined'){ if(prodProgress[key]) prodProgress[key].stages=stages; else if(row&&row.id) prodProgress[key]={id:row.id,version:1,stages,materials:row.materials||[],completed:!!row.completed}; } };
+  for(const x of all){ if(groups[x.item_key]) continue; const st=x.stages||[], n=st.filter(z=>z.journalMark!==MARK);
+    if(n.length!==st.length){ await sbPatch('production_progress','id=eq.'+x.id,{stages:n,updated_at:new Date().toISOString()}); syncMem(x.item_key,x,n); } }
+  const list=Object.values(groups), conflicts=[];
+  if(list.length){
+    await sbUpsert('production_worksheet', list.map(g=>({order_num:g.order,item_idx:g.idx})), 'order_num,item_idx');
+    if(typeof prodWbRows!=='undefined') list.forEach(g=>{ if(!prodWbRows.some(z=>z.itemKey===g.key)) prodWbRows.push({orderNum:g.order,itemIdx:g.idx,itemKey:g.key}); });
+  }
+  for(const g of list){
+    const o=ordersData.find(z=>z.num===g.order); const it=o&&o.items?o.items[g.idx]:null; const nm=(it&&it.name)||g.name||'';
+    const rl=(realizationsData||[]).filter(z=>z.order_num===g.order && plNormProductName(z.name)===plNormProductName(nm)).map(z=>String(z.doc_date||z.date||'').slice(0,10)).filter(d=>d>=from&&d<=last).sort();
+    const date=rl.length?rl[rl.length-1]:last;
+    const row=byKey[g.key]; const base=((row&&row.stages)||[]).filter(z=>z.journalMark!==MARK);
+    // этап этой операции у этого сотрудника уже заведён в рабочем листе обычным способом — не дублируем
+    if(base.some(z=>String(z.stage||'').trim().toLowerCase()===String(r.operation).trim().toLowerCase() && z.posted && (z.assignees||[]).some(a=>pwbNameKey(a.name)===pwbNameKey(r.emp_name)))){ conflicts.push(g.order+' · '+nm); continue; }
+    base.push({stage:r.operation, workshop:wsId, assignees:[{name:r.emp_name,ktu:1}], brigade:null, brigadeName:'', payMethod:'rate', rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK});
+    if(row){ await sbPatch('production_progress','id=eq.'+row.id,{stages:base,updated_at:new Date().toISOString()}); syncMem(g.key,row,base); }
+    else { const ins=await sbInsert('production_progress',{item_key:g.key,order_num:g.order,item_idx:g.idx,stages:base,materials:[],completed:false}); syncMem(g.key,ins,base); }
+  }
+  return {marked:list.length-conflicts.length, conflicts};
+}
+async function ejPost(){
+  const r=_ej.rec; if(!r||r.status==='posted') return;
+  const total=Math.round(ejTotal(r));
+  if(!r.jobs.length||total<=0){ alert('В журнале нет строк с суммой. Проставьте количество и расценки.'); return; }
+  const nr=r.jobs.filter(j=>!(+j.rate>0)).length;
+  if(!confirm('Провести выработку «'+r.emp_name+'» за '+r.period+'?\n\nОперация: '+r.operation+'\nСтрок: '+r.jobs.length+(nr?' (без расценки: '+nr+')':'')+'\nСумма сдельной: '+fmtCurrency(total)+(r.link_stage?'\n\nЭтап «'+r.operation+'» будет отмечен выполненным в рабочем листе и на доске.':''))) return;
+  if(!(await ejSave(true))) return;
+  const date=_brgLastDay(r.period);
+  try{
+    const a=await sbInsert('salary_accruals',{emp_name:r.emp_name,date,amount:total,deducted:0,net:total,type:'salary',
+      comment:'Сдельная — '+r.operation+' за '+r.period+' (журнал выработки по заказам, строк: '+r.jobs.length+')', details:{accruals:[{type:'Сдельная',amount:total}],deductions:[]}});
+    if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals.push(a);
+    r.status='posted'; r.accrual_ids=[a.id]; r.posted_date=date;
+    let info='';
+    try{ const m=await ejMarkStages(r,false); if(r.link_stage) info='\nЭтап отмечен у изделий: '+m.marked+(m.conflicts.length?'\nПропущено (этап уже есть в рабочем листе у этого сотрудника — проверьте, чтобы не оплатить дважды): '+m.conflicts.join('; '):''); }
+    catch(e){ info='\n⚠ Этап в рабочем листе отметить не удалось: '+e.message; }
+    await ejSave(true); ejRender(); ejRenderList();
+    alert('Проведено: '+fmtCurrency(total)+'.'+info);
+  }catch(e){ alert('Не удалось провести: '+e.message); }
+}
+async function ejUnpost(){
+  const r=_ej.rec; if(!r||r.status!=='posted') return;
+  if(!confirm('Снять проведение? Начисление будет удалено из Зарплатной ведомости, этапы в рабочем листе — сняты.')) return;
+  try{
+    for(const id of (r.accrual_ids||[])){ await sbDelete('salary_accruals','id=eq.'+id); if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals=_payrollData.accruals.filter(a=>a.id!==id); }
+    try{ await ejMarkStages(r,true); }catch(e){ console.warn(e); }
+    r.status='draft'; r.accrual_ids=[]; r.posted_date=null; await ejSave(true); ejRender(); ejRenderList();
+  }catch(e){ alert('Не удалось снять проведение: '+e.message); }
+}
+function ejPrint(){
+  const r=_ej.rec; if(!r) return; const E=_brgEsc, f=_ejMoney, fd=d=>String(d||'').split('-').reverse().join('.');
+  const MN=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+  const [yy,mm]=r.period.split('-').map(Number), per=MN[mm-1]+' '+yy, total=ejTotal(r);
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Выработка ${E(r.emp_name)} — ${E(per)}</title><style>
+  @page{size:A4;margin:14mm} body{font:12px/1.4 Arial,sans-serif;color:#000;margin:0} h2{margin:0 0 2px;font-size:16px} .sub{color:#444;margin-bottom:10px}
+  table{border-collapse:collapse;width:100%;margin-bottom:8px} th,td{border:1px solid #444;padding:4px 6px} th{background:#eee;text-align:left} .r{text-align:right;white-space:nowrap} .tot td{font-weight:700;background:#f4f4f4}
+  .foot{margin-top:26px;display:flex;gap:40px} .foot div{flex:1;border-top:1px solid #000;padding-top:3px;font-size:11px;color:#333}</style></head><body>
+  <h2>Выработка по заказам за ${E(per)}</h2><div class="sub"><b>${E(r.emp_name)}</b> · операция: ${E(r.operation)} · ${r.status==='posted'?'проведено '+fd(r.posted_date):'черновик'}</div>
+  <table><thead><tr><th>№</th><th>Заказ</th><th>Изделие</th><th class="r">Кол-во</th><th class="r">Расценка, ₸</th><th class="r">Сумма, ₸</th></tr></thead><tbody>
+  ${r.jobs.map((j,i)=>`<tr><td>${i+1}</td><td>${E(j.order)}</td><td>${E(j.item)}</td><td class="r">${j.qty}</td><td class="r">${f(j.rate)}</td><td class="r">${f((+j.qty||0)*(+j.rate||0))}</td></tr>`).join('')}
+  <tr class="tot"><td colspan="5">Итого сдельная за месяц</td><td class="r">${f(total)}</td></tr></tbody></table>
+  ${r.note?'<div>Примечание: '+E(r.note)+'</div>':''}
+  <div class="foot"><div>Сотрудник</div><div>Начальник производства</div><div>Главный бухгалтер</div></div>
+  <div class="sub" style="margin-top:10px">Распечатано ${new Date().toLocaleString('ru-RU')}</div></body></html>`;
+  let fr=document.getElementById('ej-print-frame'); if(fr) fr.remove();
+  fr=document.createElement('iframe'); fr.id='ej-print-frame'; fr.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(fr); fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+  setTimeout(()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ alert('Не удалось открыть печать: '+e.message); } },300);
+}
 // ═══════ Выработка сотрудника за месяц: что сделал и сколько сдельного ═══════
 let _ew = null;
 async function ewOpen(){
@@ -18652,7 +18879,7 @@ async function ewShow(){
       if((!ordersData||!ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
       const prog=await sbFetchAllPages('production_progress','select=item_key,order_num,item_idx,stages');
       (prog||[]).forEach(r=>(r.stages||[]).forEach(s=>{
-        if(!s||!s.posted||!s.postedDate||s.postedDate<from||s.postedDate>to||s.brigade) return;
+        if(!s||!s.posted||!s.postedDate||s.postedDate<from||s.postedDate>to||s.brigade||s.journalMark) return;
         const as=s.assignees||[]; const mine=as.filter(a=>pwbNameKey(a.name)===key); if(!mine.length) return;
         const all=as.reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0)||1;
         const my=mine.reduce((t,a)=>t+(a.ktu==null||isNaN(+a.ktu)?1:+a.ktu),0);
@@ -18661,6 +18888,12 @@ async function ewShow(){
         lines.push({src:'order', date:s.postedDate, doc:'Заказ '+r.order_num, name:(item?item.name:'')+' — '+(s.stage||''), op:s.stage||'', qty:s.qty||1, rate:s.rate||0, amount:Math.round(total*my/all)});
       }));
     }
+    // 2б) журнал «Выработка по заказам» (проведённые)
+    try{
+      const ej=await sbFetchAllPages('emp_jobs',`select=emp_name,operation,jobs,status,period&status=eq.posted&period=eq.${per}`);
+      (ej||[]).forEach(r=>{ if(pwbNameKey(r.emp_name)!==key) return; (r.jobs||[]).forEach(j=>{ const q=+j.qty||0, rt=+j.rate||0;
+        lines.push({src:'order', date:to, doc:'Журнал '+(r.operation||''), name:(j.item||'')+' — заказ '+(j.order||''), op:r.operation||'', qty:q, rate:rt, amount:Math.round(q*rt)}); }); });
+    }catch(e){}
     lines.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
     // 3) что уже начислено в зарплатной ведомости как сдельная
     let accrued=0;
