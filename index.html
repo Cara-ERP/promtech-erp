@@ -18789,7 +18789,7 @@ function ejAddOrder(v){
   const cand=[]; (o.items||[]).forEach((it,k)=>{ if(have.has(k)) return; cand.push({order:o.num,itemIdx:k,item:it.name||'',qty:+it.qty||1,rate:0}); });
   if(!cand.length){ alert('Все изделия заказа '+o.num+' уже в журнале.'); return; }
   const add=list=>{ list.forEach(j=>{ const rt=ejRateFor(r,j); j.rate=rt!=null?rt:0; j.rateAuto=rt!=null; }); r.jobs.push(...list); ejMarkDirty(); _ej.focus=true; ejRender(); };
-  if(cand.length>PICK_LIMIT || (document.getElementById('ej-pick-always')||{}).checked){
+  if(cand.length>2 || (document.getElementById('ej-pick-always')||{}).checked){
     brgPickOpen(o, cand, r.jobs.length, {onOk:l=>{ if(l.length) add(l); else ejRender(); }, onCancel:()=>ejRender()});
   } else add(cand);
 }
