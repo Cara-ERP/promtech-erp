@@ -7450,7 +7450,24 @@ window.onerror = function(msg, src, line, col){
     </div>
 
     <!-- Бригады: месячный пул × дни × КТУ (таблицы brigades, brigade_months) -->
-    <div class="page" id="page-brigades">
+    <style>
+#brg-body.brg-phone{font-size:14px}
+#brg-body.brg-phone table, #brg-body.brg-phone tbody{display:block;width:100%}
+#brg-body.brg-phone thead{display:none}
+#brg-body.brg-phone tr{display:block;border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:10px}
+#brg-body.brg-phone tr.brg-ph-wide{border:none;padding:4px 0}
+#brg-body.brg-phone tr.brg-ph-wide td{display:block;width:100%;padding:4px 0;text-align:left!important}
+#brg-body.brg-phone td{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0!important;border:none!important;text-align:right!important}
+#brg-body.brg-phone td[data-label]::before{content:attr(data-label);font-size:11px;color:var(--text3);text-align:left;flex:0 0 38%}
+#brg-body.brg-phone td>*{max-width:62%}
+#brg-body.brg-phone input,#brg-body.brg-phone select{font-size:16px!important}
+#brg-body.brg-phone input[type=text],#brg-body.brg-phone input[list],#brg-body.brg-phone select{width:100%!important;max-width:100%!important}
+#brg-body.brg-phone input[type=checkbox]{width:auto!important}
+#brg-body.brg-phone .btn{padding:10px 14px}
+#brg-body.brg-phone input[id^=brg-dn-]{flex:1 1 100%!important}
+#brg-body.brg-phone [style*="grid-template-columns"]{grid-template-columns:1fr!important}
+</style>
+<div class="page" id="page-brigades">
       <div class="section-header">
         <div>
           <div class="section-title">Бригады</div>
@@ -7462,6 +7479,7 @@ window.onerror = function(msg, src, line, col){
           <button id="brg-btn-new" class="btn btn-ghost btn-sm" onclick="brgNewBrigade()">＋ Бригада</button>
           <button id="brg-btn-ren" class="btn btn-ghost btn-sm" onclick="brgRenameBrigade()">✎ Название</button>
           <button id="brg-btn-login" class="btn btn-ghost btn-sm" title="Привязать логин бригадира: он будет видеть только эту бригаду" onclick="brgBindLogin()">👤 Логин бригадира</button><span id="brg-login-lbl" style="font-size:12px;color:var(--text3)"></span>
+          <label id="brg-phone-sw" style="font-size:12px;display:inline-flex;gap:6px;align-items:center;cursor:pointer" title="Компактный вид для смартфона: таблицы превращаются в карточки"><input type="checkbox" id="brg-phone" style="width:auto;margin:0" onchange="brgPhoneToggle(this.checked)"> 📱 Для телефона</label>
           <button class="btn btn-ghost btn-sm" onclick="if(brgConfirmLeave()) initBrigadesPage(true)">🔄</button>
         </div>
       </div>
@@ -17839,6 +17857,27 @@ async function brgJobMonth(i,per){
     if(typeof brdToast==='function') brdToast('✓ Строка перенесена в '+per);
   }catch(e){ alert('Не удалось перенести строку: '+e.message); renderBrigades(); }
 }
+// ── Вид для телефона: таблицы → карточки (хранится на устройстве) ──
+function brgPhoneOn(){
+  try{ const v=localStorage.getItem('brgPhone'); if(v==='1') return true; if(v==='0') return false; }catch(e){}
+  return window.innerWidth<700;
+}
+function brgPhoneToggle(on){ try{ localStorage.setItem('brgPhone', on?'1':'0'); }catch(e){} brgPhoneApply(); }
+function brgPhoneApply(){
+  const on=brgPhoneOn(), body=document.getElementById('brg-body'), cb=document.getElementById('brg-phone');
+  if(cb) cb.checked=on; if(!body) return;
+  body.classList.toggle('brg-phone', on);
+  if(!on) return;
+  body.querySelectorAll('input[id^=brg-dn-]').forEach(i=>{ if(i.parentElement) i.parentElement.style.flexWrap='wrap'; });
+  body.querySelectorAll('table').forEach(t=>{
+    const th=[...t.querySelectorAll('thead th')].map(x=>x.textContent.trim());
+    t.querySelectorAll('tbody tr').forEach(tr=>{
+      const tds=[...tr.children]; if(tds.some(td=>td.colSpan>1)) { tr.classList.add('brg-ph-wide'); return; }
+      tds.forEach((td,i)=>{ if(th[i]) td.setAttribute('data-label',th[i]); });
+    });
+    const w=t.parentElement; if(w) w.style.overflowX='visible'; t.style.minWidth='0';
+  });
+}
 function brgStockAll(on){
   const m=_brg.month; if(!m||_brgLocked(m)) return;
   _brg.stockAll=!!on; (m.jobs||[]).forEach(j=>{ if(!j.wh) j.stock=!!on; }); brgMarkDirty(); renderBrigades();
@@ -18005,6 +18044,7 @@ async function brgUnreceiveSemi(whId, qty){
 }
 async function brgPost(){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b||m.status==='posted') return;
+  if(!brgCanClose()){ alert('Начисления проводит начальник цеха или директор.'); return; }
   if(m.closed && !brgCanClose()){ alert('Расчёт закрыт. Проводить его может начальник производства или директор.'); return; }
   const c = brgCalc(m, _brg.stageMap);
   if(c.totalW<=0){ alert(c.pctMode?'Проставьте проценты сотрудникам.':'Проставьте дни и КТУ: сумма «дни × КТУ» равна нулю.'); return; }
@@ -18089,6 +18129,7 @@ async function brgPost(){
 }
 async function brgUnpost(){
   const m = _brg.month; if(!m||m.status!=='posted') return;
+  if(!brgCanClose()){ alert('Снять проведение может начальник цеха или директор.'); return; }
   if(m.closed){ alert('Расчёт закрыт. Сначала откройте его (🔓 Открыть расчёт).'); return; }
   if(!confirm('Снять проведение? Начисления этой бригады за '+m.period+' будут удалены из Зарплатной ведомости (расходы из вычетов, созданные в «Деньги», и приход изделий на склад полуфабрикатов).')) return;
   try{
@@ -18251,13 +18292,13 @@ function renderBrigades(){
   // Кнопки
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
     (m.closed ? (brgCanClose()?'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgReopen()">🔓 Открыть расчёт</button>'+(m.status!=='posted'?'<button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>':''):'')
-     : (ed?'<button class="btn btn-ghost" onclick="brgSave()">💾 Сохранить</button><button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>'
-       :'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgUnpost()">↩ Снять проведение</button>')
+     : (ed?'<button class="btn btn-ghost" onclick="brgSave()">💾 Сохранить</button>'+(brgCanClose()?'<button class="btn btn-primary" onclick="brgPostAfterSave()">✅ Провести начисления</button>':'<span style="font-size:12px;color:var(--text3);align-self:center">Начисления проводит начальник цеха или директор</span>')
+       :(brgCanClose()?'<button class="btn btn-ghost" style="color:var(--amber)" onclick="brgUnpost()">↩ Снять проведение</button>':''))
        +(brgCanClose()?'<button class="btn btn-ghost" style="color:var(--red)" title="После закрытия бригадир не сможет ничего менять за этот месяц" onclick="brgClose()">🔒 Закрыть расчёт</button>':''))+
     '<button class="btn btn-ghost" onclick="printBrigade()">🖨 Печать</button><button class="btn btn-ghost" onclick="exportBrigadeCsv()">📥 CSV</button></div>';
 
   body.innerHTML = h;
-  brgRefresh();
+  brgRefresh(); brgPhoneApply();
   if(_brg.focusNew){ _brg.focusNew=false; const ne=document.getElementById('brg-new-order'); if(ne){ ne.focus(); try{ ne.scrollIntoView({block:'nearest'}); }catch(e){} } }
 }
 
