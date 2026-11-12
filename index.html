@@ -17839,8 +17839,15 @@ async function brgJobMonth(i,per){
     if(typeof brdToast==='function') brdToast('✓ Строка перенесена в '+per);
   }catch(e){ alert('Не удалось перенести строку: '+e.message); renderBrigades(); }
 }
+function brgStockAll(on){
+  const m=_brg.month; if(!m||_brgLocked(m)) return;
+  _brg.stockAll=!!on; (m.jobs||[]).forEach(j=>{ if(!j.wh) j.stock=!!on; }); brgMarkDirty(); renderBrigades();
+}
 function brgJobsHtml(){
   const m=_brg.month; const isOrd=m.pool_source==='orders';
+  const _sk=(m.id||'')+'|'+m.period+'|'+m.brigade_id;
+  if(_brg.stockKey!==_sk){ _brg.stockKey=_sk; _brg.stockAll=(m.jobs||[]).some(j=>j.stock||j.wh); }
+  if(_brg.stockAll) (m.jobs||[]).forEach(j=>{ if(j.stock===undefined) j.stock=true; });
   const ed=!_brgLocked(m), dis=ed?'':' disabled', E=_brgEsc;
   const money=n=>fmtCurrency(Math.round(n));
   const ords=(ordersData||[]).slice(0,600);
@@ -17849,6 +17856,7 @@ function brgJobsHtml(){
     '<button class="btn btn-ghost btn-sm" title="Добавляет изделия на рабочий лист производства и доску с этапом бригады" onclick="brgJobsMarkClick(false)">📋 Отметить в рабочем листе</button>'+
     ((m.jobs||[]).some(j=>j.marked)?'<button class="btn btn-ghost btn-sm" onclick="brgJobsMarkClick(true)">↩ Снять отметки</button>':'')+'</div></div>'+
     '<datalist id="brg-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
+    '<label style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px" title="При проведении расчёта изделия из журнала будут оприходованы на «Склад полуфабрикатов» и появятся в журнале выпуска. Для работ и операций снимите галочку в их строке."><input type="checkbox" style="width:auto;margin:0"'+(_brg.stockAll?' checked':'')+dis+' onchange="brgStockAll(this.checked)"> <b>Изделия этого журнала — на Склад полуфабрикатов</b> <span style="color:var(--text3)">(одна галочка на весь журнал; работы и операции отметьте в строке как «не на склад»)</span></label>'+
     '<div style="overflow-x:auto"><table class="data-table" style="min-width:680px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:120px" title="Цена для расчёта сдельной (не цена продажи)">Цена для ЗП, ₸</th><th style="text-align:right">Сумма, ₸</th><th title="Перенести строку в другой месяц">Месяц</th><th></th></tr></thead><tbody>';
   (m.jobs||[]).forEach((j,i)=>{
     const o=(ordersData||[]).find(x=>x.num===j.order);
@@ -17858,7 +17866,7 @@ function brgJobsHtml(){
         o.items.map((it,k)=>'<option value="'+k+'"'+(j.itemIdx===k?' selected':'')+'>'+(k+1)+'. '+E(it.name)+' ×'+(it.qty||1)+'</option>').join('')+'</select>';
     } else itemCell='<input type="text" value="'+E(j.item||'')+'" placeholder="Изделие" style="width:240px;font-size:12px"'+dis+' onchange="brgJobText('+i+',this.value)">';
     h+='<tr><td><input list="brg-ord-list" type="text" value="'+E(j.order||'')+'" title="'+E((j.order||'')+(o&&o.customer?' — '+o.customer:''))+'" placeholder="МО-…" style="width:170px;font-size:12px"'+dis+' onchange="brgJobOrder('+i+',this.value)">'+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+(j.marked?'<div style="font-size:11px;color:var(--green)">✓ в листе '+E(String(j.marked).split('-').reverse().join('.'))+'</div>':'')+'</td>'+
-      '<td>'+itemCell+(j.wh?'<div style="font-size:11px;color:var(--green)">✓ на складе полуфабрикатов ×'+E(j.wh.qty)+'</div>':'<label style="font-size:11px;color:var(--text3);display:inline-flex;gap:4px;align-items:center;margin-top:2px" title="Если изделие сделано на склад — при проведении расчёта оно будет оприходовано на «Склад полуфабрикатов». Работы и операции не отмечайте."><input type="checkbox" style="width:auto;margin:0"'+(j.stock?' checked':'')+dis+' onchange="brgJobStock('+i+',this.checked)"> на склад полуфабрикатов</label>')+'</td>'+
+      '<td>'+itemCell+(j.wh?'<div style="font-size:11px;color:var(--green)">✓ на складе полуфабрикатов ×'+E(j.wh.qty)+'</div>':(_brg.stockAll?'<label style="font-size:11px;color:var(--text3);display:inline-flex;gap:4px;align-items:center;margin-top:2px" title="Снимите галочку для работы / операции, которая не изделие"><input type="checkbox" style="width:auto;margin:0"'+(j.stock?' checked':'')+dis+' onchange="brgJobStock('+i+',this.checked)"> на склад</label>':''))+'</td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.qty||'')+'" style="width:60px;text-align:right"'+dis+' onchange="brgJobQty('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.price||'')+'" placeholder="0" style="width:100px;text-align:right"'+dis+' onchange="brgJobPrice('+i+',this.value)"></td>'+
       '<td id="brg-js-'+i+'" style="text-align:right;font-family:monospace"></td>'+
