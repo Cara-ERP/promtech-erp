@@ -17921,7 +17921,36 @@ function brgSetNote(v){ _brg.month.note = v; brgMarkDirty(); }
 function brgSetDays(i,v){ _brg.month.rows[i].days = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetKtu(i,v){ _brg.month.rows[i].ktu = v===''?1:_brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetStageMode(on){ _brg.month.deduct_stage_paid = !!on; brgMarkDirty(); brgRefresh(); }
-function brgAddDed(){ _brg.month.deductions.push({name:'', amount:0}); brgMarkDirty(); renderBrigades(); }
+function brgAddDed(){ _brg.month.deductions.push({name:'', amount:0, pay:true}); brgMarkDirty(); renderBrigades(); }
+function brgDedPay(i,on){ _brg.month.deductions[i].pay=!!on; brgMarkDirty(); }
+// emp — имя совпало с сотрудником (начислим ЗП), exp — иначе (расход), '' — пусто
+function brgDedKind(name){
+  const n=String(name||'').trim(); if(!n) return '';
+  const k=pwbNameKey(n);
+  const all=[...(typeof employeesData!=='undefined'?employeesData:[]).map(e=>e.name), ...(((_brgBrigade()||{}).members)||[]).map(x=>typeof x==='string'?x:(x&&x.name))].filter(Boolean);
+  return all.some(x=>pwbNameKey(x)===k) ? 'emp' : 'exp';
+}
+// Диалог выбора счёта и статьи для расходных вычетов; null при отмене
+function brgExpenseDialog(items){
+  return new Promise(async resolve=>{
+    try{ await loadExpenseCategories(); }catch(e){}
+    const E=_brgEsc, top=(_expenseCats||[]).filter(c=>!c.parent_code).sort((a,b)=>a.sort_order-b.sort_order);
+    const def=(top.find(c=>/производ|материал/i.test(c.name))||top[0]||{}).code||'';
+    const ov=document.createElement('div'); ov.className='modal-overlay open'; ov.id='brgExpModal'; ov.style.zIndex=10000;
+    ov.innerHTML='<div class="modal" style="max-width:480px"><div class="modal-header"><div class="modal-title">Расход в «Деньги»</div></div>'+
+      '<div style="font-size:13px;margin-bottom:8px">'+items.map(d=>E(d.name)+' — '+fmtCurrency(+d.amount||0)).join('<br>')+'</div>'+
+      '<label class="label">Счёт / касса</label><select id="bx-acc" style="width:100%;font-size:13px">'+bankAccounts.map(a=>'<option value="'+E(a.id)+'">'+E((a.icon||'')+' '+a.name)+'</option>').join('')+'</select>'+
+      '<label class="label" style="margin-top:8px">Категория расхода</label><select id="bx-cat" style="width:100%;font-size:13px">'+(top.length?top.map(c=>'<option value="'+E(c.code)+'"'+(c.code===def?' selected':'')+'>'+E(c.name)+'</option>').join(''):'<option value="">—</option>')+'</select>'+
+      '<label class="label" style="margin-top:8px">Статья</label><select id="bx-sub" style="width:100%;font-size:13px"></select>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn btn-ghost" id="bx-no">Отмена</button><button class="btn btn-primary" id="bx-ok">Создать расход</button></div></div>';
+    document.body.appendChild(ov);
+    const fillSub=()=>{ const c=ov.querySelector('#bx-cat').value; const subs=(_expenseCats||[]).filter(x=>x.parent_code===c).sort((a,b)=>a.sort_order-b.sort_order); ov.querySelector('#bx-sub').innerHTML='<option value="">— без статьи —</option>'+subs.map(x=>'<option value="'+E(x.code)+'">'+E(x.name)+'</option>').join(''); };
+    ov.querySelector('#bx-cat').onchange=fillSub; fillSub();
+    const done=v=>{ ov.remove(); resolve(v); };
+    ov.querySelector('#bx-no').onclick=()=>done(null);
+    ov.querySelector('#bx-ok').onclick=()=>done({accountId:ov.querySelector('#bx-acc').value, category:ov.querySelector('#bx-cat').value, subcategory:ov.querySelector('#bx-sub').value});
+  });
+}
 function brgDedName(i,v){ _brg.month.deductions[i].name = v; brgMarkDirty(); }
 function brgDedAmt(i,v){ _brg.month.deductions[i].amount = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgDelDed(i){ _brg.month.deductions.splice(i,1); brgMarkDirty(); renderBrigades(); }
@@ -17963,8 +17992,14 @@ async function brgPost(){
   if(poolSal.length) msg += '\n\nОклад вычтен из пула (начисляется отдельно в «Начислениях ЗП»): '+poolSal.map(l=>l.name+' '+fmtCurrency(l.salary)).join(', ');
   if(covered.length) msg += '\n\nОклад покрывает долю пула, доплаты нет: '+covered.map(l=>l.name).join(', ');
   if(skipped.length) msg += '\n\nБез начисления (доля не больше уже начисленного по этапам): '+skipped.map(l=>l.name).join(', ');
+  const dedPay = (m.deductions||[]).filter(d=>d.pay && !d.done && (+d.amount||0)>0 && String(d.name||'').trim());
+  const dedEmp = dedPay.filter(d=>brgDedKind(d.name)==='emp'), dedExp = dedPay.filter(d=>brgDedKind(d.name)==='exp');
+  if(dedEmp.length) msg += '\n\nВычеты → начисление ЗП сотрудникам: '+dedEmp.map(d=>d.name+' '+fmtCurrency(+d.amount)).join(', ');
+  if(dedExp.length) msg += '\n\nВычеты → расход: '+dedExp.map(d=>d.name+' '+fmtCurrency(+d.amount)).join(', ');
   if(!confirm(msg)) return;
-  const date = _brgLastDay(m.period), ids = [];
+  let expParams = null;
+  if(dedExp.length && confirm('Записать расходы ('+dedExp.map(d=>d.name).join(', ')+') в «Деньги» со счёта?\n\nОК — выбрать счёт и создать расходную операцию (изменит остаток).\nОтмена — только отметить в расчёте, без движения денег.')) expParams = await brgExpenseDialog(dedExp);
+  const date = _brgLastDay(m.period), ids = [], txIds = [];
   try{
     for(const l of pay){
       const comment = 'Бригада «'+b.name+'» — месячный пул '+m.period+' ('+l.days+' дн. × КТУ '+l.ktu+')'+(l.mode==='share_salary'?'; за вычетом оклада '+Math.round(l.salary):'')+(m.deduct_stage_paid&&l.stage?'; за вычетом начисленного по этапам '+Math.round(l.stage):'');
@@ -17980,6 +18015,22 @@ async function brgPost(){
       ids.push(r.id);
       if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals.push(r);
     }
+    for(const d of dedEmp){
+      const r = await sbInsert('salary_accruals', { emp_name:String(d.name).trim(), date, amount:+d.amount, deducted:0, net:+d.amount, type:'salary', comment:'Бригада «'+b.name+'» — вычет из пула '+m.period+' (доп. работа / помощь)',
+        details:{accruals:[{type:'Сдельная (вычет из пула)', amount:+d.amount}], deductions:[]} });
+      ids.push(r.id); d.done={type:'salary', id:r.id};
+      if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals.push(r);
+    }
+    for(const d of dedExp){
+      d.done={type:'expense'};
+      if(expParams && expParams.accountId){
+        const desc='Бригада «'+b.name+'» — '+String(d.name).trim()+' (вычет из пула '+m.period+')';
+        const res = await sbInsertMoneyTxSafe({ date, account_id:String(expParams.accountId), flow:'expense', category:expParams.category||'', subcategory:expParams.subcategory||null, amount:+d.amount, description:desc, counterparty:'', bin:null, order_num:'' });
+        if(res&&res.id){ txIds.push(res.id); d.done.txId=res.id;
+          try{ moneyTx.push({id:txSeq++, date, accountId:String(expParams.accountId), flow:'expense', category:expParams.category||'', subcategory:expParams.subcategory||'', amount:+d.amount, desc, counterparty:'', bin:'', orderNum:'', sbId:res.id}); }catch(_){}
+        }
+      }
+    }
     m.status = 'posted'; m.accrual_ids = ids; m.posted_date = date;
     if(!(await brgSave(true))) { alert('Начисления созданы ('+ids.length+'), но статус расчёта сохранить не удалось. Нажмите «Сохранить».'); }
     try{ if((m.jobs||[]).length) await brgJobsMark(true); }catch(e){ console.warn('Отметка в рабочем листе не удалась', e.message); alert('Начисления проведены, но отметить изделия в рабочем листе не удалось: '+e.message+'\nНажмите «📋 Отметить в рабочем листе» в таблице заказов.'); }
@@ -17987,6 +18038,9 @@ async function brgPost(){
   }catch(e){
     // Откатываем уже созданные, чтобы не остались «хвосты»
     for(const id of ids){ try{ await sbDelete('salary_accruals','id=eq.'+id); }catch(_){} }
+    for(const id of txIds){ try{ await sbDelete('money_tx','id=eq.'+id); }catch(_){} }
+    try{ moneyTx = moneyTx.filter(t=>!txIds.includes(t.sbId)); }catch(_){}
+    (m.deductions||[]).forEach(d=>{ delete d.done; });
     if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>!ids.includes(a.id));
     alert('Не удалось провести: '+e.message+'\nСозданные начисления отменены.');
   }
@@ -17994,11 +18048,15 @@ async function brgPost(){
 async function brgUnpost(){
   const m = _brg.month; if(!m||m.status!=='posted') return;
   if(m.closed){ alert('Расчёт закрыт. Сначала откройте его (🔓 Открыть расчёт).'); return; }
-  if(!confirm('Снять проведение? Начисления этой бригады за '+m.period+' будут удалены из Зарплатной ведомости.')) return;
+  if(!confirm('Снять проведение? Начисления этой бригады за '+m.period+' будут удалены из Зарплатной ведомости (и расходы из вычетов, созданные в «Деньги»).')) return;
   try{
     for(const id of (m.accrual_ids||[])){
       await sbDelete('salary_accruals','id=eq.'+id);
       if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>a.id!==id);
+    }
+    for(const d of (m.deductions||[])){
+      if(d.done&&d.done.txId){ try{ await sbDelete('money_tx','id=eq.'+d.done.txId); moneyTx = moneyTx.filter(t=>t.sbId!==d.done.txId); }catch(e){ console.warn('money_tx',e.message); } }
+      delete d.done;
     }
     m.status = 'draft'; m.accrual_ids = []; m.posted_date = null;
     await brgSave(true); renderBrigades();
@@ -18088,8 +18146,10 @@ function renderBrigades(){
         '<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'+
         '<input id="brg-dn-'+i+'" list="brg-emp-list" type="text" value="'+_brgEsc(d.name)+'" placeholder="Выберите сотрудника или впишите" style="flex:1;min-width:0"'+dis+' onchange="brgDedName('+i+',this.value)">'+
         '<input id="brg-da-'+i+'" type="text" inputmode="decimal" value="'+(d.amount||'')+'" placeholder="₸" style="width:110px"'+dis+' onchange="brgDedAmt('+i+',this.value)">'+
+        (d.done?'<span class="badge badge-green" style="white-space:nowrap" title="Создано при проведении">✓ '+(d.done.type==='salary'?'начислено ЗП':(d.done.txId?'расход в «Деньги»':'расход отмечен'))+'</span>':
+          '<label style="font-size:11px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap" title="При проведении: сотруднику — начислить ЗП; не сотрудник — расход"><input type="checkbox" style="width:auto;margin:0"'+(d.pay?' checked':'')+dis+' onchange="brgDedPay('+i+',this.checked)"> начислить <span style="color:var(--text3)">'+({emp:'(сотруднику)',exp:'(расход)'}[brgDedKind(d.name)]||'')+'</span></label>')+
         (ed?'<span style="cursor:pointer;color:var(--red)" onclick="brgDelDed('+i+')">✕</span>':'')+'</div>').join('')
-        : '<div style="font-size:12px;color:var(--text3)">Нет вычетов. Сюда вносятся суммы, которые идут не сборщикам: помощник, шлифовка, маляр, краска.</div>')+
+        : '<div style="font-size:12px;color:var(--text3)">Нет вычетов. Сюда вносятся суммы, которые идут не сборщикам: помощник, шлифовка, маляр, краска. С галочкой «начислить»: сотруднику создаётся начисление ЗП, для остального (краска и т.п.) — расход.</div>')+
       '<div style="font-size:11px;color:var(--text3);margin-top:6px">В поле «кому / за что» можно выбрать сотрудника из списка (начните вводить фамилию) или написать своё, например «краска».</div>'+
     '</div>'+
     '<div class="card" style="padding:14px"><div style="font-weight:600;margin-bottom:10px">Бригадир и доплата</div>'+
