@@ -17750,6 +17750,7 @@ function brgPickOk(){
 }
 function brgJobItem(i,v){ const j=_brg.month.jobs[i]; if(v==='') { j.item=''; delete j.itemIdx; } else brgJobPick(j,+v); brgSyncPool(); brgMarkDirty(); renderBrigades(); }
 function brgJobText(i,v){ _brg.month.jobs[i].item=v.trim(); brgMarkDirty(); }
+function brgJobStock(i,on){ _brg.month.jobs[i].stock=!!on; brgMarkDirty(); }
 function brgJobQty(i,v){ _brg.month.jobs[i].qty=_brgNum(v); brgSyncPool(); brgMarkDirty(); brgRefresh(); }
 function brgJobPrice(i,v){
   const jobs=_brg.month.jobs, j=jobs[i]; j.price=_brgNum(v);
@@ -17857,7 +17858,7 @@ function brgJobsHtml(){
         o.items.map((it,k)=>'<option value="'+k+'"'+(j.itemIdx===k?' selected':'')+'>'+(k+1)+'. '+E(it.name)+' ×'+(it.qty||1)+'</option>').join('')+'</select>';
     } else itemCell='<input type="text" value="'+E(j.item||'')+'" placeholder="Изделие" style="width:240px;font-size:12px"'+dis+' onchange="brgJobText('+i+',this.value)">';
     h+='<tr><td><input list="brg-ord-list" type="text" value="'+E(j.order||'')+'" title="'+E((j.order||'')+(o&&o.customer?' — '+o.customer:''))+'" placeholder="МО-…" style="width:170px;font-size:12px"'+dis+' onchange="brgJobOrder('+i+',this.value)">'+(o?'<div style="font-size:11px;color:var(--text3)">'+E(o.customer||'')+'</div>':'')+(j.marked?'<div style="font-size:11px;color:var(--green)">✓ в листе '+E(String(j.marked).split('-').reverse().join('.'))+'</div>':'')+'</td>'+
-      '<td>'+itemCell+'</td>'+
+      '<td>'+itemCell+(j.wh?'<div style="font-size:11px;color:var(--green)">✓ на складе полуфабрикатов ×'+E(j.wh.qty)+'</div>':'<label style="font-size:11px;color:var(--text3);display:inline-flex;gap:4px;align-items:center;margin-top:2px" title="Если изделие сделано на склад — при проведении расчёта оно будет оприходовано на «Склад полуфабрикатов». Работы и операции не отмечайте."><input type="checkbox" style="width:auto;margin:0"'+(j.stock?' checked':'')+dis+' onchange="brgJobStock('+i+',this.checked)"> на склад полуфабрикатов</label>')+'</td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.qty||'')+'" style="width:60px;text-align:right"'+dis+' onchange="brgJobQty('+i+',this.value)"></td>'+
       '<td style="text-align:right"><input type="text" inputmode="decimal" value="'+(j.price||'')+'" placeholder="0" style="width:100px;text-align:right"'+dis+' onchange="brgJobPrice('+i+',this.value)"></td>'+
       '<td id="brg-js-'+i+'" style="text-align:right;font-family:monospace"></td>'+
@@ -17976,6 +17977,24 @@ async function brgSave(silent){
 }
 
 // Провести: создаёт по человеку одно начисление в Зарплатной ведомости
+// Приход изделия бригады на «Склад полуфабрикатов» (как при выпуске цеха); возвращает id позиции склада
+async function brgReceiveSemi(name, qty, price){
+  try{ await loadWarehouseFromDB(); }catch(e){}
+  let it=(warehouseData||[]).find(w=>w.name===name && w.warehouse_id==='wh_semi')
+      || (warehouseData||[]).find(w=>w.name===name && ['Полуфабрикаты','Заготовки','НЗП'].includes(w.category));
+  if(it){
+    const nq=Math.round(((+it.qty||0)+qty)*100)/100;
+    await sbPatch('warehouse',`id=eq.${it.sbId||it.id}`,{qty:nq}); it.qty=nq; return it.sbId||it.id;
+  }
+  const res=await sbInsert('warehouse',{name,category:'Полуфабрикаты',unit:'шт',qty,price:price||0,warehouse_id:'wh_semi'});
+  warehouseData.push({id:res.id,sbId:res.id,name:res.name,category:'Полуфабрикаты',unit:res.unit||'шт',qty:res.qty,price:res.price||0,warehouse_id:'wh_semi',minQty:0,supplier:'',sku:''});
+  return res.id;
+}
+async function brgUnreceiveSemi(whId, qty){
+  const it=(warehouseData||[]).find(w=>(w.sbId||w.id)===whId);
+  if(!it) return;
+  it.qty=Math.max(0,Math.round((it.qty-qty)*100)/100); await sbPatch('warehouse',`id=eq.${whId}`,{qty:it.qty});
+}
 async function brgPost(){
   const m = _brg.month, b = _brgBrigade(); if(!m||!b||m.status==='posted') return;
   if(m.closed && !brgCanClose()){ alert('Расчёт закрыт. Проводить его может начальник производства или директор.'); return; }
@@ -17992,14 +18011,16 @@ async function brgPost(){
   if(poolSal.length) msg += '\n\nОклад вычтен из пула (начисляется отдельно в «Начислениях ЗП»): '+poolSal.map(l=>l.name+' '+fmtCurrency(l.salary)).join(', ');
   if(covered.length) msg += '\n\nОклад покрывает долю пула, доплаты нет: '+covered.map(l=>l.name).join(', ');
   if(skipped.length) msg += '\n\nБез начисления (доля не больше уже начисленного по этапам): '+skipped.map(l=>l.name).join(', ');
+  const stockJobs = (m.jobs||[]).filter(j=>j.stock && !j.wh && (+j.qty||0)>0 && String(j.item||'').trim());
   const dedPay = (m.deductions||[]).filter(d=>d.pay && !d.done && (+d.amount||0)>0 && String(d.name||'').trim());
   const dedEmp = dedPay.filter(d=>brgDedKind(d.name)==='emp'), dedExp = dedPay.filter(d=>brgDedKind(d.name)==='exp');
   if(dedEmp.length) msg += '\n\nВычеты → начисление ЗП сотрудникам: '+dedEmp.map(d=>d.name+' '+fmtCurrency(+d.amount)).join(', ');
   if(dedExp.length) msg += '\n\nВычеты → расход: '+dedExp.map(d=>d.name+' '+fmtCurrency(+d.amount)).join(', ');
+  if(stockJobs.length) msg += '\n\nНа «Склад полуфабрикатов» будет оприходовано (и запись в журнале выпуска): '+stockJobs.map(j=>j.item+' ×'+j.qty).join(', ');
   if(!confirm(msg)) return;
   let expParams = null;
   if(dedExp.length && confirm('Записать расходы ('+dedExp.map(d=>d.name).join(', ')+') в «Деньги» со счёта?\n\nОК — выбрать счёт и создать расходную операцию (изменит остаток).\nОтмена — только отметить в расчёте, без движения денег.')) expParams = await brgExpenseDialog(dedExp);
-  const date = _brgLastDay(m.period), ids = [], txIds = [];
+  const date = _brgLastDay(m.period), ids = [], txIds = [], stockDone = []; let relId = null;
   try{
     for(const l of pay){
       const comment = 'Бригада «'+b.name+'» — месячный пул '+m.period+' ('+l.days+' дн. × КТУ '+l.ktu+')'+(l.mode==='share_salary'?'; за вычетом оклада '+Math.round(l.salary):'')+(m.deduct_stage_paid&&l.stage?'; за вычетом начисленного по этапам '+Math.round(l.stage):'');
@@ -18031,6 +18052,17 @@ async function brgPost(){
         }
       }
     }
+    for(const j of stockJobs){
+      const wid = await brgReceiveSemi(String(j.item).trim(), +j.qty, +j.price||0);
+      j.wh = {id:wid, qty:+j.qty}; stockDone.push(j);
+    }
+    if(stockDone.length){
+      // Документ в журнале «Выпуск полуфабрикатов» (приход уже сделан выше; оплата идёт через пул, поэтому расценка 0)
+      const rel = await sbInsert('semi_releases',{ date, num:'ВБ-'+m.period+' '+b.name, workshop:null, warehouse_id:'wh_semi', status:'posted', posted_at:new Date().toISOString(),
+        note:'Выпуск бригады «'+b.name+'» за '+m.period+' (из расчёта бригады; оплата — через пул)', created_by:(window.currentUser&&window.currentUser.name)||'',
+        rows: stockDone.map(j=>({name:String(j.item).trim(), qty:+j.qty, unit:'шт', rate:0, who:'b:'+b.id, op:'Работа бригады', fromBrigade:true, whItemId:j.wh.id})) });
+      relId = rel.id; stockDone.forEach(j=>{ j.wh.rel = rel.id; });
+    }
     m.status = 'posted'; m.accrual_ids = ids; m.posted_date = date;
     if(!(await brgSave(true))) { alert('Начисления созданы ('+ids.length+'), но статус расчёта сохранить не удалось. Нажмите «Сохранить».'); }
     try{ if((m.jobs||[]).length) await brgJobsMark(true); }catch(e){ console.warn('Отметка в рабочем листе не удалась', e.message); alert('Начисления проведены, но отметить изделия в рабочем листе не удалось: '+e.message+'\nНажмите «📋 Отметить в рабочем листе» в таблице заказов.'); }
@@ -18041,6 +18073,8 @@ async function brgPost(){
     for(const id of txIds){ try{ await sbDelete('money_tx','id=eq.'+id); }catch(_){} }
     try{ moneyTx = moneyTx.filter(t=>!txIds.includes(t.sbId)); }catch(_){}
     (m.deductions||[]).forEach(d=>{ delete d.done; });
+    for(const j of stockDone){ try{ await brgUnreceiveSemi(j.wh.id, j.wh.qty); }catch(_){} delete j.wh; }
+    if(relId){ try{ await sbDelete('semi_releases','id=eq.'+relId); }catch(_){} }
     if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>!ids.includes(a.id));
     alert('Не удалось провести: '+e.message+'\nСозданные начисления отменены.');
   }
@@ -18048,12 +18082,15 @@ async function brgPost(){
 async function brgUnpost(){
   const m = _brg.month; if(!m||m.status!=='posted') return;
   if(m.closed){ alert('Расчёт закрыт. Сначала откройте его (🔓 Открыть расчёт).'); return; }
-  if(!confirm('Снять проведение? Начисления этой бригады за '+m.period+' будут удалены из Зарплатной ведомости (и расходы из вычетов, созданные в «Деньги»).')) return;
+  if(!confirm('Снять проведение? Начисления этой бригады за '+m.period+' будут удалены из Зарплатной ведомости (расходы из вычетов, созданные в «Деньги», и приход изделий на склад полуфабрикатов).')) return;
   try{
     for(const id of (m.accrual_ids||[])){
       await sbDelete('salary_accruals','id=eq.'+id);
       if(typeof _payrollData!=='undefined' && _payrollData) _payrollData.accruals = _payrollData.accruals.filter(a=>a.id!==id);
     }
+    const relIds=new Set((m.jobs||[]).filter(j=>j.wh&&j.wh.rel).map(j=>j.wh.rel));
+    for(const j of (m.jobs||[])){ if(j.wh){ try{ await brgUnreceiveSemi(j.wh.id, j.wh.qty); }catch(e){ console.warn('склад',e.message); } delete j.wh; } }
+    for(const id of relIds){ try{ await sbDelete('semi_releases','id=eq.'+id); }catch(e){ console.warn('semi_releases',e.message); } }
     for(const d of (m.deductions||[])){
       if(d.done&&d.done.txId){ try{ await sbDelete('money_tx','id=eq.'+d.done.txId); moneyTx = moneyTx.filter(t=>t.sbId!==d.done.txId); }catch(e){ console.warn('money_tx',e.message); } }
       delete d.done;
@@ -19251,6 +19288,7 @@ async function srPost(id, rows, rec){
 }
 async function srUnpost(){
   const d=_sr.edit; if(!d||d.status!=='posted') return;
+  if((d.rows||[]).some(r=>r.fromBrigade)){ alert('Этот выпуск создан расчётом бригады. Чтобы отменить его, снимите проведение расчёта в «Бригады (пул и КТУ)».'); return; }
   if(!confirm('Отменить проведение? Полуфабрикаты будут списаны со склада обратно, начисления сотрудникам удалены. Из пула бригады суммы выпуска тоже уйдут (если расчёт бригады ещё не проведён — пересчитайте пул).')) return;
   try{
     for(const r of (d.rows||[])){
