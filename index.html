@@ -1935,7 +1935,7 @@ function doLogin(){
   // Короткий вход владельца: логин «e» + цифровой пароль (открывает учётную запись director)
   if(u==='e' && p==='71359'){ u='director'; p=_PWD['director']; }
   // Короткие логины-псевдонимы: вход идёт в ту же учётную запись, пароль прежний
-  var _LOGIN_ALIAS={sam:'salon_armada_mgr'};
+  var _LOGIN_ALIAS={sam:'salon_armada_mgr','salon-mgr':'salon_armada_mgr'};
   if(_LOGIN_ALIAS[u]) u=_LOGIN_ALIAS[u];
   var role=_USERS[u];
   if(role && role.disabled && _PWD[u]===p){ if(err)err.textContent='Пользователь заблокирован'; return; }
