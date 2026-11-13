@@ -1924,6 +1924,7 @@ setTimeout(function(){ dbUsersRefresh(); },300);
 function doLogin(){
   diagLog('doLogin() вызвана');
   var u=(document.getElementById('login-username').value||'').trim().toLowerCase();
+  var _typedLogin=u;
   var p=document.getElementById('login-password').value||'';
   var err=document.getElementById('login-error');
   if(!u||!p){if(err)err.textContent='Введите логин и пароль';diagLog('Пустой логин/пароль',true);return;}
@@ -1948,6 +1949,7 @@ function doLogin(){
     return;
   }
   diagLog('Пароль верный, роль: '+role.label);
+  try{ if(typeof loginRemember==='function') loginRemember(_typedLogin); }catch(e){}
   if(err)err.textContent='';
   // Сохраняем текущего пользователя
   window._currentRole=role;
@@ -2043,7 +2045,8 @@ function doLogout(){
   var ls=document.getElementById('login-screen');
   if(ls){ls.style.display='flex';ls.style.opacity='0';ls.style.transition='opacity .3s';
     setTimeout(function(){ls.style.opacity='1';},10);}
-  document.getElementById('login-username').value='';
+  var _lu=''; try{ var _ll=JSON.parse(localStorage.getItem('erpLogins')||'[]'); if(_ll&&_ll[0]) _lu=_ll[0]; }catch(e){}
+  document.getElementById('login-username').value=_lu;
   document.getElementById('login-password').value='';
   var err=document.getElementById('login-error');
   if(err)err.textContent='';
@@ -2133,7 +2136,7 @@ window.onerror = function(msg, src, line, col){
     <div id="login-pass-form">
       <div class="login-field">
         <label>Логин</label>
-        <input id="login-username" type="text" placeholder="Введите логин"
+        <input id="login-username" type="text" list="login-history" autocomplete="username" placeholder="Введите логин"
           onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
       </div>
       <div class="login-field">
@@ -2143,6 +2146,28 @@ window.onerror = function(msg, src, line, col){
       </div>
       <div class="login-error" id="login-error"></div>
       <button class="login-btn" id="login-btn" onclick="doLogin()">Войти в систему</button>
+      <datalist id="login-history"></datalist>
+      <div id="login-forget" style="display:none;text-align:center;margin-top:10px;font-size:11px"><a href="#" style="color:inherit;opacity:.6" onclick="loginForget();return false">забыть сохранённые логины на этом компьютере</a></div>
+      <script>
+      (function(){
+        try{
+          var list=JSON.parse(localStorage.getItem('erpLogins')||'[]');
+          if(!Array.isArray(list)||!list.length) return;
+          var dl=document.getElementById('login-history'); if(dl) dl.innerHTML=list.map(function(x){return '<option value="'+String(x).replace(/"/g,'&quot;')+'">';}).join('');
+          var u=document.getElementById('login-username'); if(u && !u.value){ u.value=list[0]; var pw=document.getElementById('login-password'); if(pw) setTimeout(function(){pw.focus();},50); }
+          var f=document.getElementById('login-forget'); if(f) f.style.display='';
+        }catch(e){}
+      })();
+      function loginRemember(login){
+        try{
+          if(!login||login==='e') return;
+          var list=JSON.parse(localStorage.getItem('erpLogins')||'[]'); if(!Array.isArray(list)) list=[];
+          list=[login].concat(list.filter(function(x){return x!==login;})).slice(0,8);
+          localStorage.setItem('erpLogins',JSON.stringify(list));
+        }catch(e){}
+      }
+      function loginForget(){ try{ localStorage.removeItem('erpLogins'); }catch(e){} var u=document.getElementById('login-username'); if(u) u.value=''; var d=document.getElementById('login-history'); if(d) d.innerHTML=''; var f=document.getElementById('login-forget'); if(f) f.style.display='none'; }
+      </script>
     </div>
 
     <!-- Форма PIN-кода -->
