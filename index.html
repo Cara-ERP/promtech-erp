@@ -8177,6 +8177,7 @@ window.onerror = function(msg, src, line, col){
               <th class="col-acc" style="text-align:right;color:var(--accent)">Отпускные</th>
               <th class="col-acc" style="text-align:right;color:var(--accent)">Займ нач.</th>
               <th class="col-acc" style="text-align:right;color:var(--accent)">Больничные</th>
+              <th class="col-acc" style="text-align:right;color:var(--accent)" title="Бригадирская доплата из расчёта бригады">Бригадирский</th>
               <th style="text-align:right;color:var(--green);font-weight:700;cursor:pointer;white-space:nowrap" onclick="togglePayrollCols('acc')">
                 <span id="toggle-acc-btn">◀</span> Итого нач.
               </th>
@@ -8242,6 +8243,7 @@ window.onerror = function(msg, src, line, col){
               <th>Период</th>
               <th style="text-align:right;color:var(--accent)">Оклад</th>
               <th style="text-align:right;color:var(--accent)">Сдельная</th>
+              <th style="text-align:right;color:var(--accent)" title="Бригадирская доплата из расчёта бригады">Бригадирский</th>
               <th style="text-align:right;color:var(--accent)">Премия</th>
               <th style="text-align:right;color:var(--accent)">Отпускные</th>
               <th style="text-align:right;color:var(--accent)">Прочие</th>
@@ -8400,6 +8402,7 @@ window.onerror = function(msg, src, line, col){
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <div><label class="label">Оклад</label><input id="ac-oklad" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Сдельная</label><input id="ac-sdel" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">Бригадирский</label><input id="ac-brig" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Премия</label><input id="ac-premiya" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Отпускные</label><input id="ac-otpusk" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Займ (начисл.)</label><input id="ac-zaim-n" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
@@ -13912,7 +13915,7 @@ function renderAccrualsList(){
     const ded = det.deductions||[];
     const getA = (...k) => acc.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
     const getD = (...k) => ded.filter(x=>k.some(kk=>x.type?.includes(kk))).reduce((s,x)=>s+x.amount,0);
-    const oklad = getA('Оклад'); const sdel = getA('Сдельная');
+    const oklad = getA('Оклад'); const sdel = getA('Сдельная'); const brig = getA('Бригадирск');
     const prem = getA('Премия'); const otpusk = getA('Отпускные');
     const prochie_a = getA('Больничный','Займ','Материальная','Районный');
     const ded_total = a.deducted||0;
@@ -13922,6 +13925,7 @@ function renderAccrualsList(){
       <td style="font-size:12px;color:var(--text3);white-space:nowrap">${a.date||''}</td>
       <td style="text-align:right;font-size:12px">${oklad?fmt(oklad):'—'}</td>
       <td style="text-align:right;font-size:12px">${sdel?fmt(sdel):'—'}</td>
+      <td style="text-align:right;font-size:12px">${brig?fmt(brig):'—'}</td>
       <td style="text-align:right;font-size:12px">${prem?fmt(prem):'—'}</td>
       <td style="text-align:right;font-size:12px">${otpusk?fmt(otpusk):'—'}</td>
       <td style="text-align:right;font-size:12px">${prochie_a?fmt(prochie_a):'—'}</td>
@@ -13931,7 +13935,7 @@ function renderAccrualsList(){
       <td><button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openAccrualModal('${a.id}')">✏️</button>
         <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить строку" onclick="deleteAccrualRow('${a.id}')">🗑</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--text3)">Нет данных</td></tr>';
+  }).join('') || '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--text3)">Нет данных</td></tr>';
 }
 
 async function deleteAccrualRow(id){
@@ -13970,6 +13974,7 @@ function openAccrualModal(id){
 
   document.getElementById('ac-oklad').value  = getA('Оклад')||'';
   document.getElementById('ac-sdel').value   = getA('Сдельная')||'';
+  document.getElementById('ac-brig').value   = getA('Бригадирск')||'';
   document.getElementById('ac-premiya').value= getA('Премия')||'';
   document.getElementById('ac-otpusk').value = getA('Отпускные')||'';
   document.getElementById('ac-zaim-n').value = getA('Займ')||'';
@@ -13996,7 +14001,7 @@ function openAccrualModal(id){
 
 function calcAccrualTotal(){
   const v = id => parseFloat(document.getElementById(id)?.value)||0;
-  const acc = v('ac-oklad')+v('ac-sdel')+v('ac-premiya')+v('ac-otpusk')+v('ac-zaim-n')+v('ac-boln')+v('ac-prochie-acc');
+  const acc = v('ac-oklad')+v('ac-sdel')+v('ac-brig')+v('ac-premiya')+v('ac-otpusk')+v('ac-zaim-n')+v('ac-boln')+v('ac-prochie-acc');
   const ded = v('ac-obed')+v('ac-zaim-p')+v('ac-opv')+v('ac-osms')+v('ac-shtraf')+v('ac-prochie');
   const net = acc - ded;
   const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
@@ -14017,6 +14022,7 @@ async function saveAccrual(){
   const accruals = [
     {type:'Оклад',          amount:v('ac-oklad')},
     {type:'Сдельная',       amount:v('ac-sdel')},
+    {type:'Бригадирская доплата', amount:v('ac-brig')},
     {type:'Премия',         amount:v('ac-premiya')},
     {type:'Отпускные',      amount:v('ac-otpusk')},
     {type:'Займ начислен',  amount:v('ac-zaim-n')},
@@ -14415,6 +14421,7 @@ function renderSalaryLedger(){
     const premiya    = getAcc('Премия');
     const otpusk     = getAcc('Отпускные');
     const bolnichn   = getAcc('Больничный');
+    const brigadirsk = getAcc('Бригадирск');
     const zaim_nach  = getAcc('Займ');
     const total_acc  = a.amount||0;
     // Если детализации нет — неразнесённый остаток
@@ -14455,7 +14462,7 @@ function renderSalaryLedger(){
     const nach_color = ostatok_nachalo > 0 ? 'var(--amber)' : ostatok_nachalo < 0 ? 'var(--red)' : 'var(--text3)';
 
     return { a, oklad: oklad||neraznesen, sdelnaya: hasDetails?sdelnaya:0,
-             premiya, otpusk, bolnichn, zaim_nach, total_acc,
+             premiya, otpusk, bolnichn, brigadirsk, zaim_nach, total_acc,
              obed, zaim_pog, opv, osms_so, shtraf, prochie, total_ded,
              k_vydache, vydano_month, ostatok, ostatok_color, ostatok_nachalo, nach_color };
   });
@@ -14472,6 +14479,7 @@ function renderSalaryLedger(){
     <td class="col-acc" style="text-align:right;user-select:text">${r.otpusk?fmt(r.otpusk):'—'}</td>
     <td class="col-acc" style="text-align:right;user-select:text">${r.zaim_nach?fmt(r.zaim_nach):'—'}</td>
     <td class="col-acc" style="text-align:right;user-select:text">${r.bolnichn?fmt(r.bolnichn):'—'}</td>
+    <td class="col-acc" style="text-align:right;user-select:text">${r.brigadirsk?fmt(r.brigadirsk):'—'}</td>
     <td style="text-align:right;font-weight:700;color:var(--green);user-select:text">${fmt(r.total_acc)}</td>
     <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.obed?fmt(r.obed):'—'}</td>
     <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.zaim_pog?fmt(r.zaim_pog):'—'}</td>
@@ -14486,7 +14494,7 @@ function renderSalaryLedger(){
     <td style="position:relative">
       <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPayrollRowMenu(event,'${r.a.id}','${r.a.emp_name.replace(/'/g,'')}')">⋯</button>
     </td>
-  </tr>`).join('') || '<tr><td colspan="18" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за этот период</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="19" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за этот период</td></tr>';
 
   // Итоги по всем колонкам
   const totals = rows.reduce((s,r)=>({
@@ -14497,6 +14505,7 @@ function renderSalaryLedger(){
     otpusk:   s.otpusk   + r.otpusk,
     zaim_n:   s.zaim_n   + r.zaim_nach,
     boln:     s.boln     + r.bolnichn,
+    brig:     s.brig     + r.brigadirsk,
     acc:      s.acc      + r.total_acc,
     obed:     s.obed     + r.obed,
     zaim_p:   s.zaim_p   + r.zaim_pog,
@@ -14508,7 +14517,7 @@ function renderSalaryLedger(){
     k_vydache:s.k_vydache+ r.k_vydache,
     vydano:   s.vydano   + r.vydano_month,
     ostatok:  s.ostatok  + r.ostatok,
-  }), {nach:0,oklad:0,sdel:0,premiya:0,otpusk:0,zaim_n:0,boln:0,acc:0,
+  }), {nach:0,oklad:0,sdel:0,premiya:0,otpusk:0,zaim_n:0,boln:0,brig:0,acc:0,
        obed:0,zaim_p:0,opv:0,osms:0,shtraf:0,prochie:0,ded:0,k_vydache:0,vydano:0,ostatok:0});
 
   const ft  = (n,c='')=> n ? `<td style="text-align:right;font-weight:700;${c?'color:'+c:''};user-select:text">${fmt(n)}</td>` : `<td style="text-align:right;color:var(--text3)">—</td>`;
@@ -14524,6 +14533,7 @@ function renderSalaryLedger(){
     ${fta(totals.otpusk,'var(--accent)')}
     ${fta(totals.zaim_n,'var(--accent)')}
     ${fta(totals.boln,'var(--accent)')}
+    ${fta(totals.brig,'var(--accent)')}
     ${ft(totals.acc,'var(--green)')}
     ${ftd(totals.obed,'var(--red)')}
     ${ftd(totals.zaim_p,'var(--red)')}
@@ -14586,13 +14596,13 @@ function exportSalaryLedger(){
   const fmt = n => n ? Math.round(n) : 0;
 
   const headers = ['Сотрудник','Остаток нач.','Оклад','Сдельная','Премия','Отпускные',
-    'Займ нач.','Больничные','Итого нач.','Обед','Займ погаш.','ОПВ','ОСМС/СО',
+    'Займ нач.','Больничные','Бригадирский','Итого нач.','Обед','Займ погаш.','ОПВ','ОСМС/СО',
     'Штрафы','Прочие','Итого удерж.','К выдаче','Выдано','Остаток'];
 
   const data = rows.map(r=>[
     r.a.emp_name,
     fmt(r.ostatok_nachalo), fmt(r.oklad), fmt(r.sdelnaya), fmt(r.premiya),
-    fmt(r.otpusk), fmt(r.zaim_nach), fmt(r.bolnichn), fmt(r.total_acc),
+    fmt(r.otpusk), fmt(r.zaim_nach), fmt(r.bolnichn), fmt(r.brigadirsk), fmt(r.total_acc),
     fmt(r.obed), fmt(r.zaim_pog), fmt(r.opv), fmt(r.osms_so),
     fmt(r.shtraf), fmt(r.prochie), fmt(r.total_ded),
     fmt(r.k_vydache), fmt(r.vydano_month), fmt(r.ostatok)
