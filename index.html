@@ -14145,7 +14145,13 @@ function openPayrollRowMenu(e, accrualId, empName){
         onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
         data-empname="${empName.replace(/"/g,'&quot;')}"
         onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());showEmpPayrollHistory(this.dataset.empname)">
-        📋 Операции за период
+        📋 Начисления сотрудника
+      </div>
+      <div style="padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:center"
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+        data-empname="${empName.replace(/"/g,'&quot;')}"
+        onclick="document.querySelectorAll('.payroll-row-menu').forEach(m=>m.remove());showPayouts(this.dataset.empname,true)">
+        💸 Все выдачи (можно удалить)
       </div>
     </div>`;
 
@@ -14172,14 +14178,15 @@ function openEmployeeCardByName(name){
 
 // ── Журнал выдач ЗП: кому, когда и сколько выдано за выбранный период ──
 function prPayoutsPeriod(){
+  if(_poAll) return {from:'',to:'',label:'все даты'};
   const month=document.getElementById('payroll-month')?.value||'';
   const from=month?month+'-01':(document.getElementById('payroll-from')?.value||'');
   const to=month?month+'-31':(document.getElementById('payroll-to')?.value||'');
   return {from,to,label:month?(typeof cabMonthLabel==='function'?cabMonthLabel(month):month):((from||'…')+' — '+(to||'…'))};
 }
-let _poEmp='';
-async function showPayouts(emp){
-  _poEmp=emp||'';
+let _poEmp='', _poAll=false;
+async function showPayouts(emp, allDates){
+  _poEmp=emp||''; _poAll=!!allDates;
   if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
   let m=document.getElementById('payoutsModal');
   if(!m){
@@ -14227,11 +14234,21 @@ function renderPayouts(){
     tbody.innerHTML=Object.entries(by).sort((a,b)=>a[0].localeCompare(b[0],'ru')).map(([k,v])=>
       `<tr><td>${esc(k)}</td><td style="text-align:right">${v.n}</td><td>${esc(ru(v.last))}</td><td style="text-align:right;font-family:monospace">${fmt(v.sum)}</td></tr>`).join('');
   } else {
-    thead.innerHTML='<tr><th>Дата</th><th>Сотрудник</th><th>Комментарий</th><th style="text-align:right">Сумма</th></tr>';
-    tbody.innerHTML=rows.map(p=>`<tr><td style="white-space:nowrap">${esc(ru(p.date))}</td><td>${esc(p.emp_name)}</td><td style="color:var(--text3);font-size:12px">${esc(p.comment||'')}</td><td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(p.amount)}</td></tr>`).join('');
+    thead.innerHTML='<tr><th>Дата</th><th>Сотрудник</th><th>Комментарий</th><th style="text-align:right">Сумма</th><th></th></tr>';
+    tbody.innerHTML=rows.map(p=>`<tr><td style="white-space:nowrap">${esc(ru(p.date))}</td><td>${esc(p.emp_name)}</td><td style="color:var(--text3);font-size:12px">${esc(p.comment||'')}</td><td style="text-align:right;font-family:monospace;color:var(--green)">${fmt(p.amount)}</td><td><span style="cursor:pointer;color:var(--red)" title="Удалить эту выдачу из ведомости" onclick="deletePayout('${esc(p.id)}')">🗑</span></td></tr>`).join('');
   }
-  if(!rows.length) tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">За выбранный период выдач нет</td></tr>';
+  if(!rows.length) tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">За выбранный период выдач нет</td></tr>';
   document.getElementById('po-tfoot').innerHTML=rows.length?`<tr style="font-weight:700;background:var(--bg3)"><td colspan="${mode==='emp'?3:3}" style="text-align:right">Итого (${rows.length} выдач):</td><td style="text-align:right;font-family:monospace">${fmt(total)}</td></tr>`:'';
+}
+async function deletePayout(id){
+  const p=(_payrollData?.payments||[]).find(x=>String(x.id)===String(id)); if(!p) return;
+  const fmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
+  if(!confirm('Удалить выдачу из ведомости?\n\n'+p.emp_name+' · '+p.date+'\nСумма '+fmt(p.amount)+(p.comment?'\n'+p.comment:'')+'\n\nОперация в «Деньги» (если она там есть) не удаляется. Действие нельзя отменить.')) return;
+  try{
+    await sbDelete('salary_accruals','id=eq.'+p.id);
+    _payrollData.payments=_payrollData.payments.filter(x=>String(x.id)!==String(id));
+    renderPayouts(); if(typeof renderSalaryLedger==='function') renderSalaryLedger();
+  }catch(e){ alert('Не удалось удалить: '+e.message); }
 }
 function exportPayouts(){
   if(typeof XLSX==='undefined'){ alert('Excel загружается, попробуйте через несколько секунд'); return; }
