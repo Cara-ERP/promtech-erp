@@ -13979,13 +13979,18 @@ function openAccrualModal(id){
   document.getElementById('ac-otpusk').value = getA('Отпускные')||'';
   document.getElementById('ac-zaim-n').value = getA('Займ')||'';
   document.getElementById('ac-boln').value   = getA('Больничный')||'';
-  document.getElementById('ac-prochie-acc').value = getA('Прочие начисления')||'';
+  const _knownA=['Оклад','Сдельная','Бригадирск','Премия','Отпускные','Займ','Больничный'];
+  const _knownD=['Обед','Погашение займа','Пенсионные','Медицинское','Социальный','Штраф'];
+  // «Прочие» = всё, что не относится к отдельным полям (в т.ч. «Прочие начисления», «Материальная помощь» и т.п.) — чтобы при сохранении ничего не терялось
+  const _restA = acc.filter(x=>!_knownA.some(k=>x.type?.includes(k))).reduce((s,x)=>s+(+x.amount||0),0);
+  const _restD = ded.filter(x=>!_knownD.some(k=>x.type?.includes(k))).reduce((s,x)=>s+(+x.amount||0),0);
+  document.getElementById('ac-prochie-acc').value = _restA||'';
   document.getElementById('ac-obed').value   = getD('Обед')||'';
   document.getElementById('ac-zaim-p').value = getD('Погашение займа')||'';
   document.getElementById('ac-opv').value    = getD('Пенсионные')||'';
   document.getElementById('ac-osms').value   = getD('Медицинское','Социальный')||'';
   document.getElementById('ac-shtraf').value = getD('Штраф')||'';
-  document.getElementById('ac-prochie').value= getD('ИПН','Алименты','Корректировка')||'';
+  document.getElementById('ac-prochie').value= _restD||'';
 
   // Если нет детализации но есть amount — покажем в Оклад
   if(!acc.length && a?.amount){
@@ -14449,7 +14454,7 @@ function renderSalaryLedger(){
     const opv        = getDed('Пенсионные');
     const osms_so    = getDed('Медицинское','Социальный');
     const shtraf     = getDed('Штраф');
-    const prochie    = getDed('ИПН','Алименты','Корректировка');
+    const prochie    = ded.filter(x=>!['Обед','Погашение займа','Пенсионные','Медицинское','Социальный','Штраф'].some(k=>x.type?.includes(k))).reduce((s,x)=>s+(+x.amount||0),0);
     const total_ded  = a.deducted||0;
 
     const k_vydache = a.net||0;
