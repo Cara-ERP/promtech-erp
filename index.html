@@ -8200,7 +8200,8 @@ window.onerror = function(msg, src, line, col){
               <th class="col-ded" style="text-align:right;color:var(--red)">Обед</th>
               <th class="col-ded" style="text-align:right;color:var(--red)">Займ погаш.</th>
               <th class="col-ded" style="text-align:right;color:var(--red)">ОПВ</th>
-              <th class="col-ded" style="text-align:right;color:var(--red)">ОСМС/СО</th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">ОСМС</th>
+              <th class="col-ded" style="text-align:right;color:var(--red)">СО</th>
               <th class="col-ded" style="text-align:right;color:var(--red)">Штрафы</th>
               <th class="col-ded" style="text-align:right;color:var(--red)">Прочие</th>
               <th style="text-align:right;color:var(--red);font-weight:700;cursor:pointer;white-space:nowrap" onclick="togglePayrollCols('ded')">
@@ -8226,6 +8227,7 @@ window.onerror = function(msg, src, line, col){
         </div>
         <button class="btn btn-ghost btn-sm" onclick="openVacationCalcModal()">🏖 Отпускные / Больничные</button>
         <button class="btn btn-ghost btn-sm" onclick="openSalaryCalcModal()">📊 Начислить оклад</button>
+        <button class="btn btn-ghost btn-sm" onclick="openBulkModal()">➕ Массово (премия, удержание…)</button>
         <button class="btn btn-primary btn-sm" onclick="openAccrualModal(null)">+ Начисление</button>
       </div>
 
@@ -8436,7 +8438,8 @@ window.onerror = function(msg, src, line, col){
               <div><label class="label">Обед</label><input id="ac-obed" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Займ (погаш.)</label><input id="ac-zaim-p" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">ОПВ</label><input id="ac-opv" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
-              <div><label class="label">ОСМС/СО</label><input id="ac-osms" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">ОСМС</label><input id="ac-osms" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
+              <div><label class="label">СО</label><input id="ac-so" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Штрафы</label><input id="ac-shtraf" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
               <div><label class="label">Прочие</label><input id="ac-prochie" type="number" class="input" placeholder="0" oninput="calcAccrualTotal()"></div>
             </div>
@@ -13909,9 +13912,158 @@ async function createSalaryAccruals(){
       created++;
     } catch(e){ console.warn('⚠️',emp.name,e.message); }
   }
-  alert(`✅ Создано ${created} начислений`);
+  let _rec=0, _recErr='';
+  try{ _rec=await applyRecurring(month); }catch(e){ _recErr='\n(постоянные начисления/удержания не применены: '+e.message+')'; }
+  alert(`✅ Создано ${created} начислений`+(_rec?`\n+ постоянные начисления/удержания: ${_rec}`:'')+_recErr);
   closeModal('salaryCalcModal');
   renderAccrualsList();
+}
+
+// ── Массовое начисление / удержание (однократное и постоянное) ────────────────
+const BULK_CATS = {
+  acc:['Премия','Материальная помощь','Прочие начисления'],
+  ded:['Обед','Штрафы','Погашение займа','Пенсионные взносы','Медицинское страхование','Социальный взнос (СО)','Прочие удержания']
+};
+function _bulkMonths(){
+  const out=[]; const d=new Date(); let y=d.getFullYear(), m=d.getMonth()+2; if(m>12){m=1;y++;}
+  const MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  while(y>2025 || (y===2025 && m>=11)){ out.push([`${y}-${String(m).padStart(2,'0')}`,`${MN[m-1]} ${y}`]); m--; if(m<1){m=12;y--;} }
+  return out;
+}
+function _ensureBulkModal(){
+  if(document.getElementById('bulkModal')) return;
+  const el=document.createElement('div'); el.className='modal-overlay'; el.id='bulkModal';
+  el.innerHTML=`<div class="modal" style="max-width:760px;width:96vw;max-height:92vh;display:flex;flex-direction:column">
+    <div class="modal-header"><div class="modal-title">➕ Массовое начисление / удержание</div><button class="modal-close" onclick="closeModal('bulkModal')">✕</button></div>
+    <div class="modal-body" style="overflow-y:auto;flex:1">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="label">Что делаем</label><select id="bk-kind" class="input" onchange="bulkKindChange()"><option value="acc">Начисление</option><option value="ded">Удержание</option></select></div>
+        <div><label class="label">Статья</label><select id="bk-cat" class="input"></select></div>
+        <div><label class="label">Сумма для всех, ₸</label><div style="display:flex;gap:6px"><input id="bk-amt" type="number" min="0" class="input" placeholder="0"><button class="btn btn-ghost btn-sm" onclick="bulkFillAll()">Всем выбранным</button></div></div>
+        <div><label class="label">Примечание (необязательно)</label><input id="bk-note" class="input" placeholder="например, к празднику"></div>
+        <div><label class="label">Режим</label><select id="bk-mode" class="input" onchange="bulkModeChange()"><option value="once">Однократно (за один месяц)</option><option value="rec">Постоянно (каждый месяц)</option></select></div>
+        <div><label class="label" id="bk-from-l">За месяц</label><select id="bk-from" class="input"></select></div>
+        <div id="bk-to-w" style="display:none"><label class="label">По месяц (включительно)</label><select id="bk-to" class="input"></select></div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text3)">Отметьте сотрудников и при необходимости поправьте сумму у каждого.</div>
+      <div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-top:6px"><table class="data-table" style="font-size:12px"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th><input type="checkbox" onchange="bulkAll(this.checked)"></th><th style="text-align:left">Сотрудник</th><th style="text-align:right">Сумма, ₸</th></tr></thead><tbody id="bk-tbody"></tbody></table></div>
+      <div style="margin-top:14px;font-weight:600;font-size:13px">Действующие постоянные правила</div>
+      <div id="bk-rules" style="font-size:12px;margin-top:6px;color:var(--text3)">загрузка…</div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="bk-apply-m" class="input" style="width:auto"></select><button class="btn btn-ghost btn-sm" onclick="bulkApplyMonth()">▶ Применить постоянные за месяц</button><span style="font-size:11px;color:var(--text3)">повторно ничего не дублирует; также срабатывает при «Начислить оклад»</span></div>
+      <div id="bk-err" style="color:var(--red);font-size:13px;margin-top:6px"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('bulkModal')">Закрыть</button><button class="btn btn-primary" onclick="bulkCreate()">✅ Создать</button></div>
+  </div>`;
+  document.body.appendChild(el);
+}
+async function openBulkModal(){
+  _ensureBulkModal();
+  if(!(employeesData||[]).length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
+  if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
+  const opts=_bulkMonths().map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  const cur=curYM();
+  ['bk-from','bk-apply-m'].forEach(i=>{ const e=document.getElementById(i); e.innerHTML=opts; e.value=cur; });
+  document.getElementById('bk-to').innerHTML='<option value="">бессрочно</option>'+opts;
+  document.getElementById('bk-kind').value='acc'; document.getElementById('bk-mode').value='once';
+  document.getElementById('bk-amt').value=''; document.getElementById('bk-note').value=''; document.getElementById('bk-err').textContent='';
+  bulkKindChange(); bulkModeChange();
+  const emps=(employeesData||[]).filter(e=>e.status!=='fired').slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ru'));
+  document.getElementById('bk-tbody').innerHTML=emps.map((e,i)=>`<tr data-name="${String(e.name).replace(/"/g,'&quot;')}"><td><input type="checkbox" class="bk-cb"></td><td style="white-space:nowrap">${e.name}</td><td style="text-align:right"><input type="number" min="0" class="bk-sum" placeholder="0" style="width:100px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"></td></tr>`).join('');
+  showModal('bulkModal'); bulkLoadRules();
+}
+function bulkKindChange(){ const k=document.getElementById('bk-kind').value; document.getElementById('bk-cat').innerHTML=BULK_CATS[k].map(c=>`<option>${c}</option>`).join(''); }
+function bulkModeChange(){ const rec=document.getElementById('bk-mode').value==='rec'; document.getElementById('bk-to-w').style.display=rec?'':'none'; document.getElementById('bk-from-l').textContent=rec?'С месяца':'За месяц'; }
+function bulkAll(on){ document.querySelectorAll('#bk-tbody .bk-cb').forEach(c=>c.checked=on); }
+function bulkFillAll(){ const v=document.getElementById('bk-amt').value; document.querySelectorAll('#bk-tbody tr').forEach(tr=>{ if(tr.querySelector('.bk-cb').checked) tr.querySelector('.bk-sum').value=v; }); }
+function _bulkRow(emp,kind,cat,amount,date,comment,ruleId){
+  const it=[{type:cat,amount:amount}];
+  const row={emp_name:emp,date,amount:kind==='acc'?amount:0,deducted:kind==='ded'?amount:0,net:kind==='acc'?amount:-amount,type:'salary',comment,
+    details:{accruals:kind==='acc'?it:[],deductions:kind==='ded'?it:[]}};
+  return row;
+}
+function _monthEnd(m){ const [y,mo]=m.split('-').map(Number); return `${y}-${String(mo).padStart(2,'0')}-${String(new Date(y,mo,0).getDate()).padStart(2,'0')}`; }
+async function bulkCreate(){
+  const err=document.getElementById('bk-err'); err.textContent='';
+  const kind=document.getElementById('bk-kind').value, cat=document.getElementById('bk-cat').value;
+  const mode=document.getElementById('bk-mode').value, from=document.getElementById('bk-from').value, to=document.getElementById('bk-to').value;
+  const note=document.getElementById('bk-note').value.trim();
+  const items=[...document.querySelectorAll('#bk-tbody tr')].filter(tr=>tr.querySelector('.bk-cb').checked).map(tr=>({name:tr.dataset.name,amount:parseFloat(tr.querySelector('.bk-sum').value)||0})).filter(x=>x.amount>0);
+  if(!items.length){ err.textContent='Отметьте сотрудников и укажите суммы'; return; }
+  if(mode==='rec' && to && to<from){ err.textContent='Месяц «по» раньше месяца «с»'; return; }
+  const lbl=(kind==='acc'?'Начисление':'Удержание')+' «'+cat+'»';
+  if(!confirm(`${lbl}\n${items.length} сотр., на сумму ${items.reduce((s,x)=>s+x.amount,0).toLocaleString('ru-RU')} ₸\n`+(mode==='once'?`Однократно за ${from}`:`Постоянно с ${from}${to?' по '+to:' (бессрочно)'}`)+'\n\nПродолжить?')) return;
+  if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
+  let n=0;
+  try{
+    if(mode==='once'){
+      for(const it of items){
+        const res=await sbInsert('salary_accruals',_bulkRow(it.name,kind,cat,it.amount,_monthEnd(from),cat+(note?': '+note:'')+' (массово)'));
+        if(res && _payrollData) _payrollData.accruals.push(res); n++;
+      }
+    } else {
+      for(const it of items){
+        await sbInsert('salary_recurring',{emp_name:it.name,kind,category:cat,amount:it.amount,start_month:from,end_month:to||null,active:true,comment:note});
+        n++;
+      }
+      window._recRules=null;
+      const added=await applyRecurringRange(from);
+      err.style.color='var(--green)'; err.textContent=`✓ Правил создано: ${n}; начислений за прошедшие месяцы: ${added}`;
+    }
+  }catch(e){
+    err.style.color='var(--red)';
+    err.textContent='Ошибка: '+e.message+(mode==='rec'?' — для постоянных правил нужна таблица salary_recurring (выполните salary_recurring.sql в Supabase)':'');
+    return;
+  }
+  if(mode==='once'){ closeModal('bulkModal'); alert(`✅ Создано строк: ${n}`); }
+  if(typeof renderAccrualsList==='function') renderAccrualsList();
+  bulkLoadRules();
+}
+async function _loadRecRules(force){
+  if(window._recRules && !force) return window._recRules;
+  window._recRules = await sbFetch('salary_recurring','select=*&active=eq.true&order=emp_name');
+  return window._recRules;
+}
+async function applyRecurring(month){
+  const rules=await _loadRecRules();
+  if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
+  let n=0;
+  for(const r of rules){
+    if(r.start_month>month || (r.end_month && month>r.end_month)) continue;
+    const tag=`[R:${r.id}]`;
+    if((_payrollData?.accruals||[]).some(a=>a.date?.startsWith(month) && (a.comment||'').includes(tag))) continue;
+    const res=await sbInsert('salary_accruals',_bulkRow(r.emp_name,r.kind,r.category,+r.amount,_monthEnd(month),`${r.category}${r.comment?': '+r.comment:''} (постоянно) ${tag}`));
+    if(res && _payrollData) _payrollData.accruals.push(res); n++;
+  }
+  return n;
+}
+async function applyRecurringRange(fromMonth){
+  const cur=curYM(); let n=0; let [y,m]=fromMonth.split('-').map(Number);
+  while(`${y}-${String(m).padStart(2,'0')}`<=cur){ n+=await applyRecurring(`${y}-${String(m).padStart(2,'0')}`); m++; if(m>12){m=1;y++;} }
+  return n;
+}
+async function bulkApplyMonth(){
+  const err=document.getElementById('bk-err'); const m=document.getElementById('bk-apply-m').value;
+  try{ const n=await applyRecurring(m); err.style.color='var(--green)'; err.textContent=`✓ За ${m} создано строк: ${n}`; if(typeof renderAccrualsList==='function') renderAccrualsList(); }
+  catch(e){ err.style.color='var(--red)'; err.textContent='Ошибка: '+e.message; }
+}
+async function bulkLoadRules(){
+  const box=document.getElementById('bk-rules'); if(!box) return;
+  try{
+    const rules=await _loadRecRules(true);
+    if(!rules.length){ box.textContent='Нет постоянных правил.'; return; }
+    box.innerHTML='<table class="data-table" style="font-size:12px"><thead><tr><th style="text-align:left">Сотрудник</th><th style="text-align:left">Статья</th><th style="text-align:right">Сумма</th><th>С</th><th>По</th><th></th></tr></thead><tbody>'+
+      rules.map(r=>`<tr><td>${r.emp_name}</td><td style="color:${r.kind==='acc'?'var(--green)':'var(--red)'}">${r.kind==='acc'?'+':'−'} ${r.category}</td><td style="text-align:right">${Math.round(r.amount).toLocaleString('ru-RU')}</td><td>${r.start_month}</td><td>${r.end_month||'∞'}</td>
+      <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" style="font-size:11px" title="Прекратить с прошлого месяца" onclick="bulkStopRule('${r.id}')">⏹</button><button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить правило (уже созданные строки останутся)" onclick="bulkDelRule('${r.id}')">🗑</button></td></tr>`).join('')+'</tbody></table>';
+  }catch(e){ box.textContent='Правила недоступны: '+e.message+' (нужна таблица salary_recurring)'; }
+}
+async function bulkStopRule(id){
+  const d=new Date(); d.setMonth(d.getMonth()-1); const end=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  if(!confirm('Прекратить правило: оно действует по '+end+' включительно, с текущего месяца начисляться не будет.')) return;
+  try{ await sbPatch('salary_recurring',`id=eq.${id}`,{end_month:end}); bulkLoadRules(); }catch(e){ alert(e.message); }
+}
+async function bulkDelRule(id){
+  if(!confirm('Удалить правило? Уже созданные начисления останутся.')) return;
+  try{ await sbDelete('salary_recurring',`id=eq.${id}`); bulkLoadRules(); }catch(e){ alert(e.message); }
 }
 
 // ── Журнал начислений ЗП ──────────────────────────────────────────────────────
@@ -14027,7 +14179,8 @@ function openAccrualModal(id){
   document.getElementById('ac-obed').value   = getD('Обед')||'';
   document.getElementById('ac-zaim-p').value = getD('Погашение займа')||'';
   document.getElementById('ac-opv').value    = getD('Пенсионные')||'';
-  document.getElementById('ac-osms').value   = getD('Медицинское','Социальный')||'';
+  document.getElementById('ac-osms').value   = getD('Медицинское')||'';
+  document.getElementById('ac-so').value     = getD('Социальный')||'';
   document.getElementById('ac-shtraf').value = getD('Штраф')||'';
   document.getElementById('ac-prochie').value= _restD||'';
 
@@ -14046,7 +14199,7 @@ function openAccrualModal(id){
 function calcAccrualTotal(){
   const v = id => parseFloat(document.getElementById(id)?.value)||0;
   const acc = v('ac-oklad')+v('ac-sdel')+v('ac-brig')+v('ac-premiya')+v('ac-otpusk')+v('ac-zaim-n')+v('ac-boln')+v('ac-prochie-acc');
-  const ded = v('ac-obed')+v('ac-zaim-p')+v('ac-opv')+v('ac-osms')+v('ac-shtraf')+v('ac-prochie');
+  const ded = v('ac-obed')+v('ac-zaim-p')+v('ac-opv')+v('ac-osms')+v('ac-so')+v('ac-shtraf')+v('ac-prochie');
   const net = acc - ded;
   const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
   document.getElementById('ac-total-acc').textContent = fmt(acc);
@@ -14078,6 +14231,7 @@ async function saveAccrual(){
     {type:'Погашение займа',        amount:v('ac-zaim-p')},
     {type:'Пенсионные взносы',      amount:v('ac-opv')},
     {type:'Медицинское страхование',amount:v('ac-osms')},
+    {type:'Социальный взнос (СО)',amount:v('ac-so')},
     {type:'Штрафы',                 amount:v('ac-shtraf')},
     {type:'Прочие удержания',       amount:v('ac-prochie')},
   ].filter(x=>x.amount>0);
@@ -14492,7 +14646,8 @@ function renderSalaryLedger(){
     const obed       = getDed('Обед');
     const zaim_pog   = getDed('Погашение займа');
     const opv        = getDed('Пенсионные');
-    const osms_so    = getDed('Медицинское','Социальный');
+    const osms_so    = getDed('Медицинское');
+    const so_ded     = getDed('Социальный');
     const shtraf     = getDed('Штраф');
     const prochie    = ded.filter(x=>!['Обед','Погашение займа','Пенсионные','Медицинское','Социальный','Штраф'].some(k=>x.type?.includes(k))).reduce((s,x)=>s+(+x.amount||0),0);
     const total_ded  = a.deducted||0;
@@ -14525,7 +14680,7 @@ function renderSalaryLedger(){
 
     return { a, oklad: oklad||neraznesen, sdelnaya: hasDetails?sdelnaya:0,
              premiya, otpusk, bolnichn, brigadirsk, zaim_nach, prochie_nach, total_acc,
-             obed, zaim_pog, opv, osms_so, shtraf, prochie, total_ded,
+             obed, zaim_pog, opv, osms_so, so_ded, shtraf, prochie, total_ded,
              k_vydache, vydano_month, ostatok, ostatok_color, ostatok_nachalo, nach_color };
   });
 
@@ -14548,6 +14703,7 @@ function renderSalaryLedger(){
     <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.zaim_pog?fmt(r.zaim_pog):'—'}</td>
     <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.opv?fmt(r.opv):'—'}</td>
     <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.osms_so?fmt(r.osms_so):'—'}</td>
+    <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.so_ded?fmt(r.so_ded):'—'}</td>
     <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.shtraf?fmt(r.shtraf):'—'}</td>
     <td class="col-ded" style="text-align:right;color:var(--red);user-select:text">${r.prochie?fmt(r.prochie):'—'}</td>
     <td style="text-align:right;font-weight:700;color:var(--red);user-select:text">${r.total_ded?fmt(r.total_ded):'—'}</td>
@@ -14557,7 +14713,7 @@ function renderSalaryLedger(){
     <td style="position:relative">
       <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPayrollRowMenu(event,'${r.a.id}','${r.a.emp_name.replace(/'/g,'')}')">⋯</button>
     </td>
-  </tr>`).join('') || '<tr><td colspan="20" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за этот период</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="21" style="text-align:center;padding:20px;color:var(--text3)">Нет данных за этот период</td></tr>';
 
   // Итоги по всем колонкам
   const totals = rows.reduce((s,r)=>({
@@ -14575,6 +14731,7 @@ function renderSalaryLedger(){
     zaim_p:   s.zaim_p   + r.zaim_pog,
     opv:      s.opv      + r.opv,
     osms:     s.osms     + r.osms_so,
+    so:       s.so       + r.so_ded,
     shtraf:   s.shtraf   + r.shtraf,
     prochie:  s.prochie  + r.prochie,
     ded:      s.ded      + r.total_ded,
@@ -14582,7 +14739,7 @@ function renderSalaryLedger(){
     vydano:   s.vydano   + r.vydano_month,
     ostatok:  s.ostatok  + r.ostatok,
   }), {nach:0,oklad:0,sdel:0,premiya:0,otpusk:0,zaim_n:0,boln:0,brig:0,prn:0,acc:0,
-       obed:0,zaim_p:0,opv:0,osms:0,shtraf:0,prochie:0,ded:0,k_vydache:0,vydano:0,ostatok:0});
+       obed:0,zaim_p:0,opv:0,osms:0,so:0,shtraf:0,prochie:0,ded:0,k_vydache:0,vydano:0,ostatok:0});
 
   const ft  = (n,c='')=> n ? `<td style="text-align:right;font-weight:700;${c?'color:'+c:''};user-select:text">${fmt(n)}</td>` : `<td style="text-align:right;color:var(--text3)">—</td>`;
   const fta = (n,c='')=> n ? `<td class="col-acc" style="text-align:right;font-weight:700;${c?'color:'+c:''};user-select:text">${fmt(n)}</td>` : `<td class="col-acc" style="text-align:right;color:var(--text3)">—</td>`;
@@ -14604,6 +14761,7 @@ function renderSalaryLedger(){
     ${ftd(totals.zaim_p,'var(--red)')}
     ${ftd(totals.opv,'var(--red)')}
     ${ftd(totals.osms,'var(--red)')}
+    ${ftd(totals.so,'var(--red)')}
     ${ftd(totals.shtraf,'var(--red)')}
     ${ftd(totals.prochie,'var(--red)')}
     ${ft(totals.ded,'var(--red)')}
@@ -14661,14 +14819,14 @@ function exportSalaryLedger(){
   const fmt = n => n ? Math.round(n) : 0;
 
   const headers = ['Сотрудник','Остаток нач.','Оклад','Сдельная','Премия','Отпускные',
-    'Займ нач.','Больничные','Бригадирский','Прочие нач.','Итого нач.','Обед','Займ погаш.','ОПВ','ОСМС/СО',
+    'Займ нач.','Больничные','Бригадирский','Прочие нач.','Итого нач.','Обед','Займ погаш.','ОПВ','ОСМС','СО',
     'Штрафы','Прочие','Итого удерж.','К выдаче','Выдано','Остаток'];
 
   const data = rows.map(r=>[
     r.a.emp_name,
     fmt(r.ostatok_nachalo), fmt(r.oklad), fmt(r.sdelnaya), fmt(r.premiya),
     fmt(r.otpusk), fmt(r.zaim_nach), fmt(r.bolnichn), fmt(r.brigadirsk), fmt(r.prochie_nach), fmt(r.total_acc),
-    fmt(r.obed), fmt(r.zaim_pog), fmt(r.opv), fmt(r.osms_so),
+    fmt(r.obed), fmt(r.zaim_pog), fmt(r.opv), fmt(r.osms_so), fmt(r.so_ded),
     fmt(r.shtraf), fmt(r.prochie), fmt(r.total_ded),
     fmt(r.k_vydache), fmt(r.vydano_month), fmt(r.ostatok)
   ]);
@@ -26010,7 +26168,7 @@ async function fillAccrualFromCard(){
 
   const meal  = emp.deduction_meal||0;
   const opv   = emp.deduction_opv_fixed || Math.round(oklad * (emp.deduction_opv_pct||10) / 100);
-  const osms  = (emp.deduction_osms_fixed || Math.round(oklad * (emp.deduction_osms_pct||3) / 100)) + (emp.deduction_so_fixed||0);
+  const osms  = emp.deduction_osms_fixed || Math.round(oklad * (emp.deduction_osms_pct||3) / 100);
 
   document.getElementById('ac-oklad').value = oklad||'';
 
@@ -26021,6 +26179,7 @@ async function fillAccrualFromCard(){
   fillIfEmpty('ac-obed',  meal);
   fillIfEmpty('ac-opv',   opv);
   fillIfEmpty('ac-osms',  osms);
+  fillIfEmpty('ac-so',    emp.deduction_so_fixed||0);
 
   calcAccrualTotal();
 }
