@@ -20709,6 +20709,16 @@ Object.defineProperty(window,'currentUser',{
 
 // MODALS
 function showModal(id){document.getElementById(id).classList.add('open')}
+// Esc закрывает верхнее открытое окно (как в 1С) — по одному окну за нажатие
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape' || e.defaultPrevented) return;
+  const open=[...document.querySelectorAll('.modal-overlay.open')];
+  if(!open.length) return;
+  let top=open[0], tz=-1;
+  open.forEach(m=>{ const z=parseInt(getComputedStyle(m).zIndex)||0; if(z>=tz){ tz=z; top=m; } });
+  top.classList.remove('open');
+  e.preventDefault();
+});
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 window.addEventListener('click',e=>{
   if(e.target.classList.contains('modal-overlay') && e.target.id!=='moneyTxModal')
