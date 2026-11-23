@@ -14095,8 +14095,8 @@ async function openBulkLog(){
   (_payrollData?.accruals||[]).filter(a=>(a.comment||'').includes('(массово)')).forEach(a=>{
     const det=(a.details?.accruals||[]).map(x=>({k:'acc',t:x.type,v:x.amount})).concat((a.details?.deductions||[]).map(x=>({k:'ded',t:x.type,v:x.amount})))[0]||{k:'acc',t:'?',v:0};
     const key=[a.date,det.k,det.t,a.comment].join('|');
-    const g=once[key]||(once[key]={mode:'Однократно',period:(a.date||'').slice(0,7),kind:det.k,cat:det.t,note:String(a.comment||'').replace(/\s*\(массово\)/,'').replace(new RegExp('^'+det.t+':?\\s*'),''),names:[],sum:0,created:a.created_at||'',sort:a.created_at||a.date});
-    g.names.push(a.emp_name); g.sum+=+det.v||0; if(a.created_at && a.created_at>g.created) g.created=a.created_at;
+    const g=once[key]||(once[key]={mode:'Однократно',period:(a.date||'').slice(0,7),kind:det.k,cat:det.t,note:String(a.comment||'').replace(/\s*\(массово\)/,'').replace(new RegExp('^'+det.t+':?\\s*'),''),names:[],sum:0,rowIds:[],created:a.created_at||'',sort:a.created_at||a.date});
+    g.rowIds.push(a.id); g.names.push(a.emp_name); g.sum+=+det.v||0; if(a.created_at && a.created_at>g.created) g.created=a.created_at;
   });
   Object.values(once).forEach(g=>groups.push(g));
   // постоянные правила
@@ -14123,7 +14123,36 @@ async function openBulkLog(){
      <td style="white-space:nowrap">${g.period}</td><td style="text-align:right">${g.names.length}</td>
      <td style="text-align:right;font-weight:600">${fmt(g.sum)}${g.ids?' /мес':''}</td><td>${(g.note||'').replace(/</g,'&lt;')||'—'}</td>
      <td style="max-width:260px;white-space:normal;color:var(--text3)">${g.names.sort().join(', ').replace(/</g,'&lt;')}</td>
-     <td>${g.ids&&active?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="bulkStopGroup('${g.ids.join(',')}')">⏹ Прекратить</button>`:''}</td></tr>`;}).join('')+`</tbody></table>`:'<div style="color:var(--text3);padding:20px;text-align:center">Массовых операций пока нет.</div>');
+     <td style="white-space:nowrap">${g.ids&&active?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="bulkStopGroup('${g.ids.join(',')}')">⏹ Прекратить</button>`:''}<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить эту массовую операцию" onclick="${g.ids?`bulkDeleteRules('${g.ids.join(',')}')`:`bulkDeleteOnce('${g.rowIds.join(',')}')`}">🗑 Удалить</button></td></tr>`;}).join('')+`</tbody></table>`:'<div style="color:var(--text3);padding:20px;text-align:center">Массовых операций пока нет.</div>');
+}
+async function bulkDeleteOnce(ids){
+  const list=ids.split(',');
+  if(!confirm(`Удалить эту массовую операцию?\n\nБудет удалено строк в «Начисления ЗП»: ${list.length}.\nДействие нельзя отменить.`)) return;
+  try{
+    await sbDelete('salary_accruals',`id=in.(${list.join(',')})`);
+    if(_payrollData) _payrollData.accruals=_payrollData.accruals.filter(a=>!list.includes(String(a.id)));
+    if(typeof renderAccrualsList==='function') renderAccrualsList();
+    openBulkLog();
+  }catch(e){ alert('Не удалось удалить: '+e.message); }
+}
+async function bulkDeleteRules(ids){
+  const list=ids.split(',');
+  const tags=list.map(i=>`[R:${i}]`);
+  const rows=(_payrollData?.accruals||[]).filter(a=>tags.some(t=>(a.comment||'').includes(t)));
+  if(!confirm(`Удалить это постоянное начисление/удержание (правил: ${list.length})?\n\nБольше оно создаваться не будет.`)) return;
+  let delRows=false;
+  if(rows.length) delRows=confirm(`Уже создано строк в «Начисления ЗП»: ${rows.length}.\n\nОК — удалить и их тоже.\nОтмена — строки оставить (удалится только правило).`);
+  try{
+    if(delRows){
+      await sbDelete('salary_accruals',`id=in.(${rows.map(a=>a.id).join(',')})`);
+      const del=new Set(rows.map(a=>String(a.id)));
+      _payrollData.accruals=_payrollData.accruals.filter(a=>!del.has(String(a.id)));
+    }
+    await sbDelete('salary_recurring',`id=in.(${list.join(',')})`);
+    window._recRules=null;
+    if(typeof renderAccrualsList==='function') renderAccrualsList();
+    openBulkLog();
+  }catch(e){ alert('Не удалось удалить: '+e.message); }
 }
 async function bulkStopGroup(ids){
   const d=new Date(); d.setMonth(d.getMonth()-1); const end=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
