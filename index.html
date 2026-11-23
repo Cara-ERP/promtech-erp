@@ -8228,6 +8228,7 @@ window.onerror = function(msg, src, line, col){
         <button class="btn btn-ghost btn-sm" onclick="openVacationCalcModal()">🏖 Отпускные / Больничные</button>
         <button class="btn btn-ghost btn-sm" onclick="openSalaryCalcModal()">📊 Начислить оклад</button>
         <button class="btn btn-ghost btn-sm" onclick="openBulkModal()">➕ Массово (премия, удержание…)</button>
+        <button class="btn btn-ghost btn-sm" onclick="openBulkLog()">📜 Журнал массовых</button>
         <button class="btn btn-primary btn-sm" onclick="openAccrualModal(null)">+ Начисление</button>
       </div>
 
@@ -8246,7 +8247,7 @@ window.onerror = function(msg, src, line, col){
           <option value="2026-07">Июль 2026</option>
           <option value="2026-08" selected>Август 2026</option>
         </select>
-        <input id="accrual-search" type="search" placeholder="🔍 Сотрудник..."
+        <input id="accrual-search" type="search" placeholder="🔍 Сотрудник или примечание..."
           style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:200px"
           oninput="renderAccrualsList()">
         <button class="btn btn-ghost btn-sm" onclick="_payrollData=null;initSalaryLedgerPage().then(renderAccrualsList)">🔄</button>
@@ -13983,6 +13984,10 @@ function _bulkRow(emp,kind,cat,amount,date,comment,ruleId){
 }
 function _monthEnd(m){ const [y,mo]=m.split('-').map(Number); return `${y}-${String(mo).padStart(2,'0')}-${String(new Date(y,mo,0).getDate()).padStart(2,'0')}`; }
 async function bulkCreate(){
+  if(window._bulkBusy) return; window._bulkBusy=true;
+  try{ await _bulkCreate(); } finally { window._bulkBusy=false; }
+}
+async function _bulkCreate(){
   const err=document.getElementById('bk-err'); err.textContent='';
   const kind=document.getElementById('bk-kind').value, cat=document.getElementById('bk-cat').value;
   const mode=document.getElementById('bk-mode').value, from=document.getElementById('bk-from').value, to=document.getElementById('bk-to').value;
@@ -13996,10 +14001,16 @@ async function bulkCreate(){
   let n=0;
   try{
     if(mode==='once'){
+      let skipped=[];
       for(const it of items){
+        const dt=_monthEnd(from);
+        const dup=(_payrollData?.accruals||[]).some(a=>a.emp_name===it.name && a.date===dt && (a.comment||'').includes('(массово)') &&
+          ((a.details?.accruals||[]).concat(a.details?.deductions||[])).some(x=>x.type===cat && Math.round(x.amount)===Math.round(it.amount)));
+        if(dup){ skipped.push(it.name); continue; }
         const res=await sbInsert('salary_accruals',_bulkRow(it.name,kind,cat,it.amount,_monthEnd(from),cat+(note?': '+note:'')+' (массово)'));
         if(res && _payrollData) _payrollData.accruals.push(res); n++;
       }
+      if(skipped.length) alert('Пропущены (такая же строка уже есть, дубль не создан): '+skipped.join(', '));
     } else {
       for(const it of items){
         await sbInsert('salary_recurring',{emp_name:it.name,kind,category:cat,amount:it.amount,start_month:from,end_month:to||null,active:true,comment:note});
@@ -14024,6 +14035,7 @@ async function _loadRecRules(force){
   return window._recRules;
 }
 async function applyRecurring(month){
+  if(month>=curYM()) return 0; // текущий месяц ещё не закончился — не начисляем
   const rules=await _loadRecRules();
   if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
   let n=0;
@@ -14038,12 +14050,12 @@ async function applyRecurring(month){
 }
 async function applyRecurringRange(fromMonth){
   const cur=curYM(); let n=0; let [y,m]=fromMonth.split('-').map(Number);
-  while(`${y}-${String(m).padStart(2,'0')}`<=cur){ n+=await applyRecurring(`${y}-${String(m).padStart(2,'0')}`); m++; if(m>12){m=1;y++;} }
+  while(`${y}-${String(m).padStart(2,'0')}`<cur){ n+=await applyRecurring(`${y}-${String(m).padStart(2,'0')}`); m++; if(m>12){m=1;y++;} }
   return n;
 }
 async function bulkApplyMonth(){
   const err=document.getElementById('bk-err'); const m=document.getElementById('bk-apply-m').value;
-  try{ const n=await applyRecurring(m); err.style.color='var(--green)'; err.textContent=`✓ За ${m} создано строк: ${n}`; if(typeof renderAccrualsList==='function') renderAccrualsList(); }
+  try{ const n=await applyRecurring(m); err.style.color='var(--green)'; err.textContent=(m>=curYM()?'Месяц ещё не закончился — постоянные начисляются только за завершённые месяцы. ':'')+`За ${m} создано строк: ${n}`; if(typeof renderAccrualsList==='function') renderAccrualsList(); }
   catch(e){ err.style.color='var(--red)'; err.textContent='Ошибка: '+e.message; }
 }
 async function bulkLoadRules(){
@@ -14066,6 +14078,59 @@ async function bulkDelRule(id){
   try{ await sbDelete('salary_recurring',`id=eq.${id}`); bulkLoadRules(); }catch(e){ alert(e.message); }
 }
 
+
+// ── Журнал массовых операций ─────────────────────────────────────────────────
+async function openBulkLog(){
+  let m=document.getElementById('bulkLogModal');
+  if(!m){ m=document.createElement('div'); m.className='modal-overlay'; m.id='bulkLogModal';
+    m.innerHTML=`<div class="modal" style="max-width:1000px;width:96vw;max-height:92vh;display:flex;flex-direction:column"><div class="modal-header"><div class="modal-title">📜 Журнал массовых начислений и удержаний</div><button class="modal-close" onclick="closeModal('bulkLogModal')">✕</button></div><div class="modal-body" id="bl-body" style="overflow:auto;flex:1">загрузка…</div></div>`;
+    document.body.appendChild(m); }
+  showModal('bulkLogModal');
+  const body=document.getElementById('bl-body'); body.textContent='загрузка…';
+  if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
+  const fmt=n=>Math.round(n||0).toLocaleString('ru-RU');
+  const groups=[];
+  // однократные: строки с пометкой «(массово)», группируем по месяцу, статье и примечанию
+  const once={};
+  (_payrollData?.accruals||[]).filter(a=>(a.comment||'').includes('(массово)')).forEach(a=>{
+    const det=(a.details?.accruals||[]).map(x=>({k:'acc',t:x.type,v:x.amount})).concat((a.details?.deductions||[]).map(x=>({k:'ded',t:x.type,v:x.amount})))[0]||{k:'acc',t:'?',v:0};
+    const key=[a.date,det.k,det.t,a.comment].join('|');
+    const g=once[key]||(once[key]={mode:'Однократно',period:(a.date||'').slice(0,7),kind:det.k,cat:det.t,note:String(a.comment||'').replace(/\s*\(массово\)/,'').replace(new RegExp('^'+det.t+':?\\s*'),''),names:[],sum:0,created:a.created_at||'',sort:a.created_at||a.date});
+    g.names.push(a.emp_name); g.sum+=+det.v||0; if(a.created_at && a.created_at>g.created) g.created=a.created_at;
+  });
+  Object.values(once).forEach(g=>groups.push(g));
+  // постоянные правила
+  let rulesErr='';
+  try{
+    const rules=await sbFetch('salary_recurring','select=*&order=created_at.desc');
+    const rg={};
+    rules.forEach(r=>{
+      const key=[r.kind,r.category,r.start_month,r.end_month||'',r.comment||'',(r.created_at||'').slice(0,16)].join('|');
+      const g=rg[key]||(rg[key]={mode:r.end_month?'На период':'Постоянно',period:`с ${r.start_month}${r.end_month?' по '+r.end_month:' (бессрочно)'}`,kind:r.kind,cat:r.category,note:r.comment||'',names:[],sum:0,created:r.created_at||'',sort:r.created_at||r.start_month,ids:[],end:r.end_month});
+      g.names.push(r.emp_name); g.sum+=+r.amount||0; g.ids.push(r.id);
+    });
+    Object.values(rg).forEach(g=>groups.push(g));
+  }catch(e){ rulesErr='Постоянные правила недоступны: '+e.message; }
+  groups.sort((a,b)=>String(b.sort).localeCompare(String(a.sort)));
+  const cur=curYM();
+  body.innerHTML=(rulesErr?`<div style="color:var(--amber);font-size:12px;margin-bottom:8px">${rulesErr}</div>`:'')+
+   (groups.length?`<table class="data-table" style="font-size:12px"><thead><tr><th style="text-align:left">Создано</th><th style="text-align:left">Операция</th><th style="text-align:left">Режим</th><th style="text-align:left">Период</th><th style="text-align:right">Сотр.</th><th style="text-align:right">Сумма</th><th style="text-align:left">Примечание</th><th style="text-align:left">Сотрудники</th><th></th></tr></thead><tbody>`+
+   groups.map(g=>{
+     const active=g.ids&&(!g.end||g.end>=cur);
+     return `<tr><td style="white-space:nowrap;color:var(--text3)">${g.created?String(g.created).slice(0,10):'—'}</td>
+     <td style="color:${g.kind==='acc'?'var(--green)':'var(--red)'};font-weight:600">${g.kind==='acc'?'+':'−'} ${g.cat}</td>
+     <td>${g.mode}${g.ids?(active?' <span style="color:var(--green)">● действует</span>':' <span style="color:var(--text3)">○ завершено</span>'):''}</td>
+     <td style="white-space:nowrap">${g.period}</td><td style="text-align:right">${g.names.length}</td>
+     <td style="text-align:right;font-weight:600">${fmt(g.sum)}${g.ids?' /мес':''}</td><td>${(g.note||'').replace(/</g,'&lt;')||'—'}</td>
+     <td style="max-width:260px;white-space:normal;color:var(--text3)">${g.names.sort().join(', ').replace(/</g,'&lt;')}</td>
+     <td>${g.ids&&active?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="bulkStopGroup('${g.ids.join(',')}')">⏹ Прекратить</button>`:''}</td></tr>`;}).join('')+`</tbody></table>`:'<div style="color:var(--text3);padding:20px;text-align:center">Массовых операций пока нет.</div>');
+}
+async function bulkStopGroup(ids){
+  const d=new Date(); d.setMonth(d.getMonth()-1); const end=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  if(!confirm('Прекратить эти постоянные начисления/удержания? Действуют по '+end+' включительно, с текущего месяца начисляться не будут.')) return;
+  try{ await sbPatch('salary_recurring',`id=in.(${ids})`,{end_month:end}); window._recRules=null; openBulkLog(); }catch(e){ alert(e.message); }
+}
+
 // ── Журнал начислений ЗП ──────────────────────────────────────────────────────
 async function initAccrualsPage(){
   if(!_payrollData) await initSalaryLedgerPage();
@@ -14082,7 +14147,7 @@ function renderAccrualsList(){
 
   const accruals = (_payrollData.accruals||[]).filter(a=>{
     if(month && !a.date?.startsWith(month)) return false;
-    if(search && !a.emp_name?.toLowerCase().includes(search)) return false;
+    if(search && !(a.emp_name?.toLowerCase().includes(search) || String(a.comment||'').toLowerCase().includes(search))) return false;
     return true;
   }).sort((a,b)=>String(a.emp_name||'').trim().localeCompare(String(b.emp_name||'').trim(),'ru') || String(a.date||'').localeCompare(String(b.date||'')));
 
