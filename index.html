@@ -13786,6 +13786,7 @@ async function saveVacationAccrual(){
 function openSalaryCalcModal(){
   showModal('salaryCalcModal');
   loadSalaryCalc();
+  if(!(employeesData||[]).length && typeof loadStaffFromDB==='function') loadStaffFromDB().then(loadSalaryCalc).catch(()=>{});
 }
 
 function loadSalaryCalc(){
@@ -13986,6 +13987,7 @@ function openAccrualModal(id){
 
   // Заполняем список сотрудников
   fillAccrualEmpList();
+  if(!(employeesData||[]).length && typeof loadStaffFromDB==='function') loadStaffFromDB().then(fillAccrualEmpList).catch(()=>{});
   { const _ei=document.getElementById('accrual-emp'); if(_ei && !_ei.dataset.dl){ _ei.dataset.dl='1'; _ei.setAttribute('autocomplete','off'); _ei.addEventListener('focus',fillAccrualEmpList); } }
 
   document.getElementById('accrual-emp').value = a?.emp_name||'';
