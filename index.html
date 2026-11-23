@@ -883,6 +883,7 @@ async function loadStaffFromDB(){
             deduction_so_pct:   s.deduction_so_pct||3.5,
             deduction_opv_fixed:  s.deduction_opv_fixed||0,
             deduction_osms_fixed: s.deduction_osms_fixed||0,
+            deduction_so_fixed: s.deduction_so_fixed||0,
             status:     s.status||'active',
             fired_date: s.fired_date||null,
             pieceGoal:  s.piece_goal||400,
@@ -898,6 +899,7 @@ async function loadStaffFromDB(){
           exists.deduction_osms_pct = s.deduction_osms_pct||3;
           exists.deduction_opv_fixed  = s.deduction_opv_fixed||0;
           exists.deduction_osms_fixed = s.deduction_osms_fixed||0;
+          exists.deduction_so_fixed = s.deduction_so_fixed||0;
           exists.status     = s.status||'active';
           exists.fired_date = s.fired_date||null;
           exists.pin        = s.pin||null;
@@ -8101,6 +8103,19 @@ window.onerror = function(msg, src, line, col){
               <label class="label">СО %</label>
               <input id="emp-so-pct" type="number" min="0" max="100" placeholder="3.5" class="input">
             </div>
+            <div style="grid-column:1/-1;font-size:12px;color:var(--text3)">Если указана сумма в ₸ — в начислениях берётся она (а не %). Пусто = не удерживать.</div>
+            <div>
+              <label class="label">ОПВ, ₸ в месяц</label>
+              <input id="emp-opv-fix" type="number" min="0" placeholder="0" class="input">
+            </div>
+            <div>
+              <label class="label">ОСМС, ₸ в месяц</label>
+              <input id="emp-osms-fix" type="number" min="0" placeholder="0" class="input">
+            </div>
+            <div>
+              <label class="label">СО, ₸ в месяц</label>
+              <input id="emp-so-fix" type="number" min="0" placeholder="0" class="input">
+            </div>
           </div>
           <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
             <select id="emp-status" style="font-size:13px">
@@ -13787,7 +13802,7 @@ function loadSalaryCalc(){
 
   const existingNames = new Set(
     (_payrollData?.accruals||[])
-      .filter(a=>a.date?.startsWith(month) && a.type==='salary')
+      .filter(a=>a.date?.startsWith(month) && a.type==='salary' && (a.details?.accruals||[]).some(x=>/Оклад/.test(x.type||'')))
       .map(a=>a.emp_name)
   );
 
@@ -13853,7 +13868,7 @@ async function createSalaryAccruals(){
   const date = `${yr}-${String(mo).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
 
   if(!rows.length){ alert('Нет новых начислений'); return; }
-  if(!confirm(`Создать ${rows.length} начислений оклада за ${month}?`)) return;
+  if(!confirm(`Создать ${rows.length} начислений оклада за ${month}?\n\nУже существующие начисления не изменяются и не удаляются: добавляются только новые строки. Сотрудникам, у кого оклад за месяц уже начислен, повторно не создаётся.`)) return;
 
   let created = 0;
   for(const r of rows){
@@ -13864,6 +13879,7 @@ async function createSalaryAccruals(){
         ...(emp.deduction_meal?[{type:'Обед', amount:emp.deduction_meal}]:[]),
         ...(emp.deduction_opv_fixed?[{type:'Пенсионные взносы', amount:emp.deduction_opv_fixed}]:[]),
         ...(emp.deduction_osms_fixed?[{type:'Медицинское страхование', amount:emp.deduction_osms_fixed}]:[]),
+        ...(emp.deduction_so_fixed?[{type:'Социальный взнос (СО)', amount:emp.deduction_so_fixed}]:[]),
       ]
     };
     const ded = details.deductions.reduce((s,d)=>s+d.amount,0);
@@ -25967,7 +25983,7 @@ async function fillAccrualFromCard(){
 
   const meal  = emp.deduction_meal||0;
   const opv   = emp.deduction_opv_fixed || Math.round(oklad * (emp.deduction_opv_pct||10) / 100);
-  const osms  = emp.deduction_osms_fixed || Math.round(oklad * (emp.deduction_osms_pct||3) / 100);
+  const osms  = (emp.deduction_osms_fixed || Math.round(oklad * (emp.deduction_osms_pct||3) / 100)) + (emp.deduction_so_fixed||0);
 
   document.getElementById('ac-oklad').value = oklad||'';
 
@@ -26018,6 +26034,9 @@ function openEmployeeCard(id){
   document.getElementById('emp-opv-pct').value     = emp?.deduction_opv_pct||10;
   document.getElementById('emp-osms-pct').value    = emp?.deduction_osms_pct||3;
   document.getElementById('emp-so-pct').value      = emp?.deduction_so_pct||3.5;
+  document.getElementById('emp-opv-fix').value     = emp?.deduction_opv_fixed||'';
+  document.getElementById('emp-osms-fix').value    = emp?.deduction_osms_fixed||'';
+  document.getElementById('emp-so-fix').value      = emp?.deduction_so_fixed||'';
   document.getElementById('emp-change-date').value = new Date().toISOString().slice(0,10);
   const statusSel = document.getElementById('emp-status');
   const firedDate = document.getElementById('emp-fired-date');
@@ -26076,6 +26095,9 @@ function saveEmployeeCard(){
     deduction_opv_pct:  parseFloat(document.getElementById('emp-opv-pct')?.value)||10,
     deduction_osms_pct: parseFloat(document.getElementById('emp-osms-pct')?.value)||3,
     deduction_so_pct:   parseFloat(document.getElementById('emp-so-pct')?.value)||3.5,
+    deduction_opv_fixed:  parseFloat(document.getElementById('emp-opv-fix')?.value)||0,
+    deduction_osms_fixed: parseFloat(document.getElementById('emp-osms-fix')?.value)||0,
+    deduction_so_fixed:   parseFloat(document.getElementById('emp-so-fix')?.value)||0,
     status:    document.getElementById('emp-status')?.value||'active',
     fired_date:document.getElementById('emp-fired-date')?.value||null,
   };
@@ -26137,6 +26159,7 @@ function saveEmployeeCard(){
       base_salary:obj.base_salary, deduction_meal:obj.deduction_meal,
       deduction_opv_pct:obj.deduction_opv_pct, deduction_osms_pct:obj.deduction_osms_pct,
       deduction_so_pct:obj.deduction_so_pct, status:obj.status, fired_date:obj.fired_date,
+      deduction_opv_fixed:obj.deduction_opv_fixed, deduction_osms_fixed:obj.deduction_osms_fixed, deduction_so_fixed:obj.deduction_so_fixed,
     }).catch(e=>console.warn('⚠️ Ошибка обновления сотрудника:', e.message));
   } else {
     const pinVal2=parseInt(document.getElementById('emp-card-pin')?.value)||null;
@@ -26146,6 +26169,9 @@ function saveEmployeeCard(){
       ws:obj.ws, salary:obj.salary, phone:obj.phone,
       iin:obj.iin, hired:obj.hired, comment:obj.comment,
       pin:pinVal2||null,
+      base_salary:obj.base_salary, deduction_meal:obj.deduction_meal,
+      deduction_opv_pct:obj.deduction_opv_pct, deduction_osms_pct:obj.deduction_osms_pct, deduction_so_pct:obj.deduction_so_pct,
+      deduction_opv_fixed:obj.deduction_opv_fixed, deduction_osms_fixed:obj.deduction_osms_fixed, deduction_so_fixed:obj.deduction_so_fixed,
     }).then(()=>console.log('✅ Сотрудник сохранён в Supabase'))
       .catch(e=>console.warn('⚠️ Ошибка сохранения сотрудника:', e.message));
   }
