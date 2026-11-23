@@ -13920,7 +13920,7 @@ function renderAccrualsList(){
     if(month && !a.date?.startsWith(month)) return false;
     if(search && !a.emp_name?.toLowerCase().includes(search)) return false;
     return true;
-  });
+  }).sort((a,b)=>String(a.emp_name||'').trim().localeCompare(String(b.emp_name||'').trim(),'ru') || String(a.date||'').localeCompare(String(b.date||'')));
 
   // Возможные дубли: тот же сотрудник, дата, тип, сумма и комментарий
   const _dupKey = a => [String(a.emp_name||'').trim().toLowerCase(), a.date, a.type, Math.round(a.amount||0), Math.round(a.deducted||0), a.comment||''].join('|');
