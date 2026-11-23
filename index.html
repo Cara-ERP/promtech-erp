@@ -13795,7 +13795,8 @@ function loadSalaryCalc(){
   const tfoot    = document.getElementById('sc-tfoot');
   if(!tbody) return;
 
-  const withSalary = employeesData.filter(e=>e.base_salary>0 && e.status!=='fired');
+  const _bs = e=>(+e.base_salary||+e.salary||0);
+  const withSalary = employeesData.filter(e=>_bs(e)>0 && e.status!=='fired');
   const [yr, mo] = month.split('-').map(Number);
   const daysInMonth = new Date(yr, mo, 0).getDate();
   const fmt = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
@@ -13814,23 +13815,24 @@ function loadSalaryCalc(){
       if(['Я','К','С'].includes(mark)) factDays++;
     }
     if(factDays === 0) factDays = workDays;
-    const accrual = Math.round(emp.base_salary / workDays * factDays);
+    const accrual = Math.round(_bs(emp) / workDays * factDays);
     const exists  = existingNames.has(emp.name);
     return {emp, factDays, workDays, accrual, exists};
   });
 
-  tbody.innerHTML = rows.map(r=>`<tr style="opacity:${r.exists?0.5:1}">
+  if(!rows.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Нет сотрудников с окладом. Укажите «Оклад» в карточке сотрудника (раздел Персонал → карточка → Условия труда) и нажмите «Обновить». Уволенные не показываются.</td></tr>'; }
+  else tbody.innerHTML = rows.map(r=>`<tr style="opacity:${r.exists?0.5:1}">
     <td style="font-weight:500;white-space:nowrap">${r.emp.name}</td>
-    <td style="text-align:right;font-family:monospace">${fmt(r.emp.base_salary)}</td>
+    <td style="text-align:right;font-family:monospace">${fmt(_bs(r.emp))}</td>
     <td style="text-align:right">
       <input type="number" value="${workDays}" min="1" max="31"
         style="width:50px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"
-        onchange="updateSalaryCalcRow(this,'${r.emp.id}',${r.emp.base_salary})">
+        onchange="updateSalaryCalcRow(this,'${r.emp.id}',${_bs(r.emp)})">
     </td>
     <td style="text-align:right">
       <input type="number" value="${r.factDays}" min="0" max="31"
         style="width:50px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"
-        onchange="updateSalaryCalcRow(this,'${r.emp.id}',${r.emp.base_salary})">
+        onchange="updateSalaryCalcRow(this,'${r.emp.id}',${_bs(r.emp)})">
     </td>
     <td id="sc-acc-${r.emp.id}" style="text-align:right;font-weight:700;color:var(--green);font-family:monospace">${fmt(r.accrual)}</td>
     <td style="font-size:11px;color:${r.exists?'var(--green)':'var(--text3)'}">${r.exists?'✅ Создано':'—'}</td>
