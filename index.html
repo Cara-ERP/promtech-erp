@@ -13970,16 +13970,23 @@ async function deleteAccrualRow(id){
   }catch(e){ alert('Не удалось удалить: '+e.message); }
 }
 
+function fillAccrualEmpList(){
+  const dl = document.getElementById('accrual-emp-list'); if(!dl) return;
+  const names = new Set();
+  (employeesData||[]).forEach(e=>{ if(e.name && e.status!=='fired') names.add(String(e.name).trim()); });
+  (typeof payrollStaff!=='undefined'?payrollStaff:[]).forEach(e=>{ if(e.name) names.add(String(e.name).trim()); });
+  (_payrollData?.accruals||[]).forEach(a=>{ if(a.emp_name) names.add(String(a.emp_name).trim()); });
+  dl.innerHTML = [...names].sort((a,b)=>a.localeCompare(b,'ru')).map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+}
+
 function openAccrualModal(id){
   const a = id ? (_payrollData?.accruals||[]).find(x=>x.id===id) : null;
   document.getElementById('accrual-edit-id').value = id||'';
   document.getElementById('accrual-modal-title').textContent = a ? `✏️ ${a.emp_name}` : 'Новое начисление';
 
   // Заполняем список сотрудников
-  const dl = document.getElementById('accrual-emp-list');
-  if(dl && employeesData?.length){
-    dl.innerHTML = employeesData.map(s=>`<option value="${s.name}">`).join('');
-  }
+  fillAccrualEmpList();
+  { const _ei=document.getElementById('accrual-emp'); if(_ei && !_ei.dataset.dl){ _ei.dataset.dl='1'; _ei.setAttribute('autocomplete','off'); _ei.addEventListener('focus',fillAccrualEmpList); } }
 
   document.getElementById('accrual-emp').value = a?.emp_name||'';
   document.getElementById('accrual-date').value = a?.date||'';
