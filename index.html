@@ -8340,7 +8340,7 @@ window.onerror = function(msg, src, line, col){
 
       <!-- Модал начисления оклада по табелю -->
       <div class="modal-overlay" id="salaryCalcModal">
-        <div class="modal" style="max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+        <div class="modal" style="max-width:1250px;width:96vw;max-height:90vh;display:flex;flex-direction:column">
           <div class="modal-header">
             <div class="modal-title">💰 Начисление оклада по табелю</div>
             <button class="modal-close" onclick="closeModal('salaryCalcModal')">✕</button>
@@ -8375,11 +8375,17 @@ window.onerror = function(msg, src, line, col){
               <table class="data-table" style="font-size:12px">
                 <thead>
                   <tr style="position:sticky;top:0;background:var(--bg2);z-index:1">
+                    <th><input type="checkbox" checked title="Выбрать всех / снять" onchange="scAll(this.checked)"></th>
                     <th style="text-align:left">Сотрудник</th>
                     <th style="text-align:right">Оклад</th>
-                    <th style="text-align:right">Раб. дней</th>
-                    <th style="text-align:right">Факт дней</th>
-                    <th style="text-align:right;color:var(--green)">К начислению</th>
+                    <th style="text-align:right">Раб. дн.</th>
+                    <th style="text-align:right">Факт дн.</th>
+                    <th style="text-align:right;color:var(--green)">Начислено</th>
+                    <th style="text-align:right;color:var(--red)">Обед</th>
+                    <th style="text-align:right;color:var(--red)">ОПВ</th>
+                    <th style="text-align:right;color:var(--red)">ОСМС</th>
+                    <th style="text-align:right;color:var(--red)">СО</th>
+                    <th style="text-align:right;color:var(--amber)">К выплате</th>
                     <th>Статус</th>
                   </tr>
                 </thead>
@@ -13793,21 +13799,17 @@ function loadSalaryCalc(){
   const month    = document.getElementById('sc-month')?.value||curYM();
   const workDays = parseInt(document.getElementById('sc-work-days')?.value)||22;
   const tbody    = document.getElementById('sc-tbody');
-  const tfoot    = document.getElementById('sc-tfoot');
   if(!tbody) return;
-
   const _bs = e=>(+e.base_salary||+e.salary||0);
-  const withSalary = employeesData.filter(e=>_bs(e)>0 && e.status!=='fired');
+  const withSalary = employeesData.filter(e=>_bs(e)>0 && e.status!=='fired')
+    .slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ru'));
   const [yr, mo] = month.split('-').map(Number);
   const daysInMonth = new Date(yr, mo, 0).getDate();
-  const fmt = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
-
   const existingNames = new Set(
     (_payrollData?.accruals||[])
       .filter(a=>a.date?.startsWith(month) && a.type==='salary' && (a.details?.accruals||[]).some(x=>/Оклад/.test(x.type||'')))
       .map(a=>a.emp_name)
   );
-
   const rows = withSalary.map(emp=>{
     let factDays = 0;
     for(let d=1; d<=daysInMonth; d++){
@@ -13816,73 +13818,82 @@ function loadSalaryCalc(){
       if(['Я','К','С'].includes(mark)) factDays++;
     }
     if(factDays === 0) factDays = workDays;
-    const accrual = Math.round(_bs(emp) / workDays * factDays);
-    const exists  = existingNames.has(emp.name);
-    return {emp, factDays, workDays, accrual, exists};
+    const exists = existingNames.has(emp.name);
+    return {emp, base:_bs(emp), workDays, factDays, exists, include:!exists,
+      accrual: Math.round(_bs(emp)/workDays*factDays),
+      meal:+emp.deduction_meal||0, opv:+emp.deduction_opv_fixed||0, osms:+emp.deduction_osms_fixed||0, so:+emp.deduction_so_fixed||0};
   });
-
-  if(!rows.length){ tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Нет сотрудников с окладом. Укажите «Оклад» в карточке сотрудника (раздел Персонал → карточка → Условия труда) и нажмите «Обновить». Уволенные не показываются.</td></tr>'; }
-  else tbody.innerHTML = rows.map(r=>`<tr style="opacity:${r.exists?0.5:1}">
+  window._scRows = rows; window._scMonth = month;
+  const fmt = n => n ? '₸'+Math.round(n).toLocaleString('ru-RU') : '—';
+  const inp = (id,k,v,w)=>`<input type="number" min="0" value="${v||''}" placeholder="0" style="width:${w||78}px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)" oninput="scSet('${id}','${k}',this.value)">`;
+  if(!rows.length){
+    tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--text3)">Нет сотрудников с окладом. Укажите «Оклад» в карточке сотрудника (Условия труда) и нажмите «Обновить». Уволенные не показываются.</td></tr>';
+    document.getElementById('sc-tfoot').innerHTML=''; return;
+  }
+  tbody.innerHTML = rows.map(r=>{ const id=r.emp.id; return `<tr id="sc-row-${id}" style="opacity:${r.include?1:0.5}">
+    <td><input type="checkbox" ${r.include?'checked':''} onchange="scToggle('${id}',this.checked)"></td>
     <td style="font-weight:500;white-space:nowrap">${r.emp.name}</td>
-    <td style="text-align:right;font-family:monospace">${fmt(_bs(r.emp))}</td>
-    <td style="text-align:right">
-      <input type="number" value="${workDays}" min="1" max="31"
-        style="width:50px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"
-        onchange="updateSalaryCalcRow(this,'${r.emp.id}',${_bs(r.emp)})">
-    </td>
-    <td style="text-align:right">
-      <input type="number" value="${r.factDays}" min="0" max="31"
-        style="width:50px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"
-        onchange="updateSalaryCalcRow(this,'${r.emp.id}',${_bs(r.emp)})">
-    </td>
-    <td id="sc-acc-${r.emp.id}" style="text-align:right;font-weight:700;color:var(--green);font-family:monospace">${fmt(r.accrual)}</td>
-    <td style="font-size:11px;color:${r.exists?'var(--green)':'var(--text3)'}">${r.exists?'✅ Создано':'—'}</td>
-  </tr>`).join('');
-
-  const total = rows.reduce((s,r)=>s+r.accrual,0);
-  tfoot.innerHTML = `<tr style="font-weight:700;background:var(--bg3)">
-    <td>ИТОГО (${rows.length} чел.)</td><td></td><td></td><td></td>
-    <td style="text-align:right;color:var(--green)">${fmt(total)}</td><td></td>
-  </tr>`;
-
-  window._scRows = rows;
-  window._scMonth = month;
+    <td style="text-align:right;font-family:monospace">${fmt(r.base)}</td>
+    <td style="text-align:right"><input type="number" value="${r.workDays}" min="1" max="31" style="width:46px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)" onchange="scDays('${id}',this)"></td>
+    <td style="text-align:right"><input type="number" value="${r.factDays}" min="0" max="31" style="width:46px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)" onchange="scDays('${id}',this)"></td>
+    <td style="text-align:right">${inp(id,'accrual',r.accrual,92).replace('id=','id=')}</td>
+    <td style="text-align:right">${inp(id,'meal',r.meal)}</td>
+    <td style="text-align:right">${inp(id,'opv',r.opv)}</td>
+    <td style="text-align:right">${inp(id,'osms',r.osms)}</td>
+    <td style="text-align:right">${inp(id,'so',r.so)}</td>
+    <td id="sc-net-${id}" style="text-align:right;font-weight:700;color:var(--amber);font-family:monospace"></td>
+    <td style="font-size:11px;color:${r.exists?'var(--green)':'var(--text3)'}">${r.exists?'✅ Оклад уже есть':'—'}</td>
+  </tr>`;}).join('');
+  scRecalc();
 }
 
-function updateSalaryCalcRow(input, empId, baseSalary){
-  const row = input.closest('tr');
-  const inputs = row.querySelectorAll('input[type=number]');
-  const workD = parseInt(inputs[0].value)||22;
-  const factD = parseInt(inputs[1].value)||0;
-  const accrual = Math.round(baseSalary / workD * factD);
-  const cell = document.getElementById(`sc-acc-${empId}`);
-  if(cell) cell.textContent = '₸'+accrual.toLocaleString('ru-RU');
-  const r = (window._scRows||[]).find(x=>String(x.emp.id)===String(empId));
-  if(r) r.accrual = accrual;
+function _scFind(id){ return (window._scRows||[]).find(x=>String(x.emp.id)===String(id)); }
+function scRecalc(){
+  const rows = window._scRows||[]; const fmt = n => '₸'+Math.round(n).toLocaleString('ru-RU');
+  let A=0,D=0,N=0,cnt=0;
+  rows.forEach(r=>{
+    const ded=(+r.meal||0)+(+r.opv||0)+(+r.osms||0)+(+r.so||0); const net=(+r.accrual||0)-ded;
+    const c=document.getElementById('sc-net-'+r.emp.id); if(c) c.textContent=fmt(net);
+    if(r.include){ A+=+r.accrual||0; D+=ded; N+=net; cnt++; }
+  });
+  const tf=document.getElementById('sc-tfoot');
+  if(tf) tf.innerHTML=`<tr style="font-weight:700;background:var(--bg3)"><td></td><td>ВЫБРАНО: ${cnt} из ${rows.length}</td><td></td><td></td><td></td>
+    <td style="text-align:right;color:var(--green)">${fmt(A)}</td><td colspan="4" style="text-align:right;color:var(--red)">удержания: ${fmt(D)}</td>
+    <td style="text-align:right;color:var(--amber)">${fmt(N)}</td><td></td></tr>`;
 }
-
+function scSet(id,k,v){ const r=_scFind(id); if(r){ r[k]=parseFloat(v)||0; scRecalc(); } }
+function scToggle(id,on){ const r=_scFind(id); if(!r) return; r.include=!!on; const tr=document.getElementById('sc-row-'+id); if(tr) tr.style.opacity=on?1:0.5; scRecalc(); }
+function scAll(on){ (window._scRows||[]).forEach(r=>{ r.include=!!on; const tr=document.getElementById('sc-row-'+r.emp.id); if(tr){ tr.style.opacity=on?1:0.5; const cb=tr.querySelector('input[type=checkbox]'); if(cb) cb.checked=!!on; } }); scRecalc(); }
+function scDays(id,input){
+  const r=_scFind(id); if(!r) return;
+  const tr=document.getElementById('sc-row-'+id); const ins=tr.querySelectorAll('input[type=number]');
+  r.workDays=parseInt(ins[0].value)||22; r.factDays=parseInt(ins[1].value)||0;
+  r.accrual=Math.round(r.base/r.workDays*r.factDays);
+  ins[2].value=r.accrual||''; scRecalc();
+}
+function updateSalaryCalcRow(){ }
 function recalcSalaries(){ loadSalaryCalc(); }
 
 async function createSalaryAccruals(){
-  const rows = (window._scRows||[]).filter(r=>!r.exists && r.accrual>0);
+  const rows = (window._scRows||[]).filter(r=>r.include && r.accrual>0);
   const month = window._scMonth||curYM();
   const [yr, mo] = month.split('-').map(Number);
   const lastDay = new Date(yr, mo, 0).getDate();
   const date = `${yr}-${String(mo).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
-
-  if(!rows.length){ alert('Нет новых начислений'); return; }
-  if(!confirm(`Создать ${rows.length} начислений оклада за ${month}?\n\nУже существующие начисления не изменяются и не удаляются: добавляются только новые строки. Сотрудникам, у кого оклад за месяц уже начислен, повторно не создаётся.`)) return;
-
+  if(!rows.length){ alert('Не выбрано ни одного сотрудника'); return; }
+  const dup = rows.filter(r=>r.exists).map(r=>r.emp.name);
+  if(!confirm(`Создать ${rows.length} начислений за ${month}?\n\nСуществующие начисления не изменяются и не удаляются: добавляются только новые строки.`+
+    (dup.length?`\n\n⚠ У этих сотрудников оклад за месяц уже есть, будет создан ещё один (дубль):\n${dup.join(', ')}`:''))) return;
   let created = 0;
   for(const r of rows){
     const emp = r.emp;
     const details = {
       accruals: [{type:'Оклад', amount: r.accrual}],
       deductions: [
-        ...(emp.deduction_meal?[{type:'Обед', amount:emp.deduction_meal}]:[]),
-        ...(emp.deduction_opv_fixed?[{type:'Пенсионные взносы', amount:emp.deduction_opv_fixed}]:[]),
-        ...(emp.deduction_osms_fixed?[{type:'Медицинское страхование', amount:emp.deduction_osms_fixed}]:[]),
-        ...(emp.deduction_so_fixed?[{type:'Социальный взнос (СО)', amount:emp.deduction_so_fixed}]:[]),
+        ...(r.meal?[{type:'Обед', amount:r.meal}]:[]),
+        ...(r.opv?[{type:'Пенсионные взносы', amount:r.opv}]:[]),
+        ...(r.osms?[{type:'Медицинское страхование', amount:r.osms}]:[]),
+        ...(r.so?[{type:'Социальный взнос (СО)', amount:r.so}]:[]),
       ]
     };
     const ded = details.deductions.reduce((s,d)=>s+d.amount,0);
