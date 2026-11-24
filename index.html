@@ -8229,6 +8229,7 @@ window.onerror = function(msg, src, line, col){
         <button class="btn btn-ghost btn-sm" onclick="openSalaryCalcModal()">📊 Начислить оклад</button>
         <button class="btn btn-ghost btn-sm" onclick="openBulkModal()">➕ Массово (премия, удержание…)</button>
         <button class="btn btn-ghost btn-sm" onclick="openBulkLog()">📜 Журнал массовых</button>
+        <button class="btn btn-ghost btn-sm" onclick="openCardApply()" title="Добавить обед/ОПВ/ОСМС/СО из карточек в уже существующие строки месяца">📥 Удержания из карточек в месяц</button>
         <button class="btn btn-primary btn-sm" onclick="openAccrualModal(null)">+ Начисление</button>
       </div>
 
@@ -14266,6 +14267,76 @@ async function bulkStopGroup(ids){
   try{ await sbPatch('salary_recurring',`id=in.(${ids})`,{end_month:end}); window._recRules=null; openBulkLog(); }catch(e){ alert(e.message); }
 }
 
+
+// ── Дозаполнение удержаний из карточек в существующие строки месяца ─────────────
+const CARD_DED = [
+  {id:'meal', label:'Обед',  field:'deduction_meal',        type:'Обед',                    key:'Обед'},
+  {id:'opv',  label:'ОПВ',   field:'deduction_opv_fixed',   type:'Пенсионные взносы',       key:'Пенсионные'},
+  {id:'osms', label:'ОСМС',  field:'deduction_osms_fixed',  type:'Медицинское страхование', key:'Медицинское'},
+  {id:'so',   label:'СО',    field:'deduction_so_fixed',    type:'Социальный взнос (СО)',   key:'Социальный'},
+];
+async function openCardApply(){
+  let m=document.getElementById('cardApplyModal');
+  if(!m){ m=document.createElement('div'); m.className='modal-overlay'; m.id='cardApplyModal';
+    m.innerHTML=`<div class="modal" style="max-width:520px;width:96vw"><div class="modal-header"><div class="modal-title">📥 Удержания из карточек в месяц</div><button class="modal-close" onclick="closeModal('cardApplyModal')">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Берёт суммы из карточек сотрудников и <b>добавляет их в уже существующие строки</b> «Начисления ЗП» за выбранный месяц (новых строк не создаёт). Если у сотрудника это удержание за месяц уже есть — пропускает. Если у сотрудника нет строки за месяц — пропускает и сообщает.</div>
+      <label class="label">Месяц</label><select id="ca-month" class="input"></select>
+      <div style="margin-top:10px"><label class="label">Какие удержания добавить</label><div style="display:flex;gap:14px;flex-wrap:wrap">${CARD_DED.map(c=>`<label style="font-size:13px"><input type="checkbox" class="ca-cat" value="${c.id}" checked> ${c.label}</label>`).join('')}</div></div>
+      <div id="ca-res" style="margin-top:12px;font-size:13px;white-space:pre-wrap"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('cardApplyModal')">Закрыть</button><button class="btn btn-primary" onclick="cardApplyRun()">✅ Применить</button></div></div>`;
+    document.body.appendChild(m); }
+  if(!(employeesData||[]).length && typeof loadStaffFromDB==='function'){ try{ await loadStaffFromDB(); }catch(e){} }
+  if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
+  const sel=document.getElementById('ca-month'); sel.innerHTML=_bulkMonths().map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  const d=new Date(); d.setMonth(d.getMonth()-1); sel.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  document.getElementById('ca-res').textContent='';
+  showModal('cardApplyModal');
+}
+function cardApplyPlan(month,catIds){
+  const cats=CARD_DED.filter(c=>catIds.includes(c.id));
+  const plan=[], noRow=[]; let skipped=0;
+  (employeesData||[]).forEach(emp=>{
+    const vals=cats.filter(c=>(+emp[c.field]||0)>0); if(!vals.length) return;
+    const rows=(_payrollData?.accruals||[]).filter(a=>a.type==='salary' && a.date?.startsWith(month) && String(a.emp_name).trim()===String(emp.name).trim());
+    if(!rows.length){ noRow.push(emp.name); return; }
+    const target=rows.find(r=>(r.details?.accruals||[]).some(x=>/Оклад/.test(x.type||''))) || rows.slice().sort((a,b)=>(b.amount||0)-(a.amount||0))[0];
+    const adds=[];
+    vals.forEach(c=>{
+      const has=rows.some(r=>(r.details?.deductions||[]).some(x=>x.type?.includes(c.key) && (+x.amount||0)>0));
+      if(has) skipped++; else adds.push({type:c.type,amount:+emp[c.field]});
+    });
+    if(adds.length) plan.push({emp:emp.name,row:target,adds});
+  });
+  return {plan,noRow,skipped};
+}
+async function cardApplyRun(){
+  const res=document.getElementById('ca-res'); const month=document.getElementById('ca-month').value;
+  const ids=[...document.querySelectorAll('.ca-cat:checked')].map(c=>c.value);
+  if(!ids.length){ res.style.color='var(--red)'; res.textContent='Отметьте хотя бы одно удержание'; return; }
+  const {plan,noRow,skipped}=cardApplyPlan(month,ids);
+  const total=plan.reduce((s,p)=>s+p.adds.reduce((a,x)=>a+x.amount,0),0);
+  const info=`Месяц ${month}\nБудет добавлено удержаний: ${plan.reduce((s,p)=>s+p.adds.length,0)} у ${plan.length} сотр. на сумму ${Math.round(total).toLocaleString('ru-RU')} ₸\nПропущено (уже занесено): ${skipped}\nНет строки за месяц: ${noRow.length}${noRow.length?' ('+noRow.join(', ')+')':''}`;
+  if(!plan.length){ res.style.color='var(--text3)'; res.textContent=info+'\n\nДобавлять нечего.'; return; }
+  if(!confirm(info+'\n\nПрименить?')) { res.style.color='var(--text3)'; res.textContent=info; return; }
+  let ok=0; const fail=[];
+  for(const p of plan){
+    const a=p.row; const det=JSON.parse(JSON.stringify(a.details&&typeof a.details==='object'?a.details:{}));
+    det.accruals=det.accruals||[]; det.deductions=det.deductions||[];
+    const add=p.adds.reduce((s,x)=>s+x.amount,0);
+    det.deductions.push(...p.adds);
+    const deducted=(+a.deducted||0)+add, net=(+a.net||0)-add;
+    try{
+      sbInsert('salary_accruals_history',{accrual_id:a.id,emp_name:a.emp_name,date:a.date,amount:a.amount,deducted:a.deducted||0,net:a.net||0,details:a.details||{},comment:a.comment||'',changed_by:(window._currentUsername||'')+' (удержания из карточек)'}).catch(()=>{});
+      await sbPatch('salary_accruals',`id=eq.${a.id}`,{deducted,net,details:det});
+      a.deducted=deducted; a.net=net; a.details=det; ok++;
+    }catch(e){ fail.push(`${p.emp}: ${e.message}`); }
+  }
+  if(typeof renderAccrualsList==='function') renderAccrualsList();
+  res.style.color=fail.length?'var(--red)':'var(--green)';
+  res.textContent=`✓ Обновлено строк: ${ok} из ${plan.length}\nПропущено (уже занесено): ${skipped}\nНет строки за месяц: ${noRow.length}${noRow.length?' ('+noRow.join(', ')+')':''}`+(fail.length?'\n❌ '+fail.join('\n❌ '):'');
+}
 // ── Журнал начислений ЗП ──────────────────────────────────────────────────────
 async function initAccrualsPage(){
   if(!_payrollData) await initSalaryLedgerPage();
