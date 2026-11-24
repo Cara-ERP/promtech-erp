@@ -185,6 +185,9 @@ select option{background:var(--bg3)}
 .pin-display{font-size:28px;font-family:'IBM Plex Mono',monospace;letter-spacing:8px;text-align:center;margin-bottom:20px;color:var(--accent);height:40px}
 
 /* MODAL */
+#payroll-table th:first-child,#payroll-table td:first-child{position:sticky;left:0;z-index:2;background:var(--bg2);box-shadow:1px 0 0 var(--border)}
+#payroll-table thead th:first-child{z-index:4}
+#payroll-table tfoot td:first-child{background:var(--bg3)}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:1000}
 .modal-overlay.modal-overlay-elevated{z-index:1100;background:rgba(0,0,0,.82)}
 .modal-overlay.modal-overlay-elevated-2{z-index:1200;background:rgba(0,0,0,.88)}
