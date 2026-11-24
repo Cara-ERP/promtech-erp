@@ -13938,16 +13938,21 @@ function _ensureBulkModal(){
     <div class="modal-header"><div class="modal-title">➕ Массовое начисление / удержание</div><button class="modal-close" onclick="closeModal('bulkModal')">✕</button></div>
     <div class="modal-body" style="overflow-y:auto;flex:1">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div><label class="label">Что делаем</label><select id="bk-kind" class="input" onchange="bulkKindChange()"><option value="acc">Начисление</option><option value="ded">Удержание</option></select></div>
+        <div><label class="label">Что делаем</label><select id="bk-kind" class="input" onchange="bulkKindChange()"><option value="acc">Начисление</option><option value="ded">Удержание</option><option value="loan">Погашение займа (по графику)</option></select></div>
         <div><label class="label">Статья</label><select id="bk-cat" class="input" onchange="bulkUiSync()"></select></div>
         <div><label class="label">Сумма для всех, ₸</label><div style="display:flex;gap:6px"><input id="bk-amt" type="number" min="0" class="input" placeholder="0"><button class="btn btn-ghost btn-sm" onclick="bulkFillAll()">Всем выбранным</button></div></div>
         <div><label class="label">Примечание (необязательно)</label><input id="bk-note" class="input" placeholder="например, к празднику"></div>
         <div><label class="label">Режим</label><select id="bk-mode" class="input" onchange="bulkModeChange()"><option value="once">Однократно (за один месяц)</option><option value="rec">Постоянно (каждый месяц)</option></select></div>
         <div><label class="label" id="bk-from-l">За месяц</label><select id="bk-from" class="input"></select></div>
         <div id="bk-to-w" style="display:none"><label class="label">По месяц (включительно)</label><select id="bk-to" class="input"></select></div>
+        <div id="bk-loan-w" style="display:none;grid-column:1/-1;grid-template-columns:1fr 1fr;gap:10px">
+          <div><label class="label">Займ: удерживать с месяца</label><input id="bk-gfrom" type="month" class="input"></div>
+          <div><label class="label">по месяц (включительно)</label><input id="bk-gto" type="month" class="input"></div>
+          <div style="grid-column:1/-1;font-size:12px;color:var(--text3)">«Сумма для всех» = общая сумма займа. В месяц удерживается сумма займа ÷ число месяцев (в последний месяц — остаток). Для каждого сотрудника суммы и сроки можно поправить в таблице.</div>
+        </div>
       </div>
       <div style="margin-top:10px;font-size:12px;color:var(--text3)">Отметьте сотрудников и при необходимости поправьте сумму у каждого.</div>
-      <div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-top:6px"><table class="data-table" style="font-size:12px"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th><input type="checkbox" onchange="bulkAll(this.checked)"></th><th style="text-align:left">Сотрудник</th><th style="text-align:right">Сумма, ₸</th></tr></thead><tbody id="bk-tbody"></tbody></table></div>
+      <div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-top:6px"><table class="data-table" style="font-size:12px"><thead><tr style="position:sticky;top:0;background:var(--bg2)"><th><input type="checkbox" onchange="bulkAll(this.checked)"></th><th style="text-align:left">Сотрудник</th><th style="text-align:right" id="bk-sum-h">Сумма, ₸</th><th class="bk-loan-c" style="display:none">С месяца</th><th class="bk-loan-c" style="display:none">По месяц</th><th class="bk-loan-c" style="display:none;text-align:right">В месяц</th></tr></thead><tbody id="bk-tbody"></tbody></table></div>
       <div style="margin-top:14px;font-weight:600;font-size:13px">Действующие постоянные правила</div>
       <div id="bk-rules" style="font-size:12px;margin-top:6px;color:var(--text3)">загрузка…</div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="bk-apply-m" class="input" style="width:auto"></select><button class="btn btn-ghost btn-sm" onclick="bulkApplyMonth()">▶ Применить постоянные за месяц</button><span style="font-size:11px;color:var(--text3)">повторно ничего не дублирует; также срабатывает при «Начислить оклад»</span></div>
@@ -13970,7 +13975,7 @@ async function openBulkModal(){
   document.getElementById('bk-amt').value=''; document.getElementById('bk-note').value=''; document.getElementById('bk-err').textContent='';
   bulkKindChange(); bulkModeChange();
   const emps=(employeesData||[]).filter(e=>e.status!=='fired').slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ru'));
-  document.getElementById('bk-tbody').innerHTML=emps.map((e,i)=>`<tr data-name="${String(e.name).replace(/"/g,'&quot;')}"><td><input type="checkbox" class="bk-cb"></td><td style="white-space:nowrap">${e.name}</td><td style="text-align:right"><input type="number" min="0" class="bk-sum" placeholder="0" style="width:100px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"></td></tr>`).join('');
+  document.getElementById('bk-tbody').innerHTML=emps.map((e,i)=>`<tr data-name="${String(e.name).replace(/"/g,'&quot;')}"><td><input type="checkbox" class="bk-cb"></td><td style="white-space:nowrap">${e.name}</td><td style="text-align:right"><input type="number" min="0" class="bk-sum" placeholder="0" oninput="bulkLoanCalc(this.closest('tr'))" style="width:100px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"></td><td class="bk-loan-c" style="display:none"><input type="month" class="bk-lf" onchange="bulkLoanCalc(this.closest('tr'))" style="font-size:12px"></td><td class="bk-loan-c" style="display:none"><input type="month" class="bk-lt" onchange="bulkLoanCalc(this.closest('tr'))" style="font-size:12px"></td><td class="bk-loan-c bk-lm" style="display:none;text-align:right;color:var(--text3)">—</td></tr>`).join('');
   showModal('bulkModal'); bulkLoadRules();
 }
 const BULK_CATS_REC = { acc:['Оклад','Бригадирская доплата'], ded:['Обед','Пенсионные взносы','Медицинское страхование','Социальный взнос (СО)'] };
@@ -13978,19 +13983,34 @@ const BULK_CATS_REC = { acc:['Оклад','Бригадирская доплат
 const BULK_CARD_FIELD = {'Оклад':'base_salary','Обед':'deduction_meal','Пенсионные взносы':'deduction_opv_fixed','Медицинское страхование':'deduction_osms_fixed','Социальный взнос (СО)':'deduction_so_fixed'};
 function bulkKindChange(){
   const k=document.getElementById('bk-kind').value, rec=document.getElementById('bk-mode').value==='rec';
-  document.getElementById('bk-cat').innerHTML=(rec?BULK_CATS_REC:BULK_CATS)[k].map(c=>`<option>${c}</option>`).join('');
+  if(k!=='loan') document.getElementById('bk-cat').innerHTML=(rec?BULK_CATS_REC:BULK_CATS)[k].map(c=>`<option>${c}</option>`).join('');
   bulkUiSync();
 }
+function _mIdx(m){ const [y,mo]=m.split('-').map(Number); return y*12+mo-1; }
+function bulkLoanCalc(tr){
+  const total=parseFloat(tr.querySelector('.bk-sum').value)||0, f=tr.querySelector('.bk-lf').value, t=tr.querySelector('.bk-lt').value;
+  const c=tr.querySelector('.bk-lm'); if(!c) return;
+  if(total>0 && f && t && t>=f){ const n=_mIdx(t)-_mIdx(f)+1; c.textContent=Math.round(total/n).toLocaleString('ru-RU')+' × '+n; } else c.textContent='—';
+}
 function bulkUiSync(){
+  const loan=document.getElementById('bk-kind').value==='loan';
+  document.getElementById('bk-cat').parentElement.style.display=loan?'none':'';
+  document.getElementById('bk-mode').parentElement.style.display=loan?'none':'';
+  document.getElementById('bk-loan-w').style.display=loan?'grid':'none';
+  document.querySelectorAll('#bulkModal .bk-loan-c').forEach(e=>e.style.display=loan?'':'none');
+  document.getElementById('bk-sum-h').textContent=loan?'Сумма займа, ₸':'Сумма, ₸';
+  if(loan){ document.getElementById('bk-from').parentElement.style.display='none'; document.getElementById('bk-to-w').style.display='none'; document.getElementById('bk-hint').textContent='Каждый месяц (после его окончания) в «Начисления ЗП» автоматически добавляется удержание «Погашение займа» до полного погашения.'; return; }
   const rec=document.getElementById('bk-mode').value==='rec', cat=document.getElementById('bk-cat').value;
   const card=rec && !!BULK_CARD_FIELD[cat];
-  document.getElementById('bk-from').parentElement.style.display=card?'none':'';
+  document.getElementById('bk-from').parentElement.style.display='';
   document.getElementById('bk-to-w').style.display=(rec&&!card)?'':'none';
-  document.getElementById('bk-hint').textContent=card?'Сумма запишется в карточку каждого отмеченного сотрудника и будет подставляться каждый месяц при «Начислить оклад». Разовые начисления и удержания добавляются к ней отдельными строками.':(rec?'Правило будет создавать строку каждый завершённый месяц.':'');
+  document.getElementById('bk-hint').textContent=card?'Сумма запишется в карточку каждого отмеченного сотрудника (месяц «с» — отметка в журнале) и будет подставляться каждый месяц при «Начислить оклад». Разовые начисления и удержания добавляются к ней отдельными строками.':(rec?'Правило будет создавать строку каждый завершённый месяц.':'');
 }
 function bulkModeChange(){ const rec=document.getElementById('bk-mode').value==='rec'; document.getElementById('bk-from-l').textContent=rec?'С месяца':'За месяц'; bulkKindChange(); }
 function bulkAll(on){ document.querySelectorAll('#bk-tbody .bk-cb').forEach(c=>c.checked=on); }
-function bulkFillAll(){ const v=document.getElementById('bk-amt').value; document.querySelectorAll('#bk-tbody tr').forEach(tr=>{ if(tr.querySelector('.bk-cb').checked) tr.querySelector('.bk-sum').value=v; }); }
+function bulkFillAll(){ const v=document.getElementById('bk-amt').value, loan=document.getElementById('bk-kind').value==='loan';
+  document.querySelectorAll('#bk-tbody tr').forEach(tr=>{ if(!tr.querySelector('.bk-cb').checked) return; tr.querySelector('.bk-sum').value=v;
+    if(loan){ tr.querySelector('.bk-lf').value=document.getElementById('bk-gfrom').value; tr.querySelector('.bk-lt').value=document.getElementById('bk-gto').value; bulkLoanCalc(tr); } }); }
 function _bulkRow(emp,kind,cat,amount,date,comment,ruleId){
   const it=[{type:cat,amount:amount}];
   const row={emp_name:emp,date,amount:kind==='acc'?amount:0,deducted:kind==='ded'?amount:0,net:kind==='acc'?amount:-amount,type:'salary',comment,
@@ -14002,7 +14022,29 @@ async function bulkCreate(){
   if(window._bulkBusy) return; window._bulkBusy=true;
   try{ await _bulkCreate(); } finally { window._bulkBusy=false; }
 }
+async function _bulkCreateLoan(){
+  const err=document.getElementById('bk-err'); err.textContent='';
+  const note=document.getElementById('bk-note').value.trim();
+  const rows=[...document.querySelectorAll('#bk-tbody tr')].filter(tr=>tr.querySelector('.bk-cb').checked).map(tr=>({name:tr.dataset.name,total:parseFloat(tr.querySelector('.bk-sum').value)||0,from:tr.querySelector('.bk-lf').value,to:tr.querySelector('.bk-lt').value}));
+  if(!rows.length){ err.textContent='Отметьте сотрудников'; return; }
+  const bad=rows.filter(r=>!(r.total>0 && r.from && r.to && r.to>=r.from));
+  if(bad.length){ err.textContent='Заполните сумму, «с» и «по» (по ≥ с) у: '+bad.map(r=>r.name).join(', '); return; }
+  if(!confirm(`Погашение займа: ${rows.length} сотр.\n`+rows.map(r=>{ const n=_mIdx(r.to)-_mIdx(r.from)+1; return `${r.name}: ${Math.round(r.total).toLocaleString('ru-RU')} ₸, ${r.from} — ${r.to} (${n} мес. по ${Math.round(r.total/n).toLocaleString('ru-RU')})`; }).join('\n')+'\n\nПродолжить?')) return;
+  let ok=0; const fail=[];
+  for(const r of rows){
+    const n=_mIdx(r.to)-_mIdx(r.from)+1, monthly=Math.round(r.total/n);
+    try{ await sbInsert('salary_recurring',{emp_name:r.name,kind:'ded',category:'Погашение займа',amount:monthly,start_month:r.from,end_month:r.to,active:true,comment:`Займ ${Math.round(r.total)} ₸ [LOAN:${Math.round(r.total)}]`+(note?' '+note:'')}); ok++; }
+    catch(e){ fail.push(`${r.name}: ${e.message}`); }
+  }
+  window._recRules=null; let added=0;
+  try{ const minFrom=rows.map(r=>r.from).sort()[0]; added=await applyRecurringRange(minFrom); }catch(e){ fail.push('применение за прошедшие месяцы: '+e.message); }
+  alert(`Займы: графиков создано ${ok} из ${rows.length}; удержаний за прошедшие месяцы добавлено: ${added}.`+(fail.length?'\n\n❌ Ошибки:\n'+fail.join('\n')+'\n\nЕсли ошибка про таблицу — выполните salary_recurring.sql в Supabase.':''));
+  err.style.color=fail.length?'var(--red)':'var(--green)'; err.textContent=fail.length?'Есть ошибки':`✓ Создано графиков: ${ok}`;
+  if(typeof renderAccrualsList==='function') renderAccrualsList();
+  bulkLoadRules();
+}
 async function _bulkCreate(){
+  if(document.getElementById('bk-kind').value==='loan') return _bulkCreateLoan();
   const err=document.getElementById('bk-err'); err.textContent='';
   const kind=document.getElementById('bk-kind').value, cat=document.getElementById('bk-cat').value;
   const mode=document.getElementById('bk-mode').value, from=document.getElementById('bk-from').value, to=document.getElementById('bk-to').value;
@@ -14045,7 +14087,7 @@ async function _bulkCreate(){
         items.forEach(it=>{ const b=back.find(x=>x.name===it.name); if(b && Math.round(+b[cardField])===Math.round(it.amount)) okList.push(it); else if(!failed.some(f=>f.startsWith(it.name+':'))) failed.push(`${it.name}: после записи в базе другое значение`); });
       }catch(e){ failed.push('проверка чтением не удалась: '+e.message); }
       n=okList.length;
-      for(const it of okList){ try{ await sbInsert('salary_recurring',{emp_name:it.name,kind,category:cat,amount:it.amount,start_month:curYM(),end_month:null,active:false,comment:'в карточке'+(note?': '+note:'')}); }catch(e){} }
+      for(const it of okList){ try{ await sbInsert('salary_recurring',{emp_name:it.name,kind,category:cat,amount:it.amount,start_month:from,end_month:null,active:false,comment:'в карточке'+(note?': '+note:'')}); }catch(e){} }
       let msg=`${cat}: сохранено в базе и проверено чтением — ${okList.length} из ${items.length}.\n`+okList.map(x=>`${x.name} — ${Math.round(x.amount).toLocaleString('ru-RU')}`).join('\n');
       if(failed.length){ msg+=`\n\n❌ НЕ сохранено (${failed.length}):\n`+failed.join('\n')+(failed.some(f=>/400|42703|column/i.test(f))?'\n\nПохоже, в базе нет нужных колонок: выполните в Supabase файл staff_fixed_deductions.sql.':''); }
       alert(msg);
@@ -14075,6 +14117,11 @@ async function _loadRecRules(force){
   window._recRules = await sbFetch('salary_recurring','select=*&active=eq.true&order=emp_name');
   return window._recRules;
 }
+function _ruleAmount(r,month){
+  const m=/\[LOAN:(\d+(?:\.\d+)?)\]/.exec(r.comment||''); if(!m||!r.end_month) return +r.amount;
+  const total=+m[1], idx=_mIdx(month)-_mIdx(r.start_month), n=_mIdx(r.end_month)-_mIdx(r.start_month)+1;
+  return idx>=n-1 ? Math.max(0,total-(+r.amount)*(n-1)) : +r.amount;
+}
 async function applyRecurring(month){
   if(month>=curYM()) return 0; // текущий месяц ещё не закончился — не начисляем
   const rules=await _loadRecRules();
@@ -14084,7 +14131,7 @@ async function applyRecurring(month){
     if(r.start_month>month || (r.end_month && month>r.end_month)) continue;
     const tag=`[R:${r.id}]`;
     if((_payrollData?.accruals||[]).some(a=>a.date?.startsWith(month) && (a.comment||'').includes(tag))) continue;
-    const res=await sbInsert('salary_accruals',_bulkRow(r.emp_name,r.kind,r.category,+r.amount,_monthEnd(month),`${r.category}${r.comment?': '+r.comment:''} (постоянно) ${tag}`));
+    const res=await sbInsert('salary_accruals',_bulkRow(r.emp_name,r.kind,r.category,_ruleAmount(r,month),_monthEnd(month),`${r.category}${r.comment?': '+r.comment:''} (постоянно) ${tag}`));
     if(res && _payrollData) _payrollData.accruals.push(res); n++;
   }
   return n;
@@ -14149,7 +14196,8 @@ async function openBulkLog(){
       const key=[r.kind,r.category,r.start_month,r.end_month||'',r.comment||'',(r.created_at||'').slice(0,15)].join('|');
       const card=r.active===false;
       const g=rg[key]||(rg[key]={card,mode:card?'Постоянно (записано в карточки)':(r.end_month?'На период':'Постоянно'),period:card?`с ${r.start_month}`:`с ${r.start_month}${r.end_month?' по '+r.end_month:' (бессрочно)'}`,kind:r.kind,cat:r.category,note:r.comment||'',names:[],sum:0,created:r.created_at||'',sort:r.created_at||r.start_month,ids:[],end:r.end_month});
-      g.names.push(r.emp_name); g.sum+=+r.amount||0; g.ids.push(r.id);
+      g.ids.push(r.id); if(!g.names.includes(r.emp_name)){ g.names.push(r.emp_name); g.sum+=+r.amount||0; }
+      g.start=r.start_month; g.end=r.end_month||null;
     });
     Object.values(rg).forEach(g=>groups.push(g));
   }catch(e){ rulesErr='Постоянные правила недоступны: '+e.message; }
@@ -14165,7 +14213,18 @@ async function openBulkLog(){
      <td style="white-space:nowrap">${g.period}</td><td style="text-align:right">${g.names.length}</td>
      <td style="text-align:right;font-weight:600">${fmt(g.sum)}${g.ids?' /мес':''}</td><td>${(g.note||'').replace(/</g,'&lt;')||'—'}</td>
      <td style="max-width:260px;white-space:normal;color:var(--text3)">${g.names.sort().join(', ').replace(/</g,'&lt;')}</td>
-     <td style="white-space:nowrap">${g.ids&&active?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="bulkStopGroup('${g.ids.join(',')}')">⏹ Прекратить</button>`:''}<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить эту массовую операцию" onclick="${g.ids?`bulkDeleteRules('${g.ids.join(',')}',${g.card?1:0})`:`bulkDeleteOnce('${g.rowIds.join(',')}')`}">🗑 Удалить</button></td></tr>`;}).join('')+`</tbody></table>`:'<div style="color:var(--text3);padding:20px;text-align:center">Массовых операций пока нет.</div>');
+     <td style="white-space:nowrap">${g.ids&&active?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="bulkStopGroup('${g.ids.join(',')}')">⏹ Прекратить</button>`:''}${g.ids?`<button class="btn btn-ghost btn-sm" style="font-size:11px" title="Изменить месяц «с»${g.card?'':' / «по»'}" onclick="bulkEditGroup('${g.ids.join(',')}','${g.start}','${g.end||''}',${g.card?1:0})">✏️</button>`:''}<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить эту массовую операцию" onclick="${g.ids?`bulkDeleteRules('${g.ids.join(',')}',${g.card?1:0})`:`bulkDeleteOnce('${g.rowIds.join(',')}')`}">🗑 Удалить</button></td></tr>`;}).join('')+`</tbody></table>`:'<div style="color:var(--text3);padding:20px;text-align:center">Массовых операций пока нет.</div>');
+}
+async function bulkEditGroup(ids,start,end,isCard){
+  const ns=prompt('Действует с месяца (ГГГГ-ММ):',start); if(ns===null) return;
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(ns.trim())){ alert('Формат: ГГГГ-ММ, например 2026-10'); return; }
+  const body={start_month:ns.trim()};
+  if(!isCard){
+    const ne=prompt('По месяц включительно (ГГГГ-ММ), пусто — бессрочно:',end||''); if(ne===null) return;
+    if(ne.trim() && !/^\d{4}-(0[1-9]|1[0-2])$/.test(ne.trim())){ alert('Формат: ГГГГ-ММ'); return; }
+    body.end_month=ne.trim()||null;
+  }
+  try{ await sbPatch('salary_recurring',`id=in.(${ids})`,body); window._recRules=null; openBulkLog(); }catch(e){ alert('Не удалось изменить: '+e.message); }
 }
 async function bulkDeleteOnce(ids){
   const list=ids.split(',');
