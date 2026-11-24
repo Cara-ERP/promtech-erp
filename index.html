@@ -8173,6 +8173,7 @@ window.onerror = function(msg, src, line, col){
           <option value="salon">Салоны</option>
         </select>
         <input id="payroll-search" type="search" placeholder="🔍 Поиск..." style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:180px" oninput="renderPayroll()">
+        <label style="font-size:12px;color:var(--text2);white-space:nowrap" title="Начисления и удержания текущего, ещё не законченного месяца не учитываются в ведомости и остатках"><input id="payroll-hide-cur" type="checkbox" checked onchange="renderSalaryLedger()"> без текущего месяца</label>
         <button class="btn btn-ghost btn-sm" onclick="_payrollData=null;initSalaryLedgerPage()">🔄</button>
       </div>
 
@@ -14832,6 +14833,10 @@ function renderSalaryLedger(){
   const kpi   = document.getElementById('payroll-kpi');
   if(!tbody||!_payrollData) return;
 
+  // Незавершённый (текущий) месяц по умолчанию не учитываем: начисления и удержания за него появятся после окончания месяца
+  const _hideCur = document.getElementById('payroll-hide-cur') ? document.getElementById('payroll-hide-cur').checked : true;
+  const _curStart = curYM()+'-01';
+  const _accV = (_payrollData.accruals||[]).filter(a=>!_hideCur || !a.date || a.date < _curStart);
   const month  = document.getElementById('payroll-month')?.value||'';
   const fromVal= document.getElementById('payroll-from')?.value||'';
   const toVal  = document.getElementById('payroll-to')?.value||'';
@@ -14846,7 +14851,7 @@ function renderSalaryLedger(){
   const fmtC = (n, cls) => n ? `<span style="color:var(--${cls})">${fmt(n)}</span>` : '—';
 
   // Начисления за период
-  const monthAccruals = (_payrollData.accruals||[]).filter(a=>{
+  const monthAccruals = (_accV).filter(a=>{
     if(dateFrom && a.date < dateFrom) return false;
     if(dateTo && a.date > dateTo) return false;
     if(search && !a.emp_name?.toLowerCase().includes(search)) return false;
@@ -14876,7 +14881,7 @@ function renderSalaryLedger(){
 
   // Добавляем сотрудников у кого есть остаток на начало периода но нет начислений
   const allPayments = _payrollData.payments||[];
-  const allAccruals = _payrollData.accruals||[];
+  const allAccruals = _accV;
 
   if(dateFrom){
     // Находим всех у кого были операции до начала периода
@@ -14942,7 +14947,7 @@ function renderSalaryLedger(){
     const monthStart = periodStart||a.date.substring(0,7)+'-01';
 
     // Остаток на начало месяца — всё до первого числа текущего месяца
-    const prevAccruals = (_payrollData.accruals||[])
+    const prevAccruals = (_accV)
       .filter(x=>x.emp_name===a.emp_name && x.date < monthStart)
       .reduce((s,x)=>s+(x.net||0),0);
     const prevPayments = allPayments
