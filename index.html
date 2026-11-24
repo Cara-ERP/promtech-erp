@@ -14240,8 +14240,21 @@ async function bulkDeleteOnce(ids){
 async function bulkDeleteRules(ids,isCard){
   const list=ids.split(',');
   if(isCard){
-    if(!confirm('Удалить запись из журнала?\n\nЭто только запись в журнале: суммы в карточках сотрудников НЕ меняются (их правят в карточке или новым массовым вводом).')) return;
-    try{ await sbDelete('salary_recurring',`id=in.(${list.join(',')})`); openBulkLog(); }catch(e){ alert(e.message); }
+    if(!confirm('Удалить запись из журнала?')) return;
+    try{
+      const recs=await sbFetch('salary_recurring',`select=*&id=in.(${list.join(',')})`);
+      const field=recs[0]&&BULK_CARD_FIELD[recs[0].category];
+      if(field && confirm(`Обнулить «${recs[0].category}» в карточках этих сотрудников (${new Set(recs.map(r=>r.emp_name)).size} чел.)?\n\nОК — обнулить (только там, где в карточке сейчас та же сумма, что вы вводили).\nОтмена — оставить значения в карточках как есть.`)){
+        let cleared=0, kept=[];
+        for(const r of recs){
+          const emp=(employeesData||[]).find(e=>e.name===r.emp_name);
+          if(!emp || Math.round(+emp[field]||0)!==Math.round(+r.amount)){ kept.push(r.emp_name); continue; }
+          try{ await sbPatch('staff',`name=eq.${encodeURIComponent(r.emp_name)}`,{[field]:0}); emp[field]=0; cleared++; }catch(e){ kept.push(r.emp_name+' ('+e.message+')'); }
+        }
+        alert(`Обнулено в карточках: ${cleared}.`+(kept.length?`\nНе тронуты (значение в карточке уже другое или ошибка): ${[...new Set(kept)].join(', ')}`:''));
+      }
+      await sbDelete('salary_recurring',`id=in.(${list.join(',')})`); openBulkLog();
+    }catch(e){ alert(e.message); }
     return;
   }
   const tags=list.map(i=>`[R:${i}]`);
