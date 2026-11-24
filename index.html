@@ -14028,13 +14028,29 @@ async function _bulkCreate(){
       }
       if(skipped.length) alert('Пропущены (такая же строка уже есть, дубль не создан): '+skipped.join(', '));
     } else if(cardField){
+      const failed=[];
       for(const it of items){
-        await sbPatch('staff',`name=eq.${encodeURIComponent(it.name)}`,{[cardField]:it.amount});
-        const e=(employeesData||[]).find(x=>x.name===it.name); if(e) e[cardField]=it.amount;
-        if(cardField==='base_salary'){ sbInsert('staff_changes',{change_date:new Date().toISOString().slice(0,10),change_type:'salary_change',base_salary:it.amount,comment:'Оклад '+it.amount.toLocaleString('ru-RU')+' ₸ (массово)',staff_id:(e&&e.id)||null}).catch(()=>{}); }
-        n++;
+        try{
+          const upd=await sbPatch('staff',`name=eq.${encodeURIComponent(it.name)}`,{[cardField]:it.amount});
+          if(!Array.isArray(upd)||!upd.length){ failed.push(`${it.name}: в базе не найден сотрудник с таким именем`); continue; }
+          const e=(employeesData||[]).find(x=>x.name===it.name); if(e) e[cardField]=it.amount;
+          if(cardField==='base_salary'){ sbInsert('staff_changes',{change_date:new Date().toISOString().slice(0,10),change_type:'salary_change',base_salary:it.amount,comment:'Оклад '+it.amount.toLocaleString('ru-RU')+' ₸ (массово)',staff_id:(e&&e.id)||null}).catch(()=>{}); }
+        }catch(e){ failed.push(`${it.name}: ${e.message}`); }
       }
-      err.style.color='var(--green)'; err.textContent=`✓ Обновлено карточек сотрудников: ${n}. Значения подставятся при «Начислить оклад».`;
+      // проверка: перечитываем из базы
+      let okList=[];
+      try{
+        const names=items.map(x=>'"'+x.name.replace(/"/g,'')+'"').join(',');
+        const back=await sbFetch('staff',`select=name,${cardField}&name=in.(${encodeURIComponent(names)})`);
+        items.forEach(it=>{ const b=back.find(x=>x.name===it.name); if(b && Math.round(+b[cardField])===Math.round(it.amount)) okList.push(it); else if(!failed.some(f=>f.startsWith(it.name+':'))) failed.push(`${it.name}: после записи в базе другое значение`); });
+      }catch(e){ failed.push('проверка чтением не удалась: '+e.message); }
+      n=okList.length;
+      for(const it of okList){ try{ await sbInsert('salary_recurring',{emp_name:it.name,kind,category:cat,amount:it.amount,start_month:curYM(),end_month:null,active:false,comment:'в карточке'+(note?': '+note:'')}); }catch(e){} }
+      let msg=`${cat}: сохранено в базе и проверено чтением — ${okList.length} из ${items.length}.\n`+okList.map(x=>`${x.name} — ${Math.round(x.amount).toLocaleString('ru-RU')}`).join('\n');
+      if(failed.length){ msg+=`\n\n❌ НЕ сохранено (${failed.length}):\n`+failed.join('\n')+(failed.some(f=>/400|42703|column/i.test(f))?'\n\nПохоже, в базе нет нужных колонок: выполните в Supabase файл staff_fixed_deductions.sql.':''); }
+      alert(msg);
+      err.style.color=failed.length?'var(--red)':'var(--green)';
+      err.textContent=failed.length?`Не сохранено: ${failed.length}`:`✓ Сохранено и проверено: ${okList.length}`;
     } else {
       for(const it of items){
         await sbInsert('salary_recurring',{emp_name:it.name,kind,category:cat,amount:it.amount,start_month:from,end_month:to||null,active:true,comment:note});
@@ -14047,6 +14063,7 @@ async function _bulkCreate(){
   }catch(e){
     err.style.color='var(--red)';
     err.textContent='Ошибка: '+e.message+((mode==='rec'&&!cardField)?' — для постоянных правил нужна таблица salary_recurring (выполните salary_recurring.sql в Supabase)':'');
+    alert('❌ Не сохранено. '+err.textContent);
     return;
   }
   if(mode==='once'){ closeModal('bulkModal'); alert(`✅ Создано строк: ${n}`); }
@@ -14129,8 +14146,9 @@ async function openBulkLog(){
     const rules=await sbFetch('salary_recurring','select=*&order=created_at.desc');
     const rg={};
     rules.forEach(r=>{
-      const key=[r.kind,r.category,r.start_month,r.end_month||'',r.comment||'',(r.created_at||'').slice(0,16)].join('|');
-      const g=rg[key]||(rg[key]={mode:r.end_month?'На период':'Постоянно',period:`с ${r.start_month}${r.end_month?' по '+r.end_month:' (бессрочно)'}`,kind:r.kind,cat:r.category,note:r.comment||'',names:[],sum:0,created:r.created_at||'',sort:r.created_at||r.start_month,ids:[],end:r.end_month});
+      const key=[r.kind,r.category,r.start_month,r.end_month||'',r.comment||'',(r.created_at||'').slice(0,15)].join('|');
+      const card=r.active===false;
+      const g=rg[key]||(rg[key]={card,mode:card?'Постоянно (записано в карточки)':(r.end_month?'На период':'Постоянно'),period:card?`с ${r.start_month}`:`с ${r.start_month}${r.end_month?' по '+r.end_month:' (бессрочно)'}`,kind:r.kind,cat:r.category,note:r.comment||'',names:[],sum:0,created:r.created_at||'',sort:r.created_at||r.start_month,ids:[],end:r.end_month});
       g.names.push(r.emp_name); g.sum+=+r.amount||0; g.ids.push(r.id);
     });
     Object.values(rg).forEach(g=>groups.push(g));
@@ -14140,14 +14158,14 @@ async function openBulkLog(){
   body.innerHTML=(rulesErr?`<div style="color:var(--amber);font-size:12px;margin-bottom:8px">${rulesErr}</div>`:'')+
    (groups.length?`<table class="data-table" style="font-size:12px"><thead><tr><th style="text-align:left">Создано</th><th style="text-align:left">Операция</th><th style="text-align:left">Режим</th><th style="text-align:left">Период</th><th style="text-align:right">Сотр.</th><th style="text-align:right">Сумма</th><th style="text-align:left">Примечание</th><th style="text-align:left">Сотрудники</th><th></th></tr></thead><tbody>`+
    groups.map(g=>{
-     const active=g.ids&&(!g.end||g.end>=cur);
+     const active=g.ids&&!g.card&&(!g.end||g.end>=cur);
      return `<tr><td style="white-space:nowrap;color:var(--text3)">${g.created?String(g.created).slice(0,10):'—'}</td>
      <td style="color:${g.kind==='acc'?'var(--green)':'var(--red)'};font-weight:600">${g.kind==='acc'?'+':'−'} ${g.cat}</td>
-     <td>${g.mode}${g.ids?(active?' <span style="color:var(--green)">● действует</span>':' <span style="color:var(--text3)">○ завершено</span>'):''}</td>
+     <td>${g.mode}${g.ids&&!g.card?(active?' <span style="color:var(--green)">● действует</span>':' <span style="color:var(--text3)">○ завершено</span>'):''}</td>
      <td style="white-space:nowrap">${g.period}</td><td style="text-align:right">${g.names.length}</td>
      <td style="text-align:right;font-weight:600">${fmt(g.sum)}${g.ids?' /мес':''}</td><td>${(g.note||'').replace(/</g,'&lt;')||'—'}</td>
      <td style="max-width:260px;white-space:normal;color:var(--text3)">${g.names.sort().join(', ').replace(/</g,'&lt;')}</td>
-     <td style="white-space:nowrap">${g.ids&&active?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="bulkStopGroup('${g.ids.join(',')}')">⏹ Прекратить</button>`:''}<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить эту массовую операцию" onclick="${g.ids?`bulkDeleteRules('${g.ids.join(',')}')`:`bulkDeleteOnce('${g.rowIds.join(',')}')`}">🗑 Удалить</button></td></tr>`;}).join('')+`</tbody></table>`:'<div style="color:var(--text3);padding:20px;text-align:center">Массовых операций пока нет.</div>');
+     <td style="white-space:nowrap">${g.ids&&active?`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="bulkStopGroup('${g.ids.join(',')}')">⏹ Прекратить</button>`:''}<button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" title="Удалить эту массовую операцию" onclick="${g.ids?`bulkDeleteRules('${g.ids.join(',')}',${g.card?1:0})`:`bulkDeleteOnce('${g.rowIds.join(',')}')`}">🗑 Удалить</button></td></tr>`;}).join('')+`</tbody></table>`:'<div style="color:var(--text3);padding:20px;text-align:center">Массовых операций пока нет.</div>');
 }
 async function bulkDeleteOnce(ids){
   const list=ids.split(',');
@@ -14159,8 +14177,13 @@ async function bulkDeleteOnce(ids){
     openBulkLog();
   }catch(e){ alert('Не удалось удалить: '+e.message); }
 }
-async function bulkDeleteRules(ids){
+async function bulkDeleteRules(ids,isCard){
   const list=ids.split(',');
+  if(isCard){
+    if(!confirm('Удалить запись из журнала?\n\nЭто только запись в журнале: суммы в карточках сотрудников НЕ меняются (их правят в карточке или новым массовым вводом).')) return;
+    try{ await sbDelete('salary_recurring',`id=in.(${list.join(',')})`); openBulkLog(); }catch(e){ alert(e.message); }
+    return;
+  }
   const tags=list.map(i=>`[R:${i}]`);
   const rows=(_payrollData?.accruals||[]).filter(a=>tags.some(t=>(a.comment||'').includes(t)));
   if(!confirm(`Удалить это постоянное начисление/удержание (правил: ${list.length})?\n\nБольше оно создаваться не будет.`)) return;
