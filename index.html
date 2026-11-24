@@ -13939,7 +13939,7 @@ function _ensureBulkModal(){
     <div class="modal-body" style="overflow-y:auto;flex:1">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div><label class="label">Что делаем</label><select id="bk-kind" class="input" onchange="bulkKindChange()"><option value="acc">Начисление</option><option value="ded">Удержание</option></select></div>
-        <div><label class="label">Статья</label><select id="bk-cat" class="input"></select></div>
+        <div><label class="label">Статья</label><select id="bk-cat" class="input" onchange="bulkUiSync()"></select></div>
         <div><label class="label">Сумма для всех, ₸</label><div style="display:flex;gap:6px"><input id="bk-amt" type="number" min="0" class="input" placeholder="0"><button class="btn btn-ghost btn-sm" onclick="bulkFillAll()">Всем выбранным</button></div></div>
         <div><label class="label">Примечание (необязательно)</label><input id="bk-note" class="input" placeholder="например, к празднику"></div>
         <div><label class="label">Режим</label><select id="bk-mode" class="input" onchange="bulkModeChange()"><option value="once">Однократно (за один месяц)</option><option value="rec">Постоянно (каждый месяц)</option></select></div>
@@ -13951,6 +13951,7 @@ function _ensureBulkModal(){
       <div style="margin-top:14px;font-weight:600;font-size:13px">Действующие постоянные правила</div>
       <div id="bk-rules" style="font-size:12px;margin-top:6px;color:var(--text3)">загрузка…</div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="bk-apply-m" class="input" style="width:auto"></select><button class="btn btn-ghost btn-sm" onclick="bulkApplyMonth()">▶ Применить постоянные за месяц</button><span style="font-size:11px;color:var(--text3)">повторно ничего не дублирует; также срабатывает при «Начислить оклад»</span></div>
+      <div id="bk-hint" style="font-size:12px;color:var(--text3);margin-top:8px"></div>
       <div id="bk-err" style="color:var(--red);font-size:13px;margin-top:6px"></div>
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('bulkModal')">Закрыть</button><button class="btn btn-primary" onclick="bulkCreate()">✅ Создать</button></div>
@@ -13972,8 +13973,22 @@ async function openBulkModal(){
   document.getElementById('bk-tbody').innerHTML=emps.map((e,i)=>`<tr data-name="${String(e.name).replace(/"/g,'&quot;')}"><td><input type="checkbox" class="bk-cb"></td><td style="white-space:nowrap">${e.name}</td><td style="text-align:right"><input type="number" min="0" class="bk-sum" placeholder="0" style="width:100px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text1)"></td></tr>`).join('');
   showModal('bulkModal'); bulkLoadRules();
 }
-function bulkKindChange(){ const k=document.getElementById('bk-kind').value; document.getElementById('bk-cat').innerHTML=BULK_CATS[k].map(c=>`<option>${c}</option>`).join(''); }
-function bulkModeChange(){ const rec=document.getElementById('bk-mode').value==='rec'; document.getElementById('bk-to-w').style.display=rec?'':'none'; document.getElementById('bk-from-l').textContent=rec?'С месяца':'За месяц'; }
+const BULK_CATS_REC = { acc:['Оклад','Бригадирская доплата'], ded:['Обед','Пенсионные взносы','Медицинское страхование','Социальный взнос (СО)'] };
+// постоянные, которые хранятся в карточке сотрудника (подставляются при «Начислить оклад»)
+const BULK_CARD_FIELD = {'Оклад':'base_salary','Обед':'deduction_meal','Пенсионные взносы':'deduction_opv_fixed','Медицинское страхование':'deduction_osms_fixed','Социальный взнос (СО)':'deduction_so_fixed'};
+function bulkKindChange(){
+  const k=document.getElementById('bk-kind').value, rec=document.getElementById('bk-mode').value==='rec';
+  document.getElementById('bk-cat').innerHTML=(rec?BULK_CATS_REC:BULK_CATS)[k].map(c=>`<option>${c}</option>`).join('');
+  bulkUiSync();
+}
+function bulkUiSync(){
+  const rec=document.getElementById('bk-mode').value==='rec', cat=document.getElementById('bk-cat').value;
+  const card=rec && !!BULK_CARD_FIELD[cat];
+  document.getElementById('bk-from').parentElement.style.display=card?'none':'';
+  document.getElementById('bk-to-w').style.display=(rec&&!card)?'':'none';
+  document.getElementById('bk-hint').textContent=card?'Сумма запишется в карточку каждого отмеченного сотрудника и будет подставляться каждый месяц при «Начислить оклад». Разовые начисления и удержания добавляются к ней отдельными строками.':(rec?'Правило будет создавать строку каждый завершённый месяц.':'');
+}
+function bulkModeChange(){ const rec=document.getElementById('bk-mode').value==='rec'; document.getElementById('bk-from-l').textContent=rec?'С месяца':'За месяц'; bulkKindChange(); }
 function bulkAll(on){ document.querySelectorAll('#bk-tbody .bk-cb').forEach(c=>c.checked=on); }
 function bulkFillAll(){ const v=document.getElementById('bk-amt').value; document.querySelectorAll('#bk-tbody tr').forEach(tr=>{ if(tr.querySelector('.bk-cb').checked) tr.querySelector('.bk-sum').value=v; }); }
 function _bulkRow(emp,kind,cat,amount,date,comment,ruleId){
@@ -13994,9 +14009,10 @@ async function _bulkCreate(){
   const note=document.getElementById('bk-note').value.trim();
   const items=[...document.querySelectorAll('#bk-tbody tr')].filter(tr=>tr.querySelector('.bk-cb').checked).map(tr=>({name:tr.dataset.name,amount:parseFloat(tr.querySelector('.bk-sum').value)||0})).filter(x=>x.amount>0);
   if(!items.length){ err.textContent='Отметьте сотрудников и укажите суммы'; return; }
-  if(mode==='rec' && to && to<from){ err.textContent='Месяц «по» раньше месяца «с»'; return; }
+  const cardField=(mode==='rec')?BULK_CARD_FIELD[cat]:null;
+  if(mode==='rec' && !cardField && to && to<from){ err.textContent='Месяц «по» раньше месяца «с»'; return; }
   const lbl=(kind==='acc'?'Начисление':'Удержание')+' «'+cat+'»';
-  if(!confirm(`${lbl}\n${items.length} сотр., на сумму ${items.reduce((s,x)=>s+x.amount,0).toLocaleString('ru-RU')} ₸\n`+(mode==='once'?`Однократно за ${from}`:`Постоянно с ${from}${to?' по '+to:' (бессрочно)'}`)+'\n\nПродолжить?')) return;
+  if(!confirm(`${lbl}\n${items.length} сотр., на сумму ${items.reduce((s,x)=>s+x.amount,0).toLocaleString('ru-RU')} ₸\n`+(mode==='once'?`Однократно за ${from}`:(cardField?'Постоянно: запись в карточки сотрудников':`Постоянно с ${from}${to?' по '+to:' (бессрочно)'}`))+'\n\nПродолжить?')) return;
   if(!_payrollData && typeof initSalaryLedgerPage==='function'){ try{ await initSalaryLedgerPage(); }catch(e){} }
   let n=0;
   try{
@@ -14011,6 +14027,14 @@ async function _bulkCreate(){
         if(res && _payrollData) _payrollData.accruals.push(res); n++;
       }
       if(skipped.length) alert('Пропущены (такая же строка уже есть, дубль не создан): '+skipped.join(', '));
+    } else if(cardField){
+      for(const it of items){
+        await sbPatch('staff',`name=eq.${encodeURIComponent(it.name)}`,{[cardField]:it.amount});
+        const e=(employeesData||[]).find(x=>x.name===it.name); if(e) e[cardField]=it.amount;
+        if(cardField==='base_salary'){ sbInsert('staff_changes',{change_date:new Date().toISOString().slice(0,10),change_type:'salary_change',base_salary:it.amount,comment:'Оклад '+it.amount.toLocaleString('ru-RU')+' ₸ (массово)',staff_id:(e&&e.id)||null}).catch(()=>{}); }
+        n++;
+      }
+      err.style.color='var(--green)'; err.textContent=`✓ Обновлено карточек сотрудников: ${n}. Значения подставятся при «Начислить оклад».`;
     } else {
       for(const it of items){
         await sbInsert('salary_recurring',{emp_name:it.name,kind,category:cat,amount:it.amount,start_month:from,end_month:to||null,active:true,comment:note});
@@ -14022,7 +14046,7 @@ async function _bulkCreate(){
     }
   }catch(e){
     err.style.color='var(--red)';
-    err.textContent='Ошибка: '+e.message+(mode==='rec'?' — для постоянных правил нужна таблица salary_recurring (выполните salary_recurring.sql в Supabase)':'');
+    err.textContent='Ошибка: '+e.message+((mode==='rec'&&!cardField)?' — для постоянных правил нужна таблица salary_recurring (выполните salary_recurring.sql в Supabase)':'');
     return;
   }
   if(mode==='once'){ closeModal('bulkModal'); alert(`✅ Создано строк: ${n}`); }
