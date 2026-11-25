@@ -9212,6 +9212,7 @@ const TX_INCOME_CATS = [
   {id:'tax_return',      label:'Возврат налога',             icon:'🏛'},
   {id:'deposit_in',      label:'Вклад / депозит',            icon:'🏦'},
   {id:'loan_in',         label:'Кредит / займ',              icon:'💳'},
+  {id:'director_in',     label:'Взнос директора',            icon:'🧑‍💼'},
   {id:'other_in',        label:'Прочее поступление',         icon:'➕'},
 ];
 const TX_EXPENSE_CATS = [
@@ -9234,6 +9235,7 @@ const TX_EXPENSE_CATS = [
   {id:'loan_out',        label:'Выдача в долг',              icon:'🤝'},
   {id:'loan_repay',      label:'Погашение займа',            icon:'💰'},
   {id:'deposit_out',     label:'На депозит',                 icon:'🏦'},
+  {id:'director_out',    label:'Изъятие директором',         icon:'🧑‍💼'},
   {id:'bank',            label:'Банковские расходы',         icon:'🏦'},
   {id:'other_out',       label:'Прочее списание',            icon:'➖'},
 ];
@@ -15309,12 +15311,14 @@ function updateTxForm(){
     'bank':           {type:'fixed',    label:'🏦 Банк', values:['АО «Халык Банк»','АО «Kaspi Bank»']},
     'deposit_out':    {type:'free',     label:'🏦 Банк/депозит'},
     'other_out':      {type:'free',     label:'📎 Контрагент'},
+    'director_out':   {type:'free',     label:'🧑‍💼 Директор'},
     // Доходы
     'order_payment':  {type:'salon',    label:'📦 Покупатель'},
     'supplier_return':{type:'supplier', label:'🔄 Поставщик (возврат)'},
     'loan_in':        {type:'free',     label:'💳 Источник займа'},
     'tax_return':     {type:'fixed',    label:'🏛 Налоговый орган', values:['КГД МФ РК']},
     'other_in':       {type:'free',     label:'➕ Контрагент'},
+    'director_in':    {type:'free',     label:'🧑‍💼 Директор'},
   };
 
   const EXPENSE_ITEMS = [
@@ -27437,6 +27441,8 @@ function buildOSV(){
     '10': {name:'Материалы / ТМЗ',            type:'active',  kz:'1310'},
     '20': {name:'Основное производство',      type:'active',  kz:'8110'},
     '43': {name:'Готовая продукция',          type:'active',  kz:'1320'},
+    '66': {name:'Займы полученные',           type:'passive', kz:'4010'},
+    '80': {name:'Капитал (взносы директора)', type:'passive', kz:'5110'},
     '84': {name:'Нераспределённая прибыль',   type:'passive', kz:'5610'},
     '90.1': {name:'Выручка от продаж',             type:'passive', kz:'6010'},
     '90.2': {name:'Себестоимость продаж',           type:'active',  kz:'7010'},
@@ -27502,7 +27508,16 @@ function buildOSV(){
         post(cashAcc,'71',amt,p); break;
       // Займы полученные: Дт50/51 / Кт66 (прочие пассивы → 91.1)
       case 'loan_in':
-        post(cashAcc,'91.1',amt,p); break;
+        post(cashAcc,'66',amt,p, tx.desc||'Получен займ', tx.counterparty||'', tx.date); break;
+      // Погашение основного долга по займу: Дт66 / Кт50/51 (не расход)
+      case 'loan_repay':
+        post('66',cashAcc,amt,p, tx.desc||'Погашение займа', tx.counterparty||'', tx.date); break;
+      // Взнос директора (не возвращается): Дт50/51 / Кт80 — не доход
+      case 'director_in':
+        post(cashAcc,'80',amt,p, tx.desc||'Взнос директора', tx.counterparty||'', tx.date); break;
+      // Изъятие директором: Дт84 / Кт50/51 — не расход
+      case 'director_out':
+        post('84',cashAcc,amt,p, tx.desc||'Изъятие директором', tx.counterparty||'', tx.date); break;
       // Прочий приход: Дт50/51 / Кт91.1
       case 'other_in':
         post(cashAcc,'91.1',amt,p); break;
@@ -27871,7 +27886,10 @@ function buildCFS(){
     tax:          'Налоги и обязательные платежи',
     advance_out:  'Выдача авансов сотрудникам',
     loan_in:      'Получение займов',
-    loan_out:     'Погашение займов',
+    loan_out:     'Выдача займов',
+    loan_repay:   'Погашение займов',
+    director_in:  'Взнос директора',
+    director_out: 'Изъятие директором',
     rent:         'Аренда',
     utility:      'Коммунальные услуги',
     transport:    'Транспорт и доставка',
@@ -27893,7 +27911,7 @@ function buildCFS(){
     {key:'investing',  label:'🏗 Инвестиционная деятельность', color:'var(--purple)',
      inCats:['asset_sale'], outCats:['equipment','asset_buy']},
     {key:'financing',  label:'💳 Финансовая деятельность', color:'var(--amber)',
-     inCats:['loan_in'], outCats:['loan_out','dividend']},
+     inCats:['loan_in','director_in'], outCats:['loan_out','loan_repay','director_out','dividend']},
     {key:'other',      label:'📋 Прочее', color:'var(--text3)',
      inCats:['other_in'], outCats:['utility','rent','transport']},
   ];
@@ -31388,7 +31406,7 @@ function renderExpensesByMonth(){
   // (это распределение прибыли собственникам, а не операционный расход)
   moneyTx.forEach(t=>{
     if(t.flow!=='expense') return;
-    if(['transfer_in','transfer_out','transfer','advance_out','dividend'].includes(t.category)) return;
+    if(['transfer_in','transfer_out','transfer','advance_out','dividend','director_out','loan_repay','loan_out'].includes(t.category)) return;
     if(t.category==='supplier'){
       // Если у поставщика в карточке задана статья расходов — используем её,
       // а не общую строку "Поставщику". Если для него выбрано "считать по
@@ -31436,7 +31454,7 @@ function renderExpensesByMonth(){
   // чтобы директор/собственник видел, сколько лично получил
   const dividendMonthly = Array(12).fill(0);
   moneyTx.forEach(t=>{
-    if(t.flow!=='expense' || t.category!=='dividend') return;
+    if(t.flow!=='expense' || !['dividend','director_out'].includes(t.category)) return;
     const d = t.date||'';
     if(d.slice(0,4)!==year) return;
     const m = parseInt(d.slice(5,7),10)-1;
@@ -31492,7 +31510,7 @@ function plExpenseTreeHtml(catRows, dividendMonthly){
         <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--accent)">${fmt2(grandTotal)}</td>
       </tr>
       ${hasDividends?`<tr style="border-top:2px dashed var(--border)">
-        <td style="font-weight:600;color:var(--amber)">💰 Дивиденды <span style="font-weight:400;font-size:10px;color:var(--text3)">(не входит в расходы выше)</span></td>
+        <td style="font-weight:600;color:var(--amber)">💰 Дивиденды и изъятия директора <span style="font-weight:400;font-size:10px;color:var(--text3)">(не входит в расходы выше)</span></td>
         ${dividendMonthly.map(v=>`<td style="text-align:right;font-family:'IBM Plex Mono',monospace;color:var(--amber)">${fmt2(v)}</td>`).join('')}
         <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--amber)">${fmt2(dividendTotal)}</td>
       </tr>`:''}
@@ -31527,7 +31545,7 @@ function exportExpensesByMonthToExcel(){
   const dividends = window._plExpenseDividends;
   if(dividends && dividends.some(v=>v>0)){
     aoa.push([]);
-    aoa.push(['Дивиденды (не входит в расходы выше)', ...dividends.map(v=>Math.round(v)), Math.round(dividends.reduce((s,v)=>s+v,0))]);
+    aoa.push(['Дивиденды и изъятия директора (не входит в расходы выше)', ...dividends.map(v=>Math.round(v)), Math.round(dividends.reduce((s,v)=>s+v,0))]);
   }
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{wch:32}, ...Array(12).fill({wch:12}), {wch:14}];
