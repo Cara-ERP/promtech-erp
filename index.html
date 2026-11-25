@@ -631,6 +631,12 @@ select option{background:var(--bg3)}
 // SUPABASE — подключение к базе данных
 // ══════════════════════════════════════════════════════════════════
 const SUPABASE_URL = 'https://awktiqyzriwrgpyrczmc.supabase.co';
+// Вход по PIN — только просмотр: любые запросы на изменение базы блокируются
+(function(){ const _of=window.fetch.bind(window);
+  window.fetch=function(u,o){ try{ const m=String((o&&o.method)||(u&&u.method)||'GET').toUpperCase();
+    if(window._currentUser==='__pin__' && m!=='GET' && m!=='HEAD' && String((u&&u.url)||u).indexOf(SUPABASE_URL)===0)
+      return Promise.reject(new Error('Режим «только просмотр»: изменения запрещены')); }catch(e){}
+    return _of(u,o); }; })();
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3a3RpcXl6cml3cmdweXJjem1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MzEyOTgsImV4cCI6MjA5OTUwNzI5OH0.lwvlnRsdeTTzf0zEZdAlv2l-azX8UOpg16oPqo7j49k';
 
 // Прямые запросы через fetch (без SDK — надёжнее в браузере)
@@ -1848,6 +1854,7 @@ async function checkLoginPin(){
   const u=pins[parseInt(loginPinVal)];
   if(u){
     pinSucceeded();
+    { const _dp=document.getElementById('diag-panel'); if(_dp) _dp.remove(); }
     // Скрываем весь интерфейс входа
     document.getElementById('login-screen').style.display='none';
 
@@ -1880,6 +1887,7 @@ async function checkLoginPin(){
     window._currentUser = '__pin__';
     pinVal = loginPinVal;
     checkPin();
+    cabIdleStart();
 
   } else {
     document.getElementById('login-pin-error').textContent=pinFailed();
@@ -8176,6 +8184,7 @@ window.onerror = function(msg, src, line, col){
           <option value="salon">Салоны</option>
         </select>
         <input id="payroll-search" type="search" placeholder="🔍 Поиск..." style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:180px" oninput="renderPayroll()">
+        <span id="payroll-vis-box" style="display:none;align-items:center;gap:6px;font-size:12px;white-space:nowrap;padding:3px 8px;border:1px solid var(--border);border-radius:6px"><label style="cursor:pointer"><input id="payroll-vis" type="checkbox" onchange="payrollVisToggle(this)"> Показывать в кабинете сотрудников</label> <b id="payroll-vis-status"></b></span>
         <label style="font-size:12px;color:var(--text2);white-space:nowrap" title="Начисления и удержания текущего, ещё не законченного месяца не учитываются в ведомости и остатках"><input id="payroll-hide-cur" type="checkbox" checked onchange="renderSalaryLedger()"> без текущего месяца</label>
         <button class="btn btn-ghost btn-sm" onclick="_payrollData=null;initSalaryLedgerPage()">🔄</button>
       </div>
@@ -14407,6 +14416,40 @@ async function cardApplyRun(){
   res.style.color=fail.length?'var(--red)':'var(--green)';
   res.textContent=`✓ Обновлено строк: ${ok} из ${plan.length}\nПропущено (уже занесено): ${skipped}\nНет строки за месяц: ${noRow.length}${noRow.length?' ('+noRow.join(', ')+')':''}`+(fail.length?'\n❌ '+fail.join('\n❌ '):'');
 }
+
+// ── Показ начислений в кабинете сотрудников (по месяцам) ─────────────────────
+const PAYROLL_VIS_ROLES=['director','hr','accountant'];
+let _payVis=null;
+function payrollVisAllowed(){ return PAYROLL_VIS_ROLES.includes(window._currentUser); }
+async function payrollVisRefresh(force){
+  const box=document.getElementById('payroll-vis-box'); if(!box) return;
+  const month=document.getElementById('payroll-month')?.value||'';
+  if(!payrollVisAllowed() || !month){ box.style.display='none'; return; }
+  box.style.display='inline-flex';
+  const st=document.getElementById('payroll-vis-status'), cb=document.getElementById('payroll-vis');
+  try{
+    if(_payVis===null || force){ _payVis={}; (await sbFetch('payroll_visibility','select=month,visible')||[]).forEach(v=>{ _payVis[v.month]=!!v.visible; }); }
+  }catch(e){ st.textContent='нужна таблица payroll_visibility (SQL)'; st.style.color='var(--amber)'; cb.disabled=true; return; }
+  cb.disabled=false;
+  const on=!!_payVis[month], done=month<curYM();
+  cb.checked=on;
+  st.textContent=on?(done?'Открыт для сотрудников':'Открыт (после окончания месяца)'):'Закрыт для сотрудников';
+  st.style.color=on&&done?'var(--green)':(on?'var(--amber)':'var(--text3)');
+}
+async function payrollVisToggle(cb){
+  const month=document.getElementById('payroll-month')?.value||'';
+  const want=cb.checked;
+  if(!payrollVisAllowed() || !month){ cb.checked=!want; return; }
+  const lbl=CAB_MN[+month.slice(5,7)-1]+' '+month.slice(0,4);
+  const msg=want?`Сотрудники увидят начисления и удержания за ${lbl}. Показать?`:`Скрыть начисления и удержания за ${lbl} от сотрудников?`;
+  if(!confirm(msg)){ cb.checked=!want; return; }
+  try{
+    await sbUpsert('payroll_visibility',{month,visible:want,changed_by:window._currentUsername||window._currentUser||'',changed_at:new Date().toISOString()},'month');
+    if(_payVis) _payVis[month]=want;
+    payrollVisRefresh(true);
+  }catch(e){ alert('Не удалось сохранить: '+e.message+'\nЕсли таблицы нет — выполните payroll_visibility.sql в Supabase.'); cb.checked=!want; }
+}
+{ const _o=renderSalaryLedger; renderSalaryLedger=function(){ const r=_o.apply(this,arguments); try{ payrollVisRefresh(); }catch(e){} return r; }; }
 // ── Журнал начислений ЗП ──────────────────────────────────────────────────────
 async function initAccrualsPage(){
   if(!_payrollData) await initSalaryLedgerPage();
@@ -21075,7 +21118,7 @@ function checkPin(){
 // Данные запрашиваются только по имени вошедшего сотрудника.
 // ══════════════════════════════════════════════════════════════════════
 const CAB_MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-window._cab={name:'',pos:'',month:'',acc:[],pay:[],months:[]};
+window._cab={name:'',pos:'',month:'',acc:[],pay:[],months:[],vis:new Set()};
 const cabEsc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const cabFmt=n=>'₸'+Math.round(n||0).toLocaleString('ru-RU');
 const cabMonthLabel=m=>{const [y,mo]=m.split('-');return CAB_MN[+mo-1]+' '+y;};
@@ -21087,8 +21130,23 @@ async function cabOpen(u){
   if(load) load.textContent='Загрузка...';
   try{
     const enc=encodeURIComponent(u.name);
-    const rows=await sbFetchAllPages('salary_accruals',`select=*&emp_name=eq.${enc}&order=date`);
-    (rows||[]).forEach(r=>{ if(r.type==='payment') C.pay.push(r); else C.acc.push(r); });
+    // Какие месяцы бухгалтерия открыла для сотрудников (по умолчанию — ни один). Текущий месяц не показываем никогда.
+    C.vis=new Set(); C.firstMonth='';
+    try{
+      const vr=await sbFetch('payroll_visibility','select=month,visible'); const cm=curYM();
+      (vr||[]).forEach(v=>{ if(v.visible && v.month<cm) C.vis.add(v.month); });
+    }catch(e){ console.warn('Кабинет: видимость ЗП недоступна, показ закрыт'); }
+    // Выплаты (история операций) — как раньше
+    const pays=await sbFetchAllPages('salary_accruals',`select=*&emp_name=eq.${enc}&type=eq.payment&order=date`);
+    C.pay=pays||[];
+    // Начисления/удержания — запрашиваем с сервера только за открытые месяцы
+    if(C.vis.size){
+      const orf=[...C.vis].map(m=>{ const [y,mo]=m.split('-').map(Number); const ld=new Date(y,mo,0).getDate(); return `and(date.gte.${m}-01,date.lte.${m}-${String(ld).padStart(2,'0')})`; }).join(',');
+      const rows=await sbFetchAllPages('salary_accruals',`select=*&emp_name=eq.${enc}&type=neq.payment&or=(${orf})&order=date`);
+      C.acc=rows||[];
+      const f=await sbFetch('salary_accruals',`select=date&emp_name=eq.${enc}&type=neq.payment&order=date&limit=1`);
+      C.firstMonth=(f&&f[0]&&String(f[0].date).slice(0,7))||'';
+    }
   }catch(e){
     if(load) load.textContent='⚠️ Не удалось загрузить данные: '+e.message;
     return;
@@ -21111,7 +21169,8 @@ async function cabOpen(u){
   sel.innerHTML=C.months.map(m=>`<option value="${m}">${cabMonthLabel(m)}</option>`).join('');
   // по умолчанию — последний месяц, где есть данные
   const lastData=[...new Set([...C.acc,...C.pay].map(r=>String(r.date).slice(0,7)))].sort().pop();
-  sel.value=lastData||C.months[0];
+  const _lastVis=[...C.vis].filter(m=>C.months.includes(m)).sort().pop();
+  sel.value=_lastVis||lastData||C.months[0];
   if(load) load.textContent='';
   cabRenderMonth();
 }
@@ -21136,16 +21195,20 @@ function cabRenderMonth(){
   const m=document.getElementById('cab-month').value;
   C.month=m;
   const r=cabCalcMonth(m);
-  C._cur=r;
+  const _open=C.vis && C.vis.has(m);
+  C._cur=_open?r:{amount:0,deducted:0,net:0,received:r.received,closing:0,payM:r.payM,accM:[],blocked:true};
+  C._balOk=m=>{ if(!C.firstMonth) return true; let [y,mo]=C.firstMonth.split('-').map(Number); for(let i=0;i<240;i++){ const k=y+'-'+String(mo).padStart(2,'0'); if(k>m) break; if(!C.vis.has(k)) return false; mo++; if(mo>12){mo=1;y++;} } return true; };
+  const _hidden=`<div class="card" style="grid-column:1/-1;padding:18px;text-align:center;color:var(--text3);font-size:14px">Расчёт за ${cabMonthLabel(m)} будет доступен после утверждения бухгалтерией</div>`;
 
   // KPI
-  document.getElementById('cab-kpi').innerHTML=`
+  if(!_open){ document.getElementById('cab-kpi').innerHTML=_hidden; }
+  else document.getElementById('cab-kpi').innerHTML=`
     <div class="kpi"><div class="kpi-label">Начислено</div><div class="kpi-value" style="color:var(--green)">${cabFmt(r.amount)}</div></div>
     <div class="kpi"><div class="kpi-label">Удержано</div><div class="kpi-value" style="color:var(--amber)">${cabFmt(r.deducted)}</div></div>
     <div class="kpi"><div class="kpi-label">К выдаче</div><div class="kpi-value">${cabFmt(r.net)}</div></div>
     <div class="kpi"><div class="kpi-label">Получено</div><div class="kpi-value" style="color:var(--accent)">${cabFmt(r.received)}</div></div>
     <div class="kpi"><div class="kpi-label">Остаток на конец месяца</div>
-      <div class="kpi-value" style="color:${r.closing>0?'var(--amber)':r.closing<0?'var(--red)':'var(--green)'}">${cabFmt(r.closing)}</div>
+      <div class="kpi-value" style="color:${r.closing>0?'var(--amber)':r.closing<0?'var(--red)':'var(--green)'}">${C._balOk(m)?cabFmt(r.closing):'—'}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px">${r.closing>0?'компания должна вам':r.closing<0?'вы получили больше начисленного':'расчёт закрыт'}${r.opening?` · на начало месяца ${cabFmt(r.opening)}`:''}</div></div>`;
 
   // Состав начисления и удержаний
@@ -21161,7 +21224,7 @@ function cabRenderMonth(){
   if(!accKeys.length && r.amount) bd+=line('Начислено (без детализации)',r.amount,'var(--green)');
   accKeys.forEach(k=>bd+=line(k,accT[k],'var(--green)'));
   dedKeys.forEach(k=>bd+=line('− '+k,dedT[k],'var(--amber)'));
-  document.getElementById('cab-breakdown').innerHTML=bd||'<div style="padding:12px;color:var(--text3);font-size:13px">Начислений за этот месяц нет</div>';
+  document.getElementById('cab-breakdown').innerHTML=!_open?'<div style="padding:12px;color:var(--text3);font-size:13px">Расчёт за этот месяц будет доступен после утверждения бухгалтерией</div>':(bd||'<div style="padding:12px;color:var(--text3);font-size:13px">Начислений за этот месяц нет</div>');
 
   // Выплаты
   document.getElementById('cab-pay-tbody').innerHTML=r.payM.length?r.payM.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(p=>
@@ -21194,6 +21257,7 @@ function cabRenderMonth(){
 
   // Сводка по месяцам
   document.getElementById('cab-summary-tbody').innerHTML=C.months.map(mm=>{
+    if(!C.vis.has(mm)) return '';
     const x=cabCalcMonth(mm);
     if(!x.accM.length&&!x.payM.length&&mm!==m) return '';
     return `<tr style="cursor:pointer;${mm===m?'background:var(--bg3)':''}" onclick="document.getElementById('cab-month').value='${mm}';cabRenderMonth()">
@@ -21202,8 +21266,8 @@ function cabRenderMonth(){
       <td style="text-align:right;font-family:monospace;color:var(--amber)">${cabFmt(x.deducted)}</td>
       <td style="text-align:right;font-family:monospace">${cabFmt(x.net)}</td>
       <td style="text-align:right;font-family:monospace;color:var(--accent)">${cabFmt(x.received)}</td>
-      <td style="text-align:right;font-family:monospace">${cabFmt(x.closing)}</td></tr>`;
-  }).join('');
+      <td style="text-align:right;font-family:monospace">${C._balOk(mm)?cabFmt(x.closing):'—'}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;padding:14px;color:var(--text3)">Расчёты будут доступны после утверждения бухгалтерией</td></tr>';
 }
 
 // Этапы рабочего листа, где сотрудник назначен исполнителем
@@ -21240,6 +21304,7 @@ function cabGetData(){
 }
 
 function cabPrint(){
+  if(window._cab._cur&&window._cab._cur.blocked){ alert('Расчёт за этот месяц будет доступен после утверждения бухгалтерией'); return; }
   const d=cabGetData();
   const td='style="padding:6px 8px;border-bottom:1px solid #e2e8f0"';
   const pays=d.pays.map(x=>`<tr><td ${td}>${cabEsc(x[0])}</td><td ${td}>${cabEsc(x[1])}</td><td ${td} align="right">${cabFmt(x[2])}</td></tr>`).join('');
@@ -21266,6 +21331,7 @@ function cabPrint(){
 
 function cabExcel(){
   if(typeof XLSX==='undefined'){alert('Excel загружается, попробуйте через несколько секунд');return;}
+  if(window._cab._cur&&window._cab._cur.blocked){ alert('Расчёт за этот месяц будет доступен после утверждения бухгалтерией'); return; }
   const d=cabGetData();
   const wb=XLSX.utils.book_new();
   const ws1=XLSX.utils.aoa_to_sheet([['РАСЧЁТНЫЙ ЛИСТОК'],['Сотрудник:',d.name],['Должность:',d.pos],['Период:',d.period],[],
@@ -21287,6 +21353,7 @@ function cabSendEmail(){
   const email=(document.getElementById('cab-email-input')?.value||'').trim();
   const st=document.getElementById('cab-email-status');
   if(!email||!email.includes('@')){st.textContent='⚠️ Введите корректный email';st.style.color='var(--red)';return;}
+  if(window._cab._cur&&window._cab._cur.blocked){ st.textContent='Расчёт за этот месяц ещё не утверждён'; st.style.color='var(--red)'; return; }
   const d=cabGetData();
   let body='Расчётный листок\n\nСотрудник: '+d.name+'\nДолжность: '+d.pos+'\nПериод: '+d.period+'\n\n';
   if(document.getElementById('cab-email-slip')?.checked)
@@ -21299,8 +21366,27 @@ function cabSendEmail(){
   setTimeout(()=>{closeModal('cabEmailModal');st.textContent='';},3000);
 }
 
+// Автовыход из кабинета по PIN после 5 минут без действий
+const CAB_IDLE_MS = 5*60*1000;
+let _cabLastAct = Date.now(), _cabIdleInt = null;
+function _cabAct(){ _cabLastAct = Date.now(); }
+function cabIdleStart(){
+  _cabLastAct = Date.now();
+  if(!window._cabIdleOn){ window._cabIdleOn=true;
+    ['mousemove','mousedown','keydown','touchstart','scroll','click','wheel'].forEach(ev=>document.addEventListener(ev,_cabAct,{passive:true,capture:true})); }
+  clearInterval(_cabIdleInt);
+  _cabIdleInt=setInterval(()=>{
+    if(window._currentUser!=='__pin__'){ clearInterval(_cabIdleInt); return; }
+    if(Date.now()-_cabLastAct>=CAB_IDLE_MS){
+      clearInterval(_cabIdleInt);
+      cabLogout();
+      const e=document.getElementById('login-pin-error'); if(e) e.textContent='Сеанс завершён: 5 минут без действий. Введите код заново.';
+    }
+  },10000);
+}
 function cabLogout(){
-  window._cab={name:'',pos:'',month:'',acc:[],pay:[],months:[]};
+  window._cab={name:'',pos:'',month:'',acc:[],pay:[],months:[],vis:new Set()};
+  clearInterval(_cabIdleInt);
   if(window._currentUser==='__pin__'){
     window._currentUser=null;
     const topbar=document.getElementById('main-topbar')||document.querySelector('.topbar');
