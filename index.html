@@ -1855,6 +1855,7 @@ async function checkLoginPin(){
   if(u){
     pinSucceeded();
     { const _dp=document.getElementById('diag-panel'); if(_dp) _dp.remove(); }
+    document.querySelectorAll('.cab-export').forEach(b=>b.style.display='none');
     // Скрываем весь интерфейс входа
     document.getElementById('login-screen').style.display='none';
 
@@ -8773,13 +8774,13 @@ window.onerror = function(msg, src, line, col){
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-ghost btn-sm" onclick="cabPrint()" title="Распечатать / сохранить PDF">
+            <button class="btn btn-ghost btn-sm cab-export" onclick="cabPrint()" title="Распечатать / сохранить PDF">
               🖨 Печать
             </button>
-            <button class="btn btn-ghost btn-sm" onclick="cabExcel()" title="Скачать Excel">
+            <button class="btn btn-ghost btn-sm cab-export" onclick="cabExcel()" title="Скачать Excel">
               📥 Excel
             </button>
-            <button class="btn btn-ghost btn-sm" onclick="showModal('cabEmailModal')" title="Отправить на email">
+            <button class="btn btn-ghost btn-sm cab-export" onclick="showModal('cabEmailModal')" title="Отправить на email">
               📧 Email
             </button>
             <button class="btn btn-ghost btn-sm" onclick="cabLogout()">Выйти</button>
@@ -18433,6 +18434,19 @@ function brgSetPct(i,v){ _brg.month.rows[i].pct=_brgNum(v); brgMarkDirty(); brgR
 // ── Отметка изделий журнала в рабочем листе производства и на доске ──
 // Изделие попадает на рабочий лист, у него появляется завершённый этап бригады с датой:
 // датой реализации (если она в этом же месяце), иначе последним днём месяца.
+// ── Отметки журнала в этапах рабочего листа ──
+function jmNorm(x){ return String(x||'').replace(/\s+/g,' ').trim().toLowerCase(); }
+// снять отметки MARK: этапы, которые мы «заняли» (были заведены ранее), возвращаем в невыполненные; добавленные нами — удаляем
+function jmClear(stages, MARK){
+  const out=[];
+  (stages||[]).forEach(x=>{
+    if(x.journalMark!==MARK){ out.push(x); return; }
+    if(x.adopted && x.adopted.prev){ const y={...x, ...x.adopted.prev}; delete y.journalMark; delete y.adopted; out.push(y); }
+  });
+  return out;
+}
+// ищем в списке этапов изделия невыполненный этап с таким же названием (без учёта регистра и пробелов)
+function jmFindOpen(base, name){ const k=jmNorm(name); return base.findIndex(z=>!z.journalMark && !z.posted && jmNorm(z.stage)===k); }
 async function brgJobsMark(quiet, clearOnly){
   const m=_brg.month, b=_brgBrigade(); if(!m||!b) return 0;
   const MARK=b.id+'|'+m.period, last=_brgLastDay(m.period), from=m.period+'-01';
@@ -18447,8 +18461,8 @@ async function brgJobsMark(quiet, clearOnly){
   // убрать прежние отметки этого месяца у изделий, которых в журнале уже нет
   for(const r of all){
     if(groups[r.item_key]) continue;
-    const st=r.stages||[], n=st.filter(x=>x.journalMark!==MARK);
-    if(n.length!==st.length){ await sbPatch('production_progress','id=eq.'+r.id,{stages:n,updated_at:new Date().toISOString()}); syncMem(r.item_key,r,n); }
+    const st=r.stages||[]; if(!st.some(x=>x.journalMark===MARK)) continue; const n=jmClear(st,MARK);
+    await sbPatch('production_progress','id=eq.'+r.id,{stages:n,updated_at:new Date().toISOString()}); syncMem(r.item_key,r,n);
   }
   const list=Object.values(groups);
   if(list.length){
@@ -18459,9 +18473,13 @@ async function brgJobsMark(quiet, clearOnly){
     const o=ordersData.find(x=>x.num===g.order); const it=o&&o.items?o.items[g.idx]:null; const nm=(it&&it.name)||g.name||'';
     const rl=(realizationsData||[]).filter(r=>r.order_num===g.order && plNormProductName(r.name)===plNormProductName(nm)).map(r=>String(r.doc_date||r.date||'').slice(0,10)).filter(d=>d>=from&&d<=last).sort();
     const date=rl.length?rl[rl.length-1]:last;
-    const r=byKey[g.key]; const base=((r&&r.stages)||[]).filter(x=>x.journalMark!==MARK);
-    base.push({stage:'Работа бригады', workshop:'', assignees:[], brigade:b.id, brigadeName:b.name, payMethod:'rate',
-      rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK});
+    const r=byKey[g.key]; const base=jmClear((r&&r.stages)||[],MARK);
+    const stName=((m.jobs||[]).find(j=>j.stageName)||{}).stageName||'Работа бригады';
+    const bst={stage:stName, workshop:'', assignees:[], brigade:b.id, brigadeName:b.name, payMethod:'rate',
+      rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK};
+    const oi=jmFindOpen(base,stName);
+    if(oi>=0){ const old=base[oi]; const prev={}; ['assignees','brigade','brigadeName','payMethod','rate','percent','qty','started','startedDate','posted','postedDate']. forEach(k=>{ prev[k]=old[k]; }); base[oi]={...old,...bst,workshop:old.workshop||'',adopted:{prev}}; }
+    else base.push(bst);
     if(r){ await sbPatch('production_progress','id=eq.'+r.id,{stages:base,updated_at:new Date().toISOString()}); syncMem(g.key,r,base); }
     else { const ins=await sbInsert('production_progress',{item_key:g.key,order_num:g.order,item_idx:g.idx,stages:base,materials:[],completed:false}); syncMem(g.key,ins,base); }
     g.jobs.forEach(j=>{ j.marked=date; });
@@ -18470,7 +18488,7 @@ async function brgJobsMark(quiet, clearOnly){
   (m.jobs||[]).forEach(j=>{ if(!valid.includes(j)) delete j.marked; });
   await brgSave(true); renderBrigades();
   const skipped=(m.jobs||[]).length-valid.length;
-  if(!quiet){ alert(clearOnly?'Отметки сняты.':('Отмечено изделий: '+list.length+'.'+(skipped?'\nПропущено строк без выбранного изделия из заказа: '+skipped+'.':'')+'\nОни появились в рабочем листе производства и на доске (этап «Работа бригады» с датой реализации или последним днём месяца).')); }
+  if(!quiet){ alert(clearOnly?'Отметки сняты.':('Отмечено изделий: '+list.length+'.'+(skipped?'\nПропущено строк без выбранного изделия из заказа: '+skipped+'.':'')+'\nОни появились в рабочем листе производства и на доске (этап «'+(((m.jobs||[]).find(j=>j.stageName)||{}).stageName||'Работа бригады')+'» с датой реализации или последним днём месяца).')); }
   return list.length;
 }
 async function brgJobsMarkClick(clear){
@@ -18542,6 +18560,8 @@ function brgJobsHtml(){
     '<div style="display:flex;gap:6px;flex-wrap:wrap">'+(ed?'<button class="btn btn-ghost btn-sm" onclick="brgJobAdd()">＋ Заказ / изделие</button>':'')+
     '<button class="btn btn-ghost btn-sm" title="Добавляет изделия на рабочий лист производства и доску с этапом бригады" onclick="brgJobsMarkClick(false)">📋 Отметить в рабочем листе</button>'+
     ((m.jobs||[]).some(j=>j.marked)?'<button class="btn btn-ghost btn-sm" onclick="brgJobsMarkClick(true)">↩ Снять отметки</button>':'')+'</div></div>'+
+    '<div style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:8px;flex-wrap:wrap"><b>Какой этап тех. карты закрывает работа бригады:</b> <input list="brg-stage-list" type="text" placeholder="Работа бригады" value="'+E(((m.jobs||[]).find(j=>j.stageName)||{}).stageName||'')+'" style="width:240px"'+dis+' onchange="brgSetStageName(this.value)"><span style="color:var(--text3)">название должно совпадать с этапом тех. карты (или оставьте пустым)</span></div>'+
+    '<datalist id="brg-stage-list">'+brgStageNames().map(n=>'<option value="'+E(n)+'"></option>').join('')+'</datalist>'+
     '<datalist id="brg-ord-list">'+ords.map(o=>'<option value="'+E(o.num)+'">'+E(o.customer||'')+'</option>').join('')+'</datalist>'+
     '<label style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px" title="При проведении расчёта изделия из журнала будут оприходованы на «Склад полуфабрикатов» и появятся в журнале выпуска. Для работ и операций снимите галочку в их строке."><input type="checkbox" style="width:auto;margin:0"'+(_brg.stockAll?' checked':'')+dis+' onchange="brgStockAll(this.checked)"> <b>Изделия этого журнала — на Склад полуфабрикатов</b> <span style="color:var(--text3)">(одна галочка на весь журнал; работы и операции отметьте в строке как «не на склад»)</span></label>'+
     '<div style="overflow-x:auto"><table class="data-table" style="min-width:680px"><thead><tr><th>Заказ</th><th>Изделие</th><th style="text-align:right;width:80px">Кол-во</th><th style="text-align:right;width:120px" title="Цена для расчёта сдельной (не цена продажи)">Цена для ЗП, ₸</th><th style="text-align:right">Сумма, ₸</th><th title="Перенести строку в другой месяц">Месяц</th><th></th></tr></thead><tbody>';
@@ -18613,6 +18633,8 @@ function brgSetMode(i,v){
 function brgSetSalary(i,v){ _brg.month.rows[i].salary = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetPool(v){ _brg.month.pool = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetExtra(v){ _brg.month.extra = _brgNum(v); brgMarkDirty(); brgRefresh(); }
+function brgStageNames(){ const set=new Set(); try{ Object.values(prodProgress||{}).forEach(p=>(p.stages||[]).forEach(x=>{ if(x.stage) set.add(String(x.stage).trim()); })); }catch(e){} try{ (techCardsData||[]).forEach(c=>(c.stages||[]).forEach(t=>{ if(t.name) set.add(String(t.name).trim()); })); }catch(e){} return [...set].sort(); }
+function brgSetStageName(v){ v=String(v||'').trim(); (_brg.month.jobs||[]).forEach(j=>{ if(v) j.stageName=v; else delete j.stageName; }); brgMarkDirty(); }
 function brgSetNote(v){ _brg.month.note = v; brgMarkDirty(); }
 function brgSetDays(i,v){ _brg.month.rows[i].days = _brgNum(v); brgMarkDirty(); brgRefresh(); }
 function brgSetKtu(i,v){ _brg.month.rows[i].ktu = v===''?1:_brgNum(v); brgMarkDirty(); brgRefresh(); }
@@ -19703,8 +19725,8 @@ async function ejMarkStages(r, clearOnly){
   const all=await sbFetchAllPages('production_progress','select=id,item_key,order_num,item_idx,stages,materials,completed')||[];
   const byKey={}; all.forEach(x=>{ byKey[x.item_key]=x; });
   const syncMem=(key,row,stages)=>{ if(typeof prodProgress!=='undefined'){ if(prodProgress[key]) prodProgress[key].stages=stages; else if(row&&row.id) prodProgress[key]={id:row.id,version:1,stages,materials:row.materials||[],completed:!!row.completed}; } };
-  for(const x of all){ if(groups[x.item_key]) continue; const st=x.stages||[], n=st.filter(z=>z.journalMark!==MARK);
-    if(n.length!==st.length){ await sbPatch('production_progress','id=eq.'+x.id,{stages:n,updated_at:new Date().toISOString()}); syncMem(x.item_key,x,n); } }
+  for(const x of all){ if(groups[x.item_key]) continue; const st=x.stages||[]; if(!st.some(z=>z.journalMark===MARK)) continue; const n=jmClear(st,MARK);
+    await sbPatch('production_progress','id=eq.'+x.id,{stages:n,updated_at:new Date().toISOString()}); syncMem(x.item_key,x,n); }
   const list=Object.values(groups), conflicts=[];
   if(list.length){
     await sbUpsert('production_worksheet', list.map(g=>({order_num:g.order,item_idx:g.idx})), 'order_num,item_idx');
@@ -19714,10 +19736,13 @@ async function ejMarkStages(r, clearOnly){
     const o=ordersData.find(z=>z.num===g.order); const it=o&&o.items?o.items[g.idx]:null; const nm=(it&&it.name)||g.name||'';
     const rl=(realizationsData||[]).filter(z=>z.order_num===g.order && plNormProductName(z.name)===plNormProductName(nm)).map(z=>String(z.doc_date||z.date||'').slice(0,10)).filter(d=>d>=from&&d<=last).sort();
     const date=rl.length?rl[rl.length-1]:last;
-    const row=byKey[g.key]; const base=((row&&row.stages)||[]).filter(z=>z.journalMark!==MARK);
+    const row=byKey[g.key]; const base=jmClear((row&&row.stages)||[],MARK);
     // этап этой операции у этого сотрудника уже заведён в рабочем листе обычным способом — не дублируем
     if(base.some(z=>String(z.stage||'').trim().toLowerCase()===String(r.operation).trim().toLowerCase() && z.posted && (z.assignees||[]).some(a=>ejParts(r).some(pp=>pwbNameKey(pp.name)===pwbNameKey(a.name))))){ conflicts.push(g.order+' · '+nm); continue; }
-    base.push({stage:r.operation, workshop:wsId, assignees:ejParts(r).map(x=>({name:x.name,ktu:+x.ktu||1})), brigade:null, brigadeName:'', payMethod:'rate', rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK});
+    const nst={stage:r.operation, workshop:wsId, assignees:ejParts(r).map(x=>({name:x.name,ktu:+x.ktu||1})), brigade:null, brigadeName:'', payMethod:'rate', rate:g.qty?Math.round(g.amount/g.qty):0, percent:0, qty:g.qty||1, started:true, startedDate:date, posted:true, postedDate:date, accrualIds:[], journalMark:MARK};
+    const oi=jmFindOpen(base,r.operation);
+    if(oi>=0){ const old=base[oi]; const prev={}; ['assignees','brigade','brigadeName','payMethod','rate','percent','qty','started','startedDate','posted','postedDate'].forEach(k=>{ prev[k]=old[k]; }); base[oi]={...old,...nst,stage:old.stage,workshop:old.workshop||wsId,adopted:{prev}}; }
+    else base.push(nst);
     if(row){ await sbPatch('production_progress','id=eq.'+row.id,{stages:base,updated_at:new Date().toISOString()}); syncMem(g.key,row,base); }
     else { const ins=await sbInsert('production_progress',{item_key:g.key,order_num:g.order,item_idx:g.idx,stages:base,materials:[],completed:false}); syncMem(g.key,ins,base); }
   }
@@ -21387,6 +21412,7 @@ function cabIdleStart(){
 function cabLogout(){
   window._cab={name:'',pos:'',month:'',acc:[],pay:[],months:[],vis:new Set()};
   clearInterval(_cabIdleInt);
+  document.querySelectorAll('.cab-export').forEach(b=>b.style.display='');
   if(window._currentUser==='__pin__'){
     window._currentUser=null;
     const topbar=document.getElementById('main-topbar')||document.querySelector('.topbar');
@@ -39478,13 +39504,13 @@ function sfApplyVirtualTc(order, item, itemIdx){
   let cur=0;
   if(p && (p.stages||[]).length){
     const ws=p.stages;
-    cur=stages.findIndex(t=>{ const parts=ws.filter(x=>(x.stage||'')===t.name); return !(parts.length && parts.every(x=>x.posted)); });
+    cur=stages.findIndex(t=>{ const parts=ws.filter(x=>jmNorm(x.stage)===jmNorm(t.name)); return !(parts.length && parts.every(x=>x.posted)); });
     if(cur<0) cur=stages.length;
   }
   item.shopFloorStage=cur;
   item.stageLog={};
   for(let i=0;i<=Math.min(cur,stages.length-1);i++){
-    const w=p&&p.stages?p.stages.find(x=>(x.stage||'')===stages[i].name):null;
+    const w=p&&p.stages?p.stages.find(x=>jmNorm(x.stage)===jmNorm(stages[i].name)):null;
     const names=w?(w.brigade?['👥 '+(w.brigadeName||'бригада')]:(w.assignees||[]).map(a=>a.name)):[];
     item.stageLog[i]={assignees:names,timeStart:'',timeEnd:'',equipment:'',materialsUsed:[],completedAt:w&&w.postedDate?w.postedDate:''};
   }
