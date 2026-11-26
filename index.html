@@ -2532,6 +2532,7 @@ window.onerror = function(msg, src, line, col){
       <div class="mrp-tab" id="mrp-shopfloor" style="display:none">
         <div class="section-header" style="margin-bottom:14px">
           <div style="font-size:13px;color:var(--text3)">Перетащите товар в соседнюю графу, чтобы передать его на следующий этап. Клик по ячейке — назначить исполнителей и зафиксировать материалы/оборудование.</div>
+          <button class="btn btn-ghost btn-sm" onclick="tcAssignOpen()" title="Проставить техкарту изделиям, у которых её нет">🧩 Назначить тех. карты</button>
         </div>
         <div class="tabs" id="sf-shop-tabs">
           <div class="tab active" onclick="showShopTab('Стул',this)">Стул <span class="kanban-count" id="sf-count-Стул">0</span></div>
@@ -39491,6 +39492,44 @@ function sfResolveTc(item){
       || cards.find(c=>c.link_type==='category' && cat && String(c.link_key||'').toLowerCase()===cat)
       || tcTemplateByCategory(cards, cat)
       || null;
+}
+
+// ── Массовое назначение тех. карт видам деятельности (изделиям без карты) ──
+async function tcAssignOpen(){
+  try{ if(!(techCardsData||[]).length) techCardsData=await sbFetchAllPages('tech_cards','select=*')||[]; }catch(e){}
+  if((typeof ordersData==='undefined'||!ordersData.length) && typeof loadOrdersFromDB==='function'){ try{ await loadOrdersFromDB(); }catch(e){} }
+  const cards=(techCardsData||[]).filter(c=>(c.stages||[]).length);
+  if(!cards.length){ alert('Нет ни одной тех. карты. Сначала создайте её во вкладке «Технологические карты».'); return; }
+  const cnt={}; let noCat=0;
+  (ordersData||[]).forEach(o=>(o.items||[]).forEach(it=>{ if(sfResolveTc(it)) return; const c=String(it.category||'').trim(); if(!c){ noCat++; return; } cnt[c]=(cnt[c]||0)+1; }));
+  const cats=Object.keys(cnt).sort();
+  const E=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const old=document.getElementById('tc-assign-ov'); if(old) old.remove();
+  const ov=document.createElement('div'); ov.id='tc-assign-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center';
+  ov.innerHTML='<div class="card" style="max-width:640px;width:94%;max-height:86vh;overflow:auto;padding:18px">'+
+    '<div style="font-weight:600;font-size:15px;margin-bottom:6px">Назначить тех. карты</div>'+
+    (cats.length?'<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Показаны виды деятельности, у изделий которых нет тех. карты. Выберите карту для вида — она будет создана как карта вида, изделия с собственной картой не меняются.</div>'+
+    '<table class="data-table"><thead><tr><th>Вид деятельности</th><th style="text-align:right">Изделий</th><th>Тех. карта</th></tr></thead><tbody>'+
+    cats.map((c,i)=>'<tr><td>'+E(c)+'</td><td style="text-align:right">'+cnt[c]+'</td><td><select id="tca-'+i+'" style="width:100%"><option value="">— не назначать —</option>'+cards.map(k=>'<option value="'+E(k.id)+'">'+E(k.name||k.link_key)+' ('+k.stages.length+' этапов)</option>').join('')+'</select></td></tr>').join('')+'</tbody></table>'
+    :'<div style="padding:12px 0">У всех изделий с указанным видом деятельности тех. карта уже есть.</div>')+
+    (noCat?'<div style="font-size:12px;color:var(--text3);margin-top:8px">Изделий без вида деятельности: '+noCat+' — им карту назначить нельзя, укажите вид в заказе.</div>':'')+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn btn-ghost" onclick="document.getElementById(\'tc-assign-ov\').remove()">Закрыть</button>'+(cats.length?'<button class="btn btn-primary" id="tca-ok">Назначить</button>':'')+'</div></div>';
+  document.body.appendChild(ov);
+  const ok=document.getElementById('tca-ok'); if(!ok) return;
+  ok.onclick=async()=>{
+    const picks=[]; cats.forEach((c,i)=>{ const v=document.getElementById('tca-'+i).value; if(v){ const k=cards.find(z=>String(z.id)===v); if(k) picks.push({cat:c,card:k}); } });
+    if(!picks.length){ alert('Не выбрана ни одна карта.'); return; }
+    if(!confirm('Будет создано карт вида: '+picks.length+'\nЗатронет изделий: '+picks.reduce((a,x)=>a+cnt[x.cat],0)+'\n\n'+picks.map(x=>x.cat+' → '+(x.card.name||x.card.link_key)).join('\n')+'\n\nПродолжить?')) return;
+    ok.disabled=true; let done=0, errs=[];
+    for(const x of picks){
+      try{ const res=await sbInsert('tech_cards',{link_type:'category',link_key:x.cat,name:(x.card.name||x.cat)+' — '+x.cat,stages:x.card.stages,updated_at:new Date().toISOString()}); techCardsData.push(res); done++; }
+      catch(e){ errs.push(x.cat+': '+e.message); }
+    }
+    ov.remove();
+    try{ if(typeof renderShopFloor==='function') renderShopFloor(); }catch(e){}
+    alert('Создано карт: '+done+(errs.length?'\nОшибки:\n'+errs.join('\n'):'')+'\nОбновите вкладки «Производство» и «Доска этапов».');
+  };
 }
 function sfApplyVirtualTc(order, item, itemIdx){
   if(item.techCard && item.techCard.length && !item._virtualTc) return;   // собственная техкарта позиции — не трогаем
