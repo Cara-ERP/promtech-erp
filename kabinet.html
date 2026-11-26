@@ -148,16 +148,24 @@ function calc(m){
 function balOk(m){ if(!D.first_month) return true; var p=D.first_month.split('-').map(Number), y=p[0], mo=p[1];
   for(var i=0;i<240;i++){ var k=y+'-'+String(mo).padStart(2,'0'); if(k>m) break; if(!vis.has(k)) return false; mo++; if(mo>12){mo=1;y++;} } return true; }
 
+function todayBal(){
+  var L=Array.from(vis).sort().pop(); if(!L||!balOk(L)) return null;
+  var x=calc(L), p=L.split('-').map(Number), end=L+'-'+String(new Date(p[0],p[1],0).getDate()).padStart(2,'0');
+  var later=pay.filter(function(r){return String(r.date)>end}).reduce(function(t,r){return t+(+r.amount||0)},0);
+  return x.closing-later;
+}
 function render(){
   var m=$('c-month').value, r=calc(m), open=vis.has(m);
   var hidden='<div class="hide">Расчёт за '+mlabel(m)+' будет доступен после утверждения бухгалтерией</div>';
-  $('c-kpi').innerHTML=!open?hidden:
+  var tb=todayBal();
+  var todayHtml=tb===null?'':'<div class="kpi wide" style="border-color:var(--accent)"><div class="kl">Остаток на сегодня</div><div class="kv" style="color:'+(tb>0?'var(--amber)':tb<0?'var(--red)':'var(--green)')+'">'+fmt(tb)+'</div><div class="note">по утверждённым месяцам с учётом выплат с тех пор · текущий месяц сюда не входит</div></div>';
+  $('c-kpi').innerHTML=todayHtml+(!open?hidden:
     '<div class="kpi"><div class="kl">Начислено</div><div class="kv" style="color:var(--green)">'+fmt(r.amount)+'</div></div>'+
     '<div class="kpi"><div class="kl">Удержано</div><div class="kv" style="color:var(--amber)">'+fmt(r.deducted)+'</div></div>'+
     '<div class="kpi"><div class="kl">К выдаче</div><div class="kv">'+fmt(r.net)+'</div></div>'+
     '<div class="kpi"><div class="kl">Получено</div><div class="kv" style="color:var(--accent)">'+fmt(r.received)+'</div></div>'+
     '<div class="kpi wide"><div class="kl">Остаток на конец месяца</div><div class="kv" style="color:'+(r.closing>0?'var(--amber)':r.closing<0?'var(--red)':'var(--green)')+'">'+(balOk(m)?fmt(r.closing):'—')+'</div>'+
-    '<div class="note">'+(r.closing>0?'компания должна вам':r.closing<0?'вы получили больше начисленного':'расчёт закрыт')+(r.opening?' · на начало месяца '+fmt(r.opening):'')+'</div></div>';
+    '<div class="note">'+(r.closing>0?'компания должна вам':r.closing<0?'вы получили больше начисленного':'расчёт закрыт')+(r.opening?' · на начало месяца '+fmt(r.opening):'')+'</div></div>');
   var accT={}, dedT={};
   r.accM.forEach(function(a){ var det=(a.details&&typeof a.details==='object')?a.details:{};
     (det.accruals||[]).forEach(function(x){var k=x.type||'Начисление'; accT[k]=(accT[k]||0)+(+x.amount||0)});

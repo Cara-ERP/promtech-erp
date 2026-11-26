@@ -8189,7 +8189,7 @@ window.onerror = function(msg, src, line, col){
           <option value="salon">Салоны</option>
         </select>
         <input id="payroll-search" type="search" placeholder="🔍 Поиск..." style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);width:180px" oninput="renderPayroll()">
-        <span id="payroll-vis-box" style="display:none;align-items:center;gap:6px;font-size:12px;white-space:nowrap;padding:3px 8px;border:1px solid var(--border);border-radius:6px"><label style="cursor:pointer"><input id="payroll-vis" type="checkbox" onchange="payrollVisToggle(this)"> Показывать в кабинете сотрудников</label><b id="payroll-vis-status" style="margin-left:4px;padding-left:10px;border-left:1px solid var(--border)"></b></span>
+        <span id="payroll-vis-box" style="display:none;align-items:center;gap:6px;font-size:12px;white-space:nowrap;padding:3px 8px;border:1px solid var(--border);border-radius:6px"><label style="cursor:pointer"><input id="payroll-vis" type="checkbox" onchange="payrollVisToggle(this)"> Показывать в кабинете сотрудников</label><b id="payroll-vis-status" style="margin-left:4px;padding-left:10px;border-left:1px solid var(--border)"></b><button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:11px" title="Открыть для сотрудников все закрытые месяцы с самого первого по выбранный (нужно, чтобы сотрудник видел остаток)" onclick="payrollVisOpenAll()">Открыть все месяцы до выбранного</button></span>
         <label style="font-size:12px;color:var(--text2);white-space:nowrap;margin-left:6px" title="Начисления и удержания текущего, ещё не законченного месяца не учитываются в ведомости и остатках"><input id="payroll-hide-cur" type="checkbox" checked onchange="renderSalaryLedger()"> без текущего месяца</label>
         <button class="btn btn-ghost btn-sm" onclick="_payrollData=null;initSalaryLedgerPage()">🔄</button>
       </div>
@@ -14440,6 +14440,21 @@ async function payrollVisRefresh(force){
   cb.checked=on;
   st.textContent=on?(done?'Сейчас: открыт':'Сейчас: открыт (после окончания месяца)'):'Сейчас: закрыт';
   st.style.color=on&&done?'var(--green)':(on?'var(--amber)':'var(--text3)');
+}
+async function payrollVisOpenAll(){
+  const month=document.getElementById('payroll-month')?.value||'';
+  if(!payrollVisAllowed() || !month || !_payrollData){ return; }
+  const set=new Set(); [...(_payrollData.accruals||[]),...(_payrollData.payments||[])].forEach(r=>{ const m=String(r.date||'').slice(0,7); if(m&&m<=month&&m<curYM()) set.add(m); });
+  set.add(month); if(month>=curYM()) set.delete(month);
+  const list=[...set].sort();
+  if(!list.length){ alert('Нет месяцев для открытия.'); return; }
+  if(!confirm('Сотрудники увидят начисления и удержания за месяцы: '+list.length+' (с '+list[0]+' по '+list[list.length-1]+'). Открыть все?')) return;
+  try{
+    await sbUpsert('payroll_visibility', list.map(m=>({month:m,visible:true,changed_by:window._currentUsername||window._currentUser||'',changed_at:new Date().toISOString()})), 'month');
+    list.forEach(m=>{ if(_payVis) _payVis[m]=true; });
+    await payrollVisRefresh(true);
+    alert('Открыто месяцев: '+list.length);
+  }catch(e){ alert('Не удалось сохранить: '+e.message); }
 }
 async function payrollVisToggle(cb){
   const month=document.getElementById('payroll-month')?.value||'';
