@@ -920,6 +920,7 @@ async function loadStaffFromDB(){
         }
       });
       console.log('✅ Сотрудники загружены из Supabase: '+data.length);
+      if(window._cabPinMap && typeof cabPinApply==='function') cabPinApply();
     }
     return true;
   } catch(e){
@@ -1791,6 +1792,7 @@ var _PWD={
 // ── Переключение вкладок входа ────────────────────────────────
 function switchLoginTab(tab){
   const isPin = tab==='pin';
+  if(isPin && window._cabRedirect!==false){ window.location.href='kabinet.html'; return; }
   document.getElementById('login-pass-form').style.display = isPin?'none':'';
   document.getElementById('login-pin-form').style.display  = isPin?'':'none';
   document.getElementById('login-hints-block').style.display= isPin?'none':'';
@@ -7840,6 +7842,7 @@ window.onerror = function(msg, src, line, col){
           <b style="font-size:14px">👷 Сотрудники: коды ЗП и доступ в систему</b>
           <span id="users-staff-sum" style="font-size:12px;color:var(--text3)"></span>
           <span style="flex:1"></span>
+          <button class="btn btn-ghost btn-sm" onclick="cabPinsUnlock()" title="Показать коды кабинета (нужен секретный код директора)">🔓 Открыть коды</button>
           <button class="btn btn-ghost btn-sm" onclick="usrReissuePins()" title="Выдать случайные 6-значные коды тем, у кого нет кода или он 4-значный">🔑 Выдать 6-значные коды</button>
           <input id="users-staff-q" type="search" placeholder="🔍 Поиск…" style="font-size:12px;width:170px" oninput="renderUsersStaffBlock()">
           <select id="users-staff-filter" onchange="renderUsersStaffBlock()" style="font-size:12px;width:auto">
@@ -26026,7 +26029,7 @@ async function renderUsersTable(){
       <td style="font-size:12px;color:var(--text3)">${usrEsc(r.label||'—')}</td>
       <td style="font-size:11px;color:var(--text3)">${usrEsc(pageLabels(r))}</td>
       <td style="font-family:monospace;font-size:12px">${r.pwd?`<span style="cursor:pointer" title="Нажмите, чтобы показать" data-pw="${usrEsc(r.pwd)}" onclick="this.textContent=this.textContent==='••••••'?this.dataset.pw:'••••••'">••••••</span>`:'—'}</td>
-      <td style="font-family:monospace;font-size:12px">${r.emp?(r.emp.pin?usrEsc(r.emp.pin):'<span style="color:var(--red)">нет</span>'):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="font-family:monospace;font-size:12px">${r.emp?cabPinCell(r.emp.pin):'<span style="color:var(--text3)">—</span>'}</td>
       <td><span class="badge ${r.active?'badge-green':'badge-red'}">${r.active?'Активен':'Заблокирован'}</span><div style="font-size:10px;color:var(--text3);margin-top:2px">${r.src}</div></td>
       <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="openUserModal('login:${usrEsc(r.login)}')">✏️</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="toggleUserActive('login:${usrEsc(r.login)}',${!r.active})">${r.active?'🔒':'🔓'}</button></td>
@@ -26044,17 +26047,18 @@ function renderUsersStaffBlock(){
   const rows=window._usrRows||[];
   let list=(employeesData||[]).filter(e=>(e.status||'active')!=='fired');
   list=list.map(e=>({e, user:rows.find(r=>usrSameName(r.name,e.name))||null}));
-  const cNoPin=list.filter(x=>!x.e.pin).length, cNoUser=list.filter(x=>!x.user).length;
+  const _pl=!!window._cabPinMap;
+  const cNoPin=_pl?list.filter(x=>!x.e.pin).length:'?', cNoUser=list.filter(x=>!x.user).length;
   const sum=document.getElementById('users-staff-sum');
   if(sum) sum.textContent=`Всего ${list.length} · без кода ЗП: ${cNoPin} · старый 4-значный код: ${list.filter(x=>x.e.pin&&String(x.e.pin).length!==6).length} · без входа в систему: ${cNoUser}`;
-  if(only==='nopin') list=list.filter(x=>!x.e.pin);
+  if(only==='nopin' && window._cabPinMap) list=list.filter(x=>!x.e.pin);
   if(only==='old') list=list.filter(x=>x.e.pin && String(x.e.pin).length!==6);
   if(only==='nouser') list=list.filter(x=>!x.user);
   if(only==='user') list=list.filter(x=>x.user);
   if(q) list=list.filter(x=>(x.e.name+' '+(x.e.pos||'')).toLowerCase().includes(q));
   box.innerHTML = list.map(({e,user})=>`<tr>
     <td>${usrEsc(e.name)}</td><td style="font-size:12px;color:var(--text3)">${usrEsc(e.pos||'—')}</td>
-    <td style="font-family:monospace;font-weight:600">${e.pin?usrEsc(e.pin):'<span style="color:var(--red)">нет</span>'}
+    <td style="font-family:monospace;font-weight:600">${cabPinCell(e.pin)}
       <button class="btn btn-ghost btn-sm" style="padding:0 6px" title="Задать / сменить код" onclick="usrSetPin(${JSON.stringify(e.id).replace(/"/g,'&quot;')})">🔑</button></td>
     <td>${user?`<span style="font-family:monospace">${usrEsc(user.login)}</span> <span style="font-size:11px;color:var(--text3)">· ${usrEsc(user.label||'')}</span>`:'<span style="color:var(--text3)">нет входа</span>'}</td>
     <td>${user?`<button class="btn btn-ghost btn-sm" onclick="openUserModal('login:${usrEsc(user.login)}')">✏️ Доступ</button>`:`<button class="btn btn-ghost btn-sm" onclick="usrCreateFor(${JSON.stringify(e.id).replace(/"/g,'&quot;')})">＋ Создать вход</button>`}</td>
@@ -26070,8 +26074,10 @@ async function usrSetPin(empId){
   if(!/^\d{6}$/.test(code) || code[0]==='0'){ alert('Код должен состоять ровно из 6 цифр и не начинаться с 0'); return; }
   const holder=getPins()[parseInt(code)];
   if(holder && holder.name!==e.name){ alert('Код '+code+' уже занят: '+holder.name); return; }
+  if(!window._cabPinMap && !(await cabPinsUnlock())) return;
   try{
-    await sbPatch('staff',`name=eq.${encodeURIComponent(e.name)}`,{pin:parseInt(code)});
+    const _r=await cabPinsSave([{name:e.name,pin:code}]);
+    if((_r.errors||[]).length){ alert(cabPinErrText(_r)); return; }
     e.pin=parseInt(code);
     const ps=(payrollStaff||[]).find(s=>s.name===e.name); if(ps) ps.pin=e.pin;
     renderUsersTable();
@@ -26082,14 +26088,16 @@ async function usrReissuePins(){
   const list=(employeesData||[]).filter(e=>(e.status||'active')!=='fired' && String(e.pin||'').length!==6);
   if(!list.length){ alert('У всех работающих сотрудников уже 6-значные коды.'); return; }
   if(!confirm(`Выдать новые 6-значные случайные коды: ${list.length} чел. (у кого нет кода или он 4-значный).\n\nСтарые коды перестанут работать. После выдачи откроется список для печати — раздайте коды лично.\nПродолжить?`)) return;
+  if(!window._cabPinMap && !(await cabPinsUnlock())) return;
   const out=[]; let fail=0;
   for(const e of list){
     const code=genUniquePin();
     try{
-      await sbPatch('staff',`name=eq.${encodeURIComponent(e.name)}`,{pin:parseInt(code)});
+      const _r=await cabPinsSave([{name:e.name,pin:code}]);
+      if((_r.errors||[]).length){ fail++; continue; }
       e.pin=parseInt(code); const ps=(payrollStaff||[]).find(s=>s.name===e.name); if(ps) ps.pin=e.pin;
       out.push({name:e.name,pos:e.pos,pin:code});
-    }catch(err){ fail++; console.warn('pin',e.name,err.message); }
+    }catch(err){ fail++; console.warn('pin',e.name,err.message); if(/секретн/.test(err.message)) break; }
   }
   renderUsersTable();
   if(out.length) usrShowPinList(out);
@@ -26113,6 +26121,52 @@ function usrPrintPins(){
     l.map(x=>`<div class="c"><div class="n">${usrEsc(x.name)}</div><div class="s">${usrEsc(x.pos||'')}</div><div class="s">Код для входа в личный кабинет (зарплата и задания):</div><div class="k">${usrEsc(x.pin)}</div><div class="s">Не сообщайте код другим.</div></div>`).join('')+`<script>setTimeout(function(){window.print()},300)<\/script>`);
   w.document.close();
 }
+// ── Коды личного кабинета хранятся в закрытой таблице базы; читаются/меняются только по секретному коду директора ──
+window._cabPinMap=null; window._cabAdm=null;
+function cabPinApply(){
+  const m=window._cabPinMap; if(!m) return;
+  (employeesData||[]).forEach(e=>{ if(m[e.name]!=null) e.pin=parseInt(m[e.name]); });
+  (payrollStaff||[]).forEach(x=>{ if(m[x.name]!=null) x.pin=parseInt(m[x.name]); });
+}
+async function cabRpc(fn,body){
+  const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/'+fn,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json(); if(!r.ok) throw new Error((j&&j.message)||('Ошибка '+r.status)); return j;
+}
+function cabAdmAsk(){
+  if(window._cabAdm) return window._cabAdm;
+  const v=prompt('Секретный код директора\n(нужен для просмотра и выдачи кодов кабинета; никому его не сообщайте)');
+  if(v===null||!v.trim()) return null;
+  window._cabAdm=v.trim(); return window._cabAdm;
+}
+function cabAdmErr(j){
+  if(j.error==='bad_code'){ window._cabAdm=null; return 'Неверный секретный код директора.'; }
+  if(j.error==='locked'){ return 'Слишком много неверных попыток. Повторите через 15 минут.'; }
+  return 'Ошибка: '+(j.error||'неизвестно');
+}
+async function cabPinsUnlock(){
+  const code=cabAdmAsk(); if(!code) return false;
+  try{
+    const j=await cabRpc('cab_admin_list',{p_code:code});
+    if(!j.ok){ alert(cabAdmErr(j)); return false; }
+    window._cabPinMap={}; (j.pins||[]).forEach(x=>{ window._cabPinMap[x.name]=x.pin; });
+    cabPinApply();
+    try{ renderUsersStaffBlock(); }catch(e){} try{ renderHRStaff(); }catch(e){}
+    return true;
+  }catch(e){ alert('Не удалось открыть коды: '+e.message); return false; }
+}
+// items: [{name,pin}] → сохраняет в закрытой таблице; возвращает {ok, errors:[{name,error}]}
+async function cabPinsSave(items){
+  const code=cabAdmAsk(); if(!code) throw new Error('Не введён секретный код директора');
+  const j=await cabRpc('cab_admin_set',{p_code:code,p_items:items.map(x=>({name:x.name,pin:String(x.pin)}))});
+  if(!j.ok) throw new Error(cabAdmErr(j));
+  const bad=new Set((j.errors||[]).map(x=>x.name));
+  if(!window._cabPinMap) window._cabPinMap={};
+  items.forEach(x=>{ if(!bad.has(x.name)) window._cabPinMap[x.name]=String(x.pin); });
+  cabPinApply();
+  return j;
+}
+function cabPinErrText(j){ return (j.errors||[]).map(x=>x.name+': '+(x.error==='taken'?'код уже занят другим сотрудником':'неверный формат кода')).join('\n'); }
+function cabPinCell(pin){ return pin?usrEsc(pin):(window._cabPinMap?'<span style="color:var(--red)">нет</span>':'<span style="color:var(--text3)" title="Нажмите «Открыть коды»">🔒</span>'); }
 function genUniquePin(){
   const used=new Set(Object.keys(getPins()));
   for(let i=0;i<2000;i++){
@@ -26501,7 +26555,7 @@ function renderHRStaff(){
         ?(staffEntry?.pin
             ?`<span style="font-family:monospace;background:var(--bg3);padding:2px 8px;
                 border-radius:4px;font-size:12px;color:var(--accent)">${staffEntry.pin}</span>`
-            :'<span style="color:var(--text3);font-size:11px">—</span>')
+            :(window._cabPinMap?'<span style="color:var(--text3);font-size:11px">—</span>':'<span style="color:var(--text3);font-size:11px" title="Откройте коды на странице «Пользователи»">🔒</span>'))
         :'';
       return `<tr onclick="openEmployeeCard('${emp.id}')" style="cursor:pointer">
         <td><div style="font-weight:600">${emp.name}</div></td>
@@ -26805,10 +26859,13 @@ function saveEmployeeCard(){
     }
   }
   if(editId){
+    const _oldPin0=(employeesData.find(e=>e.id===editId)||{}).pin;
     const idx=employeesData.findIndex(e=>e.id===editId);
     if(idx>=0) employeesData[idx]={...employeesData[idx],...obj,...(_newPin?{pin:_newPin}:{})};
+    if(_newPin && String(_newPin)!==String(_oldPin0||'')){
+      cabPinsSave([{name,pin:_newPin}]).then(r=>{ if((r.errors||[]).length) alert('Код не сохранён:\n'+cabPinErrText(r)); }).catch(e=>alert('Код не сохранён: '+e.message));
+    }
     sbPatch('staff',`name=eq.${encodeURIComponent(name)}`,{
-      ...(_newPin?{pin:_newPin}:{}),
       pos:obj.pos, type:obj.type, ws:obj.ws,
       salary:obj.salary, phone:obj.phone, iin:obj.iin,
       hired:obj.hired, comment:obj.comment,
@@ -26824,11 +26881,12 @@ function saveEmployeeCard(){
       name:obj.name, pos:obj.pos, type:obj.type,
       ws:obj.ws, salary:obj.salary, phone:obj.phone,
       iin:obj.iin, hired:obj.hired, comment:obj.comment,
-      pin:pinVal2||null,
       base_salary:obj.base_salary, deduction_meal:obj.deduction_meal,
       deduction_opv_pct:obj.deduction_opv_pct, deduction_osms_pct:obj.deduction_osms_pct, deduction_so_pct:obj.deduction_so_pct,
       deduction_opv_fixed:obj.deduction_opv_fixed, deduction_osms_fixed:obj.deduction_osms_fixed, deduction_so_fixed:obj.deduction_so_fixed,
-    }).then(()=>console.log('✅ Сотрудник сохранён в Supabase'))
+    }).then(()=>{ console.log('✅ Сотрудник сохранён в Supabase');
+        if(pinVal2) return cabPinsSave([{name:obj.name,pin:pinVal2}]).then(r=>{ if((r.errors||[]).length) alert('Код не сохранён:\n'+cabPinErrText(r)); });
+      })
       .catch(e=>console.warn('⚠️ Ошибка сохранения сотрудника:', e.message));
   }
   err.style.color='var(--green)'; err.textContent='✓ Сохранено!';
@@ -26993,6 +27051,7 @@ let payrollStaff = [
   {id:14, name:'Алимов Шынгыс Айтжанулы',           pos:'Начальник цеха',          salary:220000, pin:9005, color:'rgba(251,146,60,.15)',  tc:'var(--amber)'},
   {id:15, name:'Угламова Халидам Абдувалиевна',      pos:'Кладовщик',               salary:110000, pin:9006, color:'rgba(56,189,248,.15)',  tc:'var(--accent)'},
 ];
+payrollStaff.forEach(x=>{ x.pin=null; }); // встроенные коды из старой версии не используются: коды кабинета хранятся в защищённой таблице базы
 
 // Wage payment history per employee {empId, date, amount, method, comment}
 let wagePayments = [

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>PromTech — личный кабинет</title>
+<style>
+:root{--bg:#f4f6fb;--bg2:#fff;--bg3:#eef1f8;--border:#d0d7e8;--text:#1a1f2e;--text2:#4a5270;--text3:#8892aa;--accent:#2563eb;--green:#16a34a;--amber:#d97706;--red:#dc2626}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1219;--bg2:#171b26;--bg3:#1e2433;--border:#2b3347;--text:#e6e9f2;--text2:#aab2c8;--text3:#7b859f;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#f87171}}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:760px;margin:0 auto;padding:14px}
+.logo{font-weight:700;color:var(--accent);font-size:18px;letter-spacing:-.3px}
+.sub{font-size:11px;color:var(--text3);letter-spacing:1.5px;text-transform:uppercase}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h3{font-size:14px;margin-bottom:8px}
+#login{max-width:320px;margin:40px auto;text-align:center}
+#disp{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:28px;letter-spacing:8px;color:var(--accent);height:42px;margin:18px 0 14px}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:260px;margin:0 auto}
+.pad button{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px 0;font-size:22px;color:var(--text);font-family:inherit}
+.pad button:active{background:var(--border)}
+.err{color:var(--red);font-size:13px;min-height:20px;margin-top:12px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.who{font-weight:600;font-size:17px}.pos{font-size:12px;color:var(--text3)}
+button.out{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--text)}
+select{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-size:15px;margin-bottom:12px}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px}
+.kpi.wide{grid-column:1/-1}
+.kl{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+.kv{font-size:19px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.note{font-size:11px;color:var(--text3);margin-top:2px}
+.hide{grid-column:1/-1;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;text-align:center;color:var(--text3)}
+.row{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+.row:last-child{border-bottom:0}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--text3);font-weight:500;padding:6px 6px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:7px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.r{text-align:right}
+.badge{display:inline-block;padding:2px 7px;border-radius:8px;font-size:11px;background:var(--bg3)}
+.empty{text-align:center;color:var(--text3);padding:14px}
+tr.sel{background:var(--bg3)}
+.foot{text-align:center;font-size:11px;color:var(--text3);margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div id="login">
+  <div class="logo">PromTech</div>
+  <div class="sub">Личный кабинет</div>
+  <div id="disp">______</div>
+  <div class="pad">
+    <button onclick="pk('1')">1</button><button onclick="pk('2')">2</button><button onclick="pk('3')">3</button>
+    <button onclick="pk('4')">4</button><button onclick="pk('5')">5</button><button onclick="pk('6')">6</button>
+    <button onclick="pk('7')">7</button><button onclick="pk('8')">8</button><button onclick="pk('9')">9</button>
+    <button onclick="pok()" style="font-size:15px;color:var(--green);font-weight:700">OK</button>
+    <button onclick="pk('0')">0</button><button onclick="pbk()" style="color:var(--text3)">←</button>
+  </div>
+  <div class="err" id="err"></div>
+  <div style="font-size:12px;color:var(--text3);margin-top:10px">Введите ваш личный код</div>
+</div>
+
+<div id="cab" style="display:none">
+  <div class="top">
+    <div><div class="who" id="c-name"></div><div class="pos" id="c-pos"></div></div>
+    <button class="out" onclick="logout()">Выйти</button>
+  </div>
+  <select id="c-month" onchange="render()"></select>
+  <div class="kpis" id="c-kpi"></div>
+  <div class="card"><h3>Из чего состоит</h3><div id="c-bd"></div></div>
+  <div class="card"><h3>Выплаты</h3><div class="tw"><table><thead><tr><th>Дата</th><th>Комментарий</th><th class="r">Сумма</th></tr></thead><tbody id="c-pay"></tbody></table></div></div>
+  <div class="card" id="c-piece-card"><h3>Выполненные работы <span id="c-piece-total" style="font-weight:400;color:var(--text3);font-size:12px"></span></h3><div class="tw"><table><thead><tr><th>Дата</th><th>Цех</th><th>Заказ</th><th>Изделие</th><th>Работа</th><th class="r">Сумма</th></tr></thead><tbody id="c-piece"></tbody></table></div></div>
+  <div class="card" id="c-tasks-card"><h3>Мои задания</h3><div class="tw"><table><thead><tr><th>Статус</th><th>Заказ</th><th>Изделие</th><th>Работа</th><th>Цех</th><th class="r">Доля</th></tr></thead><tbody id="c-tasks"></tbody></table></div></div>
+  <div class="card"><h3>По месяцам</h3><div class="tw"><table><thead><tr><th>Месяц</th><th class="r">Начислено</th><th class="r">Удержано</th><th class="r">К выдаче</th><th class="r">Получено</th><th class="r">Остаток</th></tr></thead><tbody id="c-sum"></tbody></table></div></div>
+  <div class="foot">Только просмотр. Через 5 минут без действий кабинет закроется сам.</div>
+</div>
+
+</div>
+<script>
+var SUPABASE_URL='https://awktiqyzriwrgpyrczmc.supabase.co';
+var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3a3RpcXl6cml3cmdweXJjem1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MzEyOTgsImV4cCI6MjA5OTUwNzI5OH0.lwvlnRsdeTTzf0zEZdAlv2l-azX8UOpg16oPqo7j49k';
+var MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+var WS={paint:'🎨 Малярка',cut:'✂️ Столярка/Раскройный',grind:'🔧 Шлифовка',assemble:'🔩 Сборка',upholstery:'🧵 Обивочный цех',veneer:'🪵 Шпонирование',pack:'📦 Упаковка'};
+var pin='', busy=false, D=null, acc=[], pay=[], work=[], tasks=[], vis=new Set(), months=[];
+var $=function(i){return document.getElementById(i)};
+var esc=function(v){return String(v==null?'':v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})};
+var fmt=function(n){return '₸'+Math.round(n||0).toLocaleString('ru-RU')};
+var mlabel=function(m){var p=m.split('-');return MN[+p[1]-1]+' '+p[0]};
+
+function disp(){var s=''; for(var i=0;i<6;i++) s+=i<pin.length?'●':'_'; $('disp').textContent=s}
+function pk(d){ if(busy||pin.length>=6) return; pin+=d; disp(); $('err').textContent=''; if(pin.length===6) enter(); }
+function pok(){ if(!busy && pin.length>=4) enter(); }
+function pbk(){ if(busy) return; pin=pin.slice(0,-1); disp(); }
+
+async function enter(){
+  busy=true; $('err').style.color='var(--text3)'; $('err').textContent='Проверка...';
+  var code=pin; pin=''; disp();
+  try{
+    var r=await fetch(SUPABASE_URL+'/rest/v1/rpc/cab_data',{method:'POST',headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({p_pin:code})});
+    var j=await r.json();
+    if(!r.ok) throw new Error(j&&j.message||('Ошибка '+r.status));
+    if(j.locked){ fail('Слишком много неверных попыток. Попробуйте через 15 минут.'); }
+    else if(!j.ok){ fail('Неверный код'); }
+    else { D=j; open(); }
+  }catch(e){ fail('Не удалось войти: '+e.message); }
+  busy=false;
+}
+function fail(m){ $('err').style.color='var(--red)'; $('err').textContent=m; }
+
+function open(){
+  vis=new Set(D.vis||[]); acc=D.acc||[]; pay=D.pay||[];
+  // работы и задания
+  work=[]; tasks=[];
+  (D.work||[]).forEach(function(w){
+    var s=w.stage||{}, total=(s.payMethod==='percent')?((w.item_qty||1)*(w.item_price||0)*((s.percent||0)/100)):((s.rate||0)*(s.qty||1));
+    var share=total*((+w.my_ktu||1)/(+w.ktu_sum||1));
+    var iname='№'+((+w.item_idx||0)+1)+' · '+(w.item_name||'')+((w.item_qty>1)?(' ×'+w.item_qty):'');
+    var base={orderNum:w.order_num,itemName:iname,stage:s.stage||'(без названия)',workshop:s.workshop||''};
+    if(s.posted&&s.postedDate) work.push(Object.assign({date:s.postedDate,amount:share},base));
+    tasks.push(Object.assign({posted:!!s.posted,postedDate:s.postedDate,started:!!s.started,startedDate:s.startedDate,ktu:+w.my_ktu||1,share:share},base));
+  });
+  tasks.sort(function(a,b){return (a.posted-b.posted)||String(b.startedDate||'').localeCompare(String(a.startedDate||''))});
+  var set=new Set(); acc.concat(pay).forEach(function(r){ if(r.date) set.add(String(r.date).slice(0,7)); });
+  set.add(D.cur_month); months=Array.from(set).sort().reverse();
+  $('c-name').textContent=D.name; $('c-pos').textContent=D.pos||'';
+  $('c-month').innerHTML=months.map(function(m){return '<option value="'+m+'">'+mlabel(m)+'</option>'}).join('');
+  var lastData=Array.from(new Set(acc.concat(pay).map(function(r){return String(r.date).slice(0,7)}))).sort().pop();
+  var lastVis=Array.from(vis).filter(function(m){return months.indexOf(m)>=0}).sort().pop();
+  $('c-month').value=lastVis||lastData||months[0];
+  $('login').style.display='none'; $('cab').style.display='block';
+  render(); idleStart();
+}
+
+function calc(m){
+  var start=m+'-01', inM=function(r){return String(r.date).slice(0,7)===m};
+  var accM=acc.filter(inM), payM=pay.filter(inM);
+  var sum=function(a,f){return a.reduce(function(t,x){return t+(+x[f]||0)},0)};
+  var net=sum(accM,'net'), received=sum(payM,'amount');
+  var prevNet=acc.filter(function(r){return String(r.date)<start}).reduce(function(t,x){return t+(+x.net||0)},0);
+  var prevPay=pay.filter(function(r){return String(r.date)<start}).reduce(function(t,x){return t+(+x.amount||0)},0);
+  var opening=prevNet-prevPay;
+  return {accM:accM,payM:payM,amount:sum(accM,'amount'),deducted:sum(accM,'deducted'),net:net,received:received,opening:opening,closing:opening+net-received};
+}
+function balOk(m){ if(!D.first_month) return true; var p=D.first_month.split('-').map(Number), y=p[0], mo=p[1];
+  for(var i=0;i<240;i++){ var k=y+'-'+String(mo).padStart(2,'0'); if(k>m) break; if(!vis.has(k)) return false; mo++; if(mo>12){mo=1;y++;} } return true; }
+
+function render(){
+  var m=$('c-month').value, r=calc(m), open=vis.has(m);
+  var hidden='<div class="hide">Расчёт за '+mlabel(m)+' будет доступен после утверждения бухгалтерией</div>';
+  $('c-kpi').innerHTML=!open?hidden:
+    '<div class="kpi"><div class="kl">Начислено</div><div class="kv" style="color:var(--green)">'+fmt(r.amount)+'</div></div>'+
+    '<div class="kpi"><div class="kl">Удержано</div><div class="kv" style="color:var(--amber)">'+fmt(r.deducted)+'</div></div>'+
+    '<div class="kpi"><div class="kl">К выдаче</div><div class="kv">'+fmt(r.net)+'</div></div>'+
+    '<div class="kpi"><div class="kl">Получено</div><div class="kv" style="color:var(--accent)">'+fmt(r.received)+'</div></div>'+
+    '<div class="kpi wide"><div class="kl">Остаток на конец месяца</div><div class="kv" style="color:'+(r.closing>0?'var(--amber)':r.closing<0?'var(--red)':'var(--green)')+'">'+(balOk(m)?fmt(r.closing):'—')+'</div>'+
+    '<div class="note">'+(r.closing>0?'компания должна вам':r.closing<0?'вы получили больше начисленного':'расчёт закрыт')+(r.opening?' · на начало месяца '+fmt(r.opening):'')+'</div></div>';
+  var accT={}, dedT={};
+  r.accM.forEach(function(a){ var det=(a.details&&typeof a.details==='object')?a.details:{};
+    (det.accruals||[]).forEach(function(x){var k=x.type||'Начисление'; accT[k]=(accT[k]||0)+(+x.amount||0)});
+    (det.deductions||[]).forEach(function(x){var k=x.type||'Удержание'; dedT[k]=(dedT[k]||0)+(+x.amount||0)}); });
+  var line=function(k,v,c){return '<div class="row"><span>'+esc(k)+'</span><span class="num" style="color:'+c+'">'+fmt(v)+'</span></div>'};
+  var bd='', ak=Object.keys(accT), dk=Object.keys(dedT);
+  if(!ak.length && r.amount) bd+=line('Начислено (без детализации)',r.amount,'var(--green)');
+  ak.forEach(function(k){bd+=line(k,accT[k],'var(--green)')});
+  dk.forEach(function(k){bd+=line('− '+k,dedT[k],'var(--amber)')});
+  $('c-bd').innerHTML=!open?'<div class="empty">Расчёт за этот месяц будет доступен после утверждения бухгалтерией</div>':(bd||'<div class="empty">Начислений за этот месяц нет</div>');
+  $('c-pay').innerHTML=r.payM.length?r.payM.slice().sort(function(a,b){return String(a.date).localeCompare(String(b.date))}).map(function(p){
+    return '<tr><td>'+esc(p.date)+'</td><td>'+esc(p.comment||'Выплата')+'</td><td class="r num" style="color:var(--accent)">'+fmt(p.amount)+'</td></tr>'}).join(''):'<tr><td colspan="3" class="empty">Выплат за месяц нет</td></tr>';
+  var wm=work.filter(function(e){return String(e.date).slice(0,7)===m}).sort(function(a,b){return String(a.date).localeCompare(String(b.date))});
+  $('c-piece-card').style.display=(work.length||tasks.length)?'':'none';
+  $('c-tasks-card').style.display=tasks.length?'':'none';
+  $('c-piece').innerHTML=wm.length?wm.map(function(e){return '<tr><td>'+esc(e.date)+'</td><td>'+esc(WS[e.workshop]||e.workshop||'—')+'</td><td style="color:var(--accent)">'+esc(e.orderNum)+'</td><td>'+esc(e.itemName)+'</td><td>'+esc(e.stage)+'</td><td class="r num" style="color:var(--green)">'+fmt(e.amount)+'</td></tr>'}).join(''):'<tr><td colspan="6" class="empty">Проведённых работ за месяц нет</td></tr>';
+  $('c-piece-total').textContent=wm.length?('· итого '+fmt(wm.reduce(function(t,e){return t+e.amount},0))):'';
+  var tm=tasks.filter(function(t){return !t.posted||String(t.postedDate||'').slice(0,7)===m});
+  var st=function(t){return t.posted?'<span class="badge" style="color:var(--green)">Завершено '+esc(t.postedDate||'')+'</span>':t.started?'<span class="badge" style="color:var(--accent)">В работе</span>':'<span class="badge" style="color:var(--amber)">Назначено</span>'};
+  $('c-tasks').innerHTML=tm.length?tm.map(function(t){return '<tr><td>'+st(t)+'</td><td style="color:var(--accent)">'+esc(t.orderNum)+'</td><td>'+esc(t.itemName)+'</td><td>'+esc(t.stage)+'</td><td>'+esc(WS[t.workshop]||t.workshop||'—')+'</td><td class="r num">'+(t.share?fmt(t.share):'—')+(t.ktu&&t.ktu!==1?' <span style="color:var(--text3)">КТУ '+t.ktu+'</span>':'')+'</td></tr>'}).join(''):'<tr><td colspan="6" class="empty">Заданий нет</td></tr>';
+  $('c-sum').innerHTML=months.map(function(mm){
+    if(!vis.has(mm)) return '';
+    var x=calc(mm); if(!x.accM.length&&!x.payM.length&&mm!==m) return '';
+    return '<tr class="'+(mm===m?'sel':'')+'" onclick="$(\'c-month\').value=\''+mm+'\';render()"><td>'+mlabel(mm)+'</td><td class="r num">'+fmt(x.amount)+'</td><td class="r num" style="color:var(--amber)">'+fmt(x.deducted)+'</td><td class="r num">'+fmt(x.net)+'</td><td class="r num" style="color:var(--accent)">'+fmt(x.received)+'</td><td class="r num">'+(balOk(mm)?fmt(x.closing):'—')+'</td></tr>';
+  }).join('')||'<tr><td colspan="6" class="empty">Расчёты будут доступны после утверждения бухгалтерией</td></tr>';
+}
+
+// Автовыход через 5 минут без действий
+var IDLE=5*60*1000, last=Date.now(), tm=null;
+function act(){last=Date.now()}
+['mousemove','mousedown','keydown','touchstart','scroll','click'].forEach(function(e){document.addEventListener(e,act,{passive:true,capture:true})});
+function idleStart(){ last=Date.now(); clearInterval(tm); tm=setInterval(function(){ if(Date.now()-last>=IDLE){ logout('Сеанс завершён: 5 минут без действий. Введите код заново.'); } },10000); }
+function logout(msg){
+  clearInterval(tm); D=null; acc=[]; pay=[]; work=[]; tasks=[]; vis=new Set(); months=[]; pin='';
+  $('c-kpi').innerHTML=''; $('c-bd').innerHTML=''; $('c-pay').innerHTML=''; $('c-piece').innerHTML=''; $('c-tasks').innerHTML=''; $('c-sum').innerHTML='';
+  $('cab').style.display='none'; $('login').style.display='block'; disp();
+  $('err').style.color='var(--text3)'; $('err').textContent=(typeof msg==='string')?msg:'';
+}
+</script>
+</body>
+</html>
